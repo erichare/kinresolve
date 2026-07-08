@@ -1,0 +1,23 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+node_modules/
+.next/
+out/
+coverage/
+dist/
+*.tsbuildinfo
+
+# Private KinSleuth instance data. Keep real GEDCOM/DNA exports local.
+data/
+uploads/
+storage/
+
+# Local database and Docker volumes.
+*.sqlite
+*.sqlite3
+postgres-data/
+minio-data/
+

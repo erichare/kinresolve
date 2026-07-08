@@ -1,0 +1,51 @@
+0 HEAD
+1 SOUR KinSleuth Synthetic Fixtures
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Elizabeth Katherine /Riemer/
+1 SEX F
+1 BIRT
+2 DATE 12 APR 1884
+2 PLAC Chicago, Cook, Illinois, USA
+2 SOUR @S1@
+1 DEAT
+2 DATE 17 FEB 1961
+2 PLAC Chicago, Cook, Illinois, USA
+1 FAMS @F1@
+1 NOTE Synthetic ancestor used for KinSleuth demos.
+0 @I2@ INDI
+1 NAME William Henry /Fletcher/
+1 SEX M
+1 BIRT
+2 DATE 1881
+2 PLAC Limerick, Ireland
+1 DEAT
+2 DATE 1954
+2 PLAC Chicago, Cook, Illinois, USA
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Mary Ann /Zajicek/
+1 SEX F
+1 BIRT
+2 DATE 1858
+2 PLAC Cornwall, England
+1 FAMC @F2@
+0 @F1@ FAM
+1 HUSB @I2@
+1 WIFE @I1@
+1 MARR
+2 DATE 14 JUN 1905
+2 PLAC Chicago, Cook, Illinois, USA
+0 @F2@ FAM
+1 CHIL @I3@
+0 @S1@ SOUR
+1 TITL Synthetic Chicago birth register
+1 REPO @R1@
+0 @O1@ OBJE
+1 TITL Synthetic portrait placeholder
+1 FILE uploads/synthetic/elizabeth-riemer.jpg
+0 TRLR
+
