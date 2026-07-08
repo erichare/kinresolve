@@ -27,6 +27,8 @@ type ImportResponse = {
 
 export function ImportPreviewWorkspace() {
   const [sourceName, setSourceName] = useState("Riemer-Zajicek.ged");
+  const [currentFile, setCurrentFile] = useState<File | undefined>();
+  const [previousFile, setPreviousFile] = useState<File | undefined>();
   const [currentContent, setCurrentContent] = useState("");
   const [previousContent, setPreviousContent] = useState("");
   const [result, setResult] = useState<ImportResponse | undefined>();
@@ -54,7 +56,8 @@ export function ImportPreviewWorkspace() {
     window.localStorage.setItem(workspaceStorageKeys.importPreviews, JSON.stringify(recentPreviews));
   }, [hydrated, recentPreviews]);
 
-  async function readFile(file: File | undefined, setter: (content: string) => void) {
+  async function readFile(file: File | undefined, setter: (content: string) => void, fileSetter: (file: File | undefined) => void) {
+    fileSetter(file);
     if (!file) {
       return;
     }
@@ -68,15 +71,7 @@ export function ImportPreviewWorkspace() {
     setError("");
     setResult(undefined);
 
-    const response = await fetch("/api/imports", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sourceName,
-        content: currentContent,
-        previousContent: previousContent || undefined
-      })
-    });
+    const response = await sendImportRequest(false);
 
     if (!response.ok) {
       setStatus("error");
@@ -108,16 +103,7 @@ export function ImportPreviewWorkspace() {
     setStatus("applying");
     setError("");
 
-    const response = await fetch("/api/imports", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sourceName,
-        content: currentContent,
-        previousContent: previousContent || undefined,
-        apply: true
-      })
-    });
+    const response = await sendImportRequest(true);
 
     if (!response.ok) {
       setStatus("error");
@@ -129,6 +115,36 @@ export function ImportPreviewWorkspace() {
     setStatus("idle");
   }
 
+  function sendImportRequest(apply: boolean): Promise<Response> {
+    if (currentFile) {
+      const formData = new FormData();
+      formData.set("sourceName", sourceName);
+      formData.set("file", currentFile);
+      formData.set("apply", String(apply));
+      if (previousFile) {
+        formData.set("previousFile", previousFile);
+      } else if (previousContent) {
+        formData.set("previousContent", previousContent);
+      }
+
+      return fetch("/api/imports", {
+        method: "POST",
+        body: formData
+      });
+    }
+
+    return fetch("/api/imports", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceName,
+        content: currentContent,
+        previousContent: previousContent || undefined,
+        apply
+      })
+    });
+  }
+
   return (
     <div className="app-grid">
       <div className="app-card">
@@ -137,11 +153,11 @@ export function ImportPreviewWorkspace() {
         <div className="form-grid">
           <div className="field">
             <label>New GEDCOM</label>
-            <input accept=".ged,.gedcom,text/plain" type="file" onChange={(event) => readFile(event.target.files?.[0], setCurrentContent)} />
+            <input accept=".ged,.gedcom,text/plain" type="file" onChange={(event) => readFile(event.target.files?.[0], setCurrentContent, setCurrentFile)} />
           </div>
           <div className="field">
             <label>Previous GEDCOM for diff</label>
-            <input accept=".ged,.gedcom,text/plain" type="file" onChange={(event) => readFile(event.target.files?.[0], setPreviousContent)} />
+            <input accept=".ged,.gedcom,text/plain" type="file" onChange={(event) => readFile(event.target.files?.[0], setPreviousContent, setPreviousFile)} />
           </div>
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Source name</label>
