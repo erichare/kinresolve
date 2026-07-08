@@ -8,6 +8,21 @@ import { Status } from "./ui";
 type ImportResponse = {
   snapshot: Pick<ImportSnapshot, "id" | "sourceName" | "checksum" | "summary"> & { recordCount: number };
   diff?: ImportDiff;
+  applied?: {
+    import: {
+      id: string;
+      backupId: string;
+      peopleImported: number;
+      sourcesImported: number;
+      rawRecordCount: number;
+    };
+    backup: {
+      id: string;
+      storageKey: string;
+      peopleCount: number;
+      sourcesCount: number;
+    };
+  };
 };
 
 export function ImportPreviewWorkspace() {
@@ -16,7 +31,7 @@ export function ImportPreviewWorkspace() {
   const [previousContent, setPreviousContent] = useState("");
   const [result, setResult] = useState<ImportResponse | undefined>();
   const [recentPreviews, setRecentPreviews] = useState<StoredImportPreview[]>([]);
-  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "applying" | "error">("idle");
   const [error, setError] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
@@ -85,11 +100,40 @@ export function ImportPreviewWorkspace() {
     setStatus("idle");
   }
 
+  async function applyImport() {
+    if (!result || !currentContent) {
+      return;
+    }
+
+    setStatus("applying");
+    setError("");
+
+    const response = await fetch("/api/imports", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceName,
+        content: currentContent,
+        previousContent: previousContent || undefined,
+        apply: true
+      })
+    });
+
+    if (!response.ok) {
+      setStatus("error");
+      setError(await response.text());
+      return;
+    }
+
+    setResult((await response.json()) as ImportResponse);
+    setStatus("idle");
+  }
+
   return (
     <div className="app-grid">
       <div className="app-card">
         <h2>Preview GEDCOM import</h2>
-        <p className="muted">V0.2 reads GEDCOM files in the browser, sends only the selected file content to the local instance, and returns a preserved-record summary plus an optional re-import diff.</p>
+        <p className="muted">Preview a GEDCOM, preserve raw records, and apply it to the private workspace with a backup before changes are saved.</p>
         <div className="form-grid">
           <div className="field">
             <label>New GEDCOM</label>
@@ -132,6 +176,18 @@ export function ImportPreviewWorkspace() {
                 {result.snapshot.summary.sourceReferences.toLocaleString()} source refs · {result.snapshot.summary.urls.toLocaleString()} URLs · {result.snapshot.summary.ancestryApids.toLocaleString()} Ancestry IDs · {result.snapshot.summary.notes.toLocaleString()} notes
               </p>
             </div>
+            <button className="button" disabled={status === "applying"} onClick={applyImport}>
+              {status === "applying" ? "Applying..." : "Apply import"}
+            </button>
+            {result.applied ? (
+              <div className="evidence-item">
+                <strong>Applied to workspace</strong>
+                <p className="muted">
+                  {result.applied.import.peopleImported.toLocaleString()} people · {result.applied.import.sourcesImported.toLocaleString()} sources · {result.applied.import.rawRecordCount.toLocaleString()} raw records
+                </p>
+                <p className="muted">Backup {result.applied.backup.id} saved to {result.applied.backup.storageKey}</p>
+              </div>
+            ) : null}
           </div>
         ) : (
           <p className="muted">Load a GEDCOM file to preview preserved records, dates, sources, media, notes, and re-import changes.</p>

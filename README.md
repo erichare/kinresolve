@@ -64,6 +64,13 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - Public pages immediately respect curation edits through existing publish/privacy gates.
 - Password gate now also protects private person curation APIs.
 
+## V0.9 checkpoint
+
+- GEDCOM preview can now be applied to the workspace from `/app/imports`.
+- Applying a GEDCOM upserts imported people, extracts GEDCOM source records, preserves raw record text/checksums, and records applied-import history.
+- A JSON backup is written under ignored `storage/backups/` before each apply.
+- Person curation settings are preserved when the same GEDCOM xref is reapplied.
+
 ## Quick start
 
 ```bash

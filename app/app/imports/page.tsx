@@ -1,39 +1,44 @@
 import { AppShell } from "@/components/app-shell";
 import { ImportPreviewWorkspace } from "@/components/import-preview-workspace";
 import { Status } from "@/components/ui";
+import { readWorkspace } from "@/lib/workspace-store";
 
-const imports = [
-  { file: "Riemer-Zajicek.ged", imported: "May 10, 2025 10:32 AM", status: "complete", records: "12,842" },
-  { file: "Cousins-2024.ged", imported: "Apr 28, 2025 2:15 PM", status: "complete", records: "8,731" },
-  { file: "LegacyExport.ged", imported: "Apr 12, 2025 9:41 AM", status: "partial", records: "5,113" }
-];
+export const dynamic = "force-dynamic";
 
-export default function ImportsPage() {
+export default async function ImportsPage() {
+  const workspace = await readWorkspace();
+
   return (
     <AppShell title="GEDCOM Imports" active="/app/imports">
       <div className="app-grid">
         <div className="app-card">
-          <h2>Import snapshots</h2>
+          <h2>Applied imports</h2>
           <table className="data-table">
             <thead>
               <tr>
                 <th>File</th>
-                <th>Imported</th>
+                <th>Applied</th>
                 <th>Status</th>
                 <th>Records</th>
+                <th>Backup</th>
               </tr>
             </thead>
             <tbody>
-              {imports.map((item) => (
-                <tr key={item.file}>
-                  <td>{item.file}</td>
-                  <td>{item.imported}</td>
+              {workspace.imports.length > 0 ? workspace.imports.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.sourceName}</td>
+                  <td>{new Date(item.appliedAt).toLocaleString()}</td>
                   <td>
-                    <Status tone={item.status === "partial" ? "warning" : "ok"}>{item.status}</Status>
+                    <Status>applied</Status>
                   </td>
-                  <td>{item.records}</td>
+                  <td>{item.recordCount.toLocaleString()}</td>
+                  <td>{item.backupId}</td>
                 </tr>
-              ))}
+              )) : (
+                <tr>
+                  <td colSpan={5}>No GEDCOM has been applied to this workspace yet.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

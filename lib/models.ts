@@ -67,11 +67,15 @@ export type SourceDocument = {
   id: string;
   title: string;
   sourceType: string;
+  importId?: string;
+  rawRecordId?: string;
   fileName?: string;
   storageKey?: string;
   mimeType?: string;
   size?: number;
   repository?: string;
+  url?: string;
+  ancestryApid?: string;
   citationDate?: string;
   linkedPersonId?: string;
   linkedCaseId?: string;
@@ -80,6 +84,41 @@ export type SourceDocument = {
   privacy: PrivacyLevel;
   confidence: number;
   createdAt: string;
+};
+
+export type RawGedcomRecord = {
+  id: string;
+  importId: string;
+  xref?: string;
+  type: string;
+  checksum: string;
+  raw: string;
+};
+
+export type AppliedGedcomImport = {
+  id: string;
+  sourceName: string;
+  checksum: string;
+  appliedAt: string;
+  summary: ImportSummary;
+  recordCount: number;
+  peopleImported: number;
+  sourcesImported: number;
+  rawRecordCount: number;
+  backupId: string;
+};
+
+export type WorkspaceBackup = {
+  id: string;
+  createdAt: string;
+  reason: string;
+  storageKey: string;
+  peopleCount: number;
+  sourcesCount: number;
+  casesCount: number;
+  dnaMatchCount: number;
+  importCount: number;
+  rawRecordCount: number;
 };
 
 export type DnaSide = "maternal" | "paternal" | "both" | "unknown";

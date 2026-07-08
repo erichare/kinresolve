@@ -3,17 +3,21 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoPeople } from "./demo-data";
-import type { DnaConnectionHypothesis, DnaMatch, PersonSummary, PrivacyLevel, ResearchCase, SourceDocument } from "./models";
+import { prepareGedcomImport } from "./gedcom/apply";
+import type { AppliedGedcomImport, DnaConnectionHypothesis, DnaMatch, PersonSummary, PrivacyLevel, RawGedcomRecord, ResearchCase, SourceDocument, WorkspaceBackup } from "./models";
 
 export type ScoredDnaMatch = DnaMatch & { helpfulnessScore: number };
 
 export type WorkspaceData = {
-  version: "0.6.0";
+  version: "0.9.0";
   archiveName: string;
   people: PersonSummary[];
   cases: ResearchCase[];
   sources: SourceDocument[];
   dnaMatches: DnaMatch[];
+  imports: AppliedGedcomImport[];
+  rawRecords: RawGedcomRecord[];
+  backups: WorkspaceBackup[];
   updatedAt: string;
 };
 
@@ -31,7 +35,7 @@ export function getWorkspacePath(options: WorkspaceStoreOptions = {}): string {
 
 export function createSeedWorkspace(now = new Date()): WorkspaceData {
   return {
-    version: "0.6.0",
+    version: "0.9.0",
     archiveName: "Riemer - Zajicek Archive",
     people: demoPeople,
     cases: demoCases,
@@ -51,6 +55,9 @@ export function createSeedWorkspace(now = new Date()): WorkspaceData {
       }
     ],
     dnaMatches: demoDnaMatches,
+    imports: [],
+    rawRecords: [],
+    backups: [],
     updatedAt: now.toISOString()
   };
 }
@@ -214,6 +221,55 @@ export async function updatePersonCuration(
   return updated;
 }
 
+export async function applyGedcomImport(
+  input: { sourceName: string; content: string },
+  options: WorkspaceStoreOptions = {}
+): Promise<{
+  import: AppliedGedcomImport;
+  backup: WorkspaceBackup;
+  peopleImported: number;
+  sourcesImported: number;
+  rawRecordCount: number;
+}> {
+  if (!input.sourceName?.trim() || !input.content?.trim()) {
+    throw new Error("sourceName and content are required");
+  }
+
+  const workspace = await readWorkspace(options);
+  const prepared = prepareGedcomImport(input.sourceName.trim(), input.content);
+  const backup = await writeWorkspaceBackup(workspace, `Before applying ${prepared.snapshot.sourceName}`, options);
+  const importedPeople = mergeImportedPeople(workspace.people, prepared.people);
+  const importedSources = mergeById(workspace.sources, prepared.sources);
+  const rawRecords = [
+    ...prepared.rawRecords,
+    ...workspace.rawRecords.filter((record) => record.importId !== prepared.snapshot.id)
+  ];
+  const appliedImport: AppliedGedcomImport = {
+    ...prepared.appliedImport,
+    backupId: backup.id
+  };
+
+  await writeWorkspace(
+    {
+      ...workspace,
+      people: importedPeople,
+      sources: importedSources,
+      rawRecords,
+      imports: [appliedImport, ...workspace.imports.filter((item) => item.id !== appliedImport.id)],
+      backups: [backup, ...workspace.backups.filter((item) => item.id !== backup.id)]
+    },
+    options
+  );
+
+  return {
+    import: appliedImport,
+    backup,
+    peopleImported: prepared.people.length,
+    sourcesImported: prepared.sources.length,
+    rawRecordCount: prepared.rawRecords.length
+  };
+}
+
 export function scoreWorkspaceDnaMatches(workspace: Pick<WorkspaceData, "dnaMatches">): ScoredDnaMatch[] {
   return workspace.dnaMatches.map((match) => ({
     ...match,
@@ -227,14 +283,61 @@ export function createWorkspaceDnaHypotheses(workspace: Pick<WorkspaceData, "peo
 
 function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {
   return {
-    version: "0.6.0",
+    version: "0.9.0",
     archiveName: value.archiveName || "Riemer - Zajicek Archive",
     people: Array.isArray(value.people) ? value.people : [],
     cases: Array.isArray(value.cases) ? value.cases : [],
     sources: Array.isArray(value.sources) ? value.sources : [],
     dnaMatches: Array.isArray(value.dnaMatches) ? value.dnaMatches : [],
+    imports: Array.isArray(value.imports) ? value.imports : [],
+    rawRecords: Array.isArray(value.rawRecords) ? value.rawRecords : [],
+    backups: Array.isArray(value.backups) ? value.backups : [],
     updatedAt: value.updatedAt || new Date().toISOString()
   };
+}
+
+async function writeWorkspaceBackup(workspace: WorkspaceData, reason: string, options: WorkspaceStoreOptions): Promise<WorkspaceBackup> {
+  const createdAt = new Date().toISOString();
+  const id = `backup-${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
+  const backup: WorkspaceBackup = {
+    id,
+    createdAt,
+    reason,
+    storageKey: `backups/${id}.json`,
+    peopleCount: workspace.people.length,
+    sourcesCount: workspace.sources.length,
+    casesCount: workspace.cases.length,
+    dnaMatchCount: workspace.dnaMatches.length,
+    importCount: workspace.imports.length,
+    rawRecordCount: workspace.rawRecords.length
+  };
+  const storagePath = getWorkspacePath(options);
+  const backupPath = path.join(path.dirname(storagePath), backup.storageKey);
+  await mkdir(path.dirname(backupPath), { recursive: true });
+  await writeFile(backupPath, `${JSON.stringify(workspace, null, 2)}\n`, "utf8");
+  return backup;
+}
+
+function mergeImportedPeople(existing: PersonSummary[], imported: PersonSummary[]): PersonSummary[] {
+  const existingById = new Map(existing.map((person) => [person.id, person]));
+  const importedIds = new Set(imported.map((person) => person.id));
+  const mergedImported = imported.map((person) => {
+    const current = existingById.get(person.id);
+    return current
+      ? {
+          ...person,
+          privacy: current.privacy,
+          published: current.published,
+          livingStatus: current.livingStatus
+        }
+      : person;
+  });
+  return [...mergedImported, ...existing.filter((person) => !importedIds.has(person.id))];
+}
+
+function mergeById<T extends { id: string }>(existing: T[], imported: T[]): T[] {
+  const importedIds = new Set(imported.map((item) => item.id));
+  return [...imported, ...existing.filter((item) => !importedIds.has(item.id))];
 }
 
 function isMissingFile(error: unknown): boolean {
