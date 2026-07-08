@@ -1,10 +1,13 @@
 import { AppShell } from "@/components/app-shell";
 import { Metric, Status } from "@/components/ui";
-import { demoCases, demoDnaMatches, demoPeople } from "@/lib/demo-data";
 import { buildQualityReport } from "@/lib/quality";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export default function ReportsPage() {
-  const report = buildQualityReport(demoPeople, demoDnaMatches, demoCases);
+export const dynamic = "force-dynamic";
+
+export default async function ReportsPage() {
+  const workspace = await readWorkspace();
+  const report = buildQualityReport(workspace.people, workspace.dnaMatches, workspace.cases);
 
   return (
     <AppShell title="Quality Reports" active="/app/reports">
@@ -46,4 +49,3 @@ export default function ReportsPage() {
     </AppShell>
   );
 }
-

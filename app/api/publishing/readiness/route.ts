@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { demoPeople } from "@/lib/demo-data";
 import { buildPublicationPlan } from "@/lib/publishing";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export function GET() {
-  return NextResponse.json(buildPublicationPlan(demoPeople));
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const workspace = await readWorkspace();
+  return NextResponse.json(buildPublicationPlan(workspace.people));
 }

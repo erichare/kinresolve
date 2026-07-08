@@ -2,19 +2,21 @@ import { notFound } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { PublicShell } from "@/components/public-shell";
 import { Confidence, Status } from "@/components/ui";
-import { demoPeople } from "@/lib/demo-data";
+import { canPublishPerson, publicFactFilter } from "@/lib/privacy";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export function generateStaticParams() {
-  return demoPeople.filter((person) => person.published).map((person) => ({ slug: person.slug }));
-}
+export const dynamic = "force-dynamic";
 
 export default async function PublicPersonPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const person = demoPeople.find((item) => item.slug === slug && item.published);
+  const workspace = await readWorkspace();
+  const person = workspace.people.find((item) => item.slug === slug && item.published && canPublishPerson(item));
 
   if (!person) {
     notFound();
   }
+
+  const publicFacts = person.facts.filter(publicFactFilter);
 
   return (
     <PublicShell active="/people">
@@ -56,7 +58,7 @@ export default async function PublicPersonPage({ params }: { params: Promise<{ s
                 </tr>
               </thead>
               <tbody>
-                {person.facts.map((fact) => (
+                {publicFacts.map((fact) => (
                   <tr key={fact.id}>
                     <td>{fact.type}</td>
                     <td>{fact.date}</td>
@@ -73,7 +75,7 @@ export default async function PublicPersonPage({ params }: { params: Promise<{ s
           <aside className="panel">
             <h2>Timeline</h2>
             <div className="timeline">
-              {person.facts.map((fact) => (
+              {publicFacts.map((fact) => (
                 <div className="timeline-item" key={fact.id}>
                   <strong>{fact.date}</strong>
                   <div>{fact.type}</div>
@@ -87,4 +89,3 @@ export default async function PublicPersonPage({ params }: { params: Promise<{ s
     </PublicShell>
   );
 }
-

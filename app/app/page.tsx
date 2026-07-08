@@ -2,9 +2,16 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
 import { Confidence, Metric, Status } from "@/components/ui";
-import { archiveStats, demoCases, demoDnaHypotheses, scoredDnaMatches } from "@/lib/demo-data";
+import { archiveStats } from "@/lib/demo-data";
+import { createWorkspaceDnaHypotheses, readWorkspace, scoreWorkspaceDnaMatches } from "@/lib/workspace-store";
 
-export default function AppDashboardPage() {
+export const dynamic = "force-dynamic";
+
+export default async function AppDashboardPage() {
+  const workspace = await readWorkspace();
+  const dnaHypotheses = createWorkspaceDnaHypotheses(workspace);
+  const scoredDnaMatches = scoreWorkspaceDnaMatches(workspace);
+
   return (
     <AppShell
       title="Investigation Dashboard"
@@ -42,7 +49,7 @@ export default function AppDashboardPage() {
               </tr>
             </thead>
           <tbody>
-            {demoCases.map((researchCase) => (
+            {workspace.cases.map((researchCase) => (
               <tr key={researchCase.id}>
                 <td>
                   <Link href={`/app/cases/${researchCase.id}`}>{researchCase.title}</Link>
@@ -61,7 +68,7 @@ export default function AppDashboardPage() {
         <aside className="app-card">
           <h2>AI Analyst</h2>
           <div className="evidence-list">
-            {demoDnaHypotheses.slice(0, 2).map((hypothesis) => (
+            {dnaHypotheses.slice(0, 2).map((hypothesis) => (
               <div className="evidence-item" key={hypothesis.matchId}>
                 <strong>{hypothesis.likelyBranch}</strong>
                 <p className="muted">{hypothesis.explanation}</p>

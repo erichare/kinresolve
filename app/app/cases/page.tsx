@@ -1,11 +1,15 @@
 import { AppShell } from "@/components/app-shell";
 import { CaseWorkspace } from "@/components/case-workspace";
-import { demoCases } from "@/lib/demo-data";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export default function CasesPage() {
+export const dynamic = "force-dynamic";
+
+export default async function CasesPage() {
+  const workspace = await readWorkspace();
+
   return (
     <AppShell title="Cases" active="/app/cases">
-      <CaseWorkspace initialCases={demoCases} />
+      <CaseWorkspace initialCases={workspace.cases} />
     </AppShell>
   );
 }

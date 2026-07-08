@@ -1,11 +1,17 @@
 import { AppShell } from "@/components/app-shell";
 import { DnaTriageWorkspace } from "@/components/dna-triage-workspace";
-import { demoDnaHypotheses, scoredDnaMatches } from "@/lib/demo-data";
+import { createWorkspaceDnaHypotheses, readWorkspace, scoreWorkspaceDnaMatches } from "@/lib/workspace-store";
 
-export default function DnaPage() {
+export const dynamic = "force-dynamic";
+
+export default async function DnaPage() {
+  const workspace = await readWorkspace();
+  const scoredDnaMatches = scoreWorkspaceDnaMatches(workspace);
+  const dnaHypotheses = createWorkspaceDnaHypotheses(workspace);
+
   return (
     <AppShell title="DNA Match Triage" active="/app/dna">
-      <DnaTriageWorkspace initialMatches={scoredDnaMatches} initialHypothesis={demoDnaHypotheses[0]} />
+      <DnaTriageWorkspace initialMatches={scoredDnaMatches} initialHypothesis={dnaHypotheses[0]} />
     </AppShell>
   );
 }

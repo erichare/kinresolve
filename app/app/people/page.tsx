@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Confidence, Status } from "@/components/ui";
-import { demoPeople } from "@/lib/demo-data";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export default function AppPeoplePage() {
+export const dynamic = "force-dynamic";
+
+export default async function AppPeoplePage() {
+  const workspace = await readWorkspace();
+
   return (
     <AppShell title="People" active="/app/people">
       <div className="app-card">
@@ -19,7 +23,7 @@ export default function AppPeoplePage() {
             </tr>
           </thead>
           <tbody>
-            {demoPeople.map((person) => (
+            {workspace.people.map((person) => (
               <tr key={person.id}>
                 <td>
                   <Link href={`/app/people/${person.id}`}>{person.displayName}</Link>
@@ -40,4 +44,3 @@ export default function AppPeoplePage() {
     </AppShell>
   );
 }
-

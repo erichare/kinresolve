@@ -1,9 +1,17 @@
 import { PublicShell } from "@/components/public-shell";
-import { demoPeople } from "@/lib/demo-data";
+import { canPublishPerson, publicFactFilter } from "@/lib/privacy";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export default function PlacesPage() {
+export const dynamic = "force-dynamic";
+
+export default async function PlacesPage() {
+  const workspace = await readWorkspace();
   const places = Array.from(
-    new Set(demoPeople.flatMap((person) => [person.birthPlace, person.deathPlace].filter(Boolean) as string[]))
+    new Set(
+      workspace.people
+        .filter((person) => person.published && canPublishPerson(person))
+        .flatMap((person) => person.facts.filter(publicFactFilter).map((fact) => fact.place).filter(Boolean) as string[])
+    )
   );
 
   return (
@@ -25,4 +33,3 @@ export default function PlacesPage() {
     </PublicShell>
   );
 }
-

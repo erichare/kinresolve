@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { PublicShell } from "@/components/public-shell";
 import { Confidence, Status } from "@/components/ui";
-import { demoPeople } from "@/lib/demo-data";
+import { canPublishPerson } from "@/lib/privacy";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export default function PeoplePage() {
-  const publishedPeople = demoPeople.filter((person) => person.published);
+export const dynamic = "force-dynamic";
+
+export default async function PeoplePage() {
+  const workspace = await readWorkspace();
+  const publishedPeople = workspace.people.filter((person) => person.published && canPublishPerson(person));
 
   return (
     <PublicShell active="/people">
@@ -47,4 +51,3 @@ export default function PeoplePage() {
     </PublicShell>
   );
 }
-

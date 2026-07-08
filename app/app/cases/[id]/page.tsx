@@ -1,11 +1,14 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Confidence, Status } from "@/components/ui";
-import { demoCases } from "@/lib/demo-data";
+import { readWorkspace } from "@/lib/workspace-store";
+
+export const dynamic = "force-dynamic";
 
 export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const researchCase = demoCases.find((item) => item.id === id);
+  const workspace = await readWorkspace();
+  const researchCase = workspace.cases.find((item) => item.id === id);
 
   if (!researchCase) {
     notFound();
@@ -60,4 +63,3 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
     </AppShell>
   );
 }
-

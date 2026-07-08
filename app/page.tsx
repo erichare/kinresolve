@@ -2,10 +2,15 @@ import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { PublicShell } from "@/components/public-shell";
 import { Status } from "@/components/ui";
-import { archiveStats, demoPeople } from "@/lib/demo-data";
+import { archiveStats } from "@/lib/demo-data";
+import { canPublishPerson } from "@/lib/privacy";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export default function HomePage() {
-  const publishedPeople = demoPeople.filter((person) => person.published);
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const workspace = await readWorkspace();
+  const publishedPeople = workspace.people.filter((person) => person.published && canPublishPerson(person));
 
   return (
     <PublicShell active="/">
@@ -114,4 +119,3 @@ export default function HomePage() {
     </PublicShell>
   );
 }
-

@@ -2,11 +2,14 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
 import { Metric, Status } from "@/components/ui";
-import { demoPeople } from "@/lib/demo-data";
 import { buildPublicationPlan, type PublicationStatus } from "@/lib/publishing";
+import { readWorkspace } from "@/lib/workspace-store";
 
-export default function PublishingPage() {
-  const plan = buildPublicationPlan(demoPeople);
+export const dynamic = "force-dynamic";
+
+export default async function PublishingPage() {
+  const workspace = await readWorkspace();
+  const plan = buildPublicationPlan(workspace.people);
   const nextBlockers = plan.profiles.flatMap((profile) =>
     profile.issues
       .filter((issue) => issue.severity === "blocker")

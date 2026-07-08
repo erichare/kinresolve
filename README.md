@@ -36,6 +36,13 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - Publishing readiness API at `/api/publishing/readiness`.
 - Private navigation now includes a dedicated publishing safety workflow before public sharing.
 
+## V0.5 checkpoint
+
+- Server-side workspace store at ignored `storage/workspace.json`, seeded from synthetic fixtures.
+- Cases and DNA analyses now persist through workspace-backed APIs.
+- Private dashboard, people, cases, DNA, AI, reports, and publishing pages read from the workspace store.
+- Public people, profile, place, and home routes use runtime publish/privacy gates instead of static demo arrays.
+
 ## Quick start
 
 ```bash

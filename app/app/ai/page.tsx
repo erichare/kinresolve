@@ -1,10 +1,14 @@
 import { AppShell } from "@/components/app-shell";
 import { Confidence, Status } from "@/components/ui";
-import { demoCases, demoDnaHypotheses, demoPeople } from "@/lib/demo-data";
 import { findStructuredAnomalies } from "@/lib/ai";
+import { createWorkspaceDnaHypotheses, readWorkspace } from "@/lib/workspace-store";
 
-export default function AIPage() {
-  const anomalies = findStructuredAnomalies(demoPeople);
+export const dynamic = "force-dynamic";
+
+export default async function AIPage() {
+  const workspace = await readWorkspace();
+  const dnaHypotheses = createWorkspaceDnaHypotheses(workspace);
+  const anomalies = findStructuredAnomalies(workspace.people);
 
   return (
     <AppShell title="AI Analyst" active="/app/ai">
@@ -24,7 +28,7 @@ export default function AIPage() {
           <section className="section">
             <h2>Recent connection hypotheses</h2>
             <div className="evidence-list">
-              {demoDnaHypotheses.map((hypothesis) => (
+              {dnaHypotheses.map((hypothesis) => (
                 <div className="hypothesis-panel" key={hypothesis.matchId}>
                   <strong>{hypothesis.likelyBranch}</strong>
                   <p>{hypothesis.explanation}</p>
@@ -48,7 +52,7 @@ export default function AIPage() {
             ) : (
               <div className="evidence-item">
                 <strong>No high-risk anomalies in demo data</strong>
-                <p className="muted">{demoPeople.length} people, {demoCases.length} cases, {demoDnaHypotheses.length} DNA hypotheses checked.</p>
+                <p className="muted">{workspace.people.length} people, {workspace.cases.length} cases, {dnaHypotheses.length} DNA hypotheses checked.</p>
               </div>
             )}
           </div>
@@ -57,4 +61,3 @@ export default function AIPage() {
     </AppShell>
   );
 }
-

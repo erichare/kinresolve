@@ -2,11 +2,14 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
 import { Confidence, Status } from "@/components/ui";
-import { demoPeople } from "@/lib/demo-data";
+import { readWorkspace } from "@/lib/workspace-store";
+
+export const dynamic = "force-dynamic";
 
 export default async function AppPersonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const person = demoPeople.find((item) => item.id === id);
+  const workspace = await readWorkspace();
+  const person = workspace.people.find((item) => item.id === id);
 
   if (!person) {
     notFound();
@@ -89,4 +92,3 @@ export default async function AppPersonPage({ params }: { params: Promise<{ id: 
     </AppShell>
   );
 }
-
