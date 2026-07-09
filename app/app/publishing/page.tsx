@@ -1,24 +1,26 @@
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
+import { PaginationLinks } from "@/components/pagination-links";
 import { Metric, Status } from "@/components/ui";
-import { buildPublicationPlan, type PublicationStatus } from "@/lib/publishing";
+import { parsePositiveInteger, type SearchParamValue } from "@/lib/pagination";
+import { buildPublicationReview, type PublicationStatus } from "@/lib/publishing";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
-export default async function PublishingPage() {
+const publishingPageSize = 50;
+
+type PublishingSearchParams = Record<string, SearchParamValue>;
+
+export default async function PublishingPage({ searchParams }: { searchParams: Promise<PublishingSearchParams> }) {
+  const params = await searchParams;
   const workspace = await readWorkspace();
-  const plan = buildPublicationPlan(workspace.people);
-  const nextBlockers = plan.profiles.flatMap((profile) =>
-    profile.issues
-      .filter((issue) => issue.severity === "blocker")
-      .map((issue) => ({
-        ...issue,
-        personName: profile.displayName,
-        personId: profile.personId
-      }))
-  );
+  const review = buildPublicationReview(workspace.people, {
+    profilePage: parsePositiveInteger(params.profilesPage, 1),
+    blockerPage: parsePositiveInteger(params.blockersPage, 1),
+    pageSize: publishingPageSize
+  });
 
   return (
     <AppShell
@@ -32,15 +34,23 @@ export default async function PublishingPage() {
       }
     >
       <div className="metric-row">
-        <Metric label="Publishing score" value={`${plan.score}%`} detail="demo readiness" />
-        <Metric label="Ready" value={plan.summary.ready} detail="safe to publish" />
-        <Metric label="Needs review" value={plan.summary.needsReview} detail={`${plan.summary.warningCount} warnings`} />
-        <Metric label="Blocked" value={plan.summary.blocked} detail={`${plan.summary.blockerCount} blockers`} />
+        <Metric label="Publishing score" value={`${review.score}%`} detail="demo readiness" />
+        <Metric label="Ready" value={review.summary.ready} detail="safe to publish" />
+        <Metric label="Needs review" value={review.summary.needsReview} detail={`${review.summary.warningCount} warnings`} />
+        <Metric label="Blocked" value={review.summary.blocked} detail={`${review.summary.blockerCount} blockers`} />
       </div>
 
       <div className="app-grid">
         <section className="app-card">
-          <h2>Profile readiness queue</h2>
+          <div className="table-heading-row">
+            <div>
+              <h2>Profile readiness queue</h2>
+              <p className="muted">
+                Showing {review.profiles.start.toLocaleString()}-{review.profiles.end.toLocaleString()} of {review.profiles.total.toLocaleString()}
+              </p>
+            </div>
+            <PaginationLinks ariaLabel="Profile readiness pages" page={review.profiles.page} pageCount={review.profiles.pageCount} pageParam="profilesPage" pathname="/app/publishing" searchParams={params} />
+          </div>
           <table className="data-table">
             <thead>
               <tr>
@@ -53,7 +63,7 @@ export default async function PublishingPage() {
               </tr>
             </thead>
             <tbody>
-              {plan.profiles.map((profile) => (
+              {review.profiles.items.map((profile) => (
                 <tr key={profile.personId}>
                   <td>
                     <Status tone={statusTone(profile.status)}>{profile.status.replace("_", " ")}</Status>
@@ -77,6 +87,12 @@ export default async function PublishingPage() {
               ))}
             </tbody>
           </table>
+          <div className="table-footer-row">
+            <p className="muted">
+              Page {review.profiles.page.toLocaleString()} of {review.profiles.pageCount.toLocaleString()}
+            </p>
+            <PaginationLinks ariaLabel="Profile readiness pages" page={review.profiles.page} pageCount={review.profiles.pageCount} pageParam="profilesPage" pathname="/app/publishing" searchParams={params} />
+          </div>
         </section>
 
         <aside className="app-card">
@@ -99,8 +115,16 @@ export default async function PublishingPage() {
       </div>
 
       <section className="app-card" style={{ marginTop: 20 }}>
-        <h2>Next blockers</h2>
-        {nextBlockers.length > 0 ? (
+        <div className="table-heading-row">
+          <div>
+            <h2>Next blockers</h2>
+            <p className="muted">
+              Showing {review.blockers.start.toLocaleString()}-{review.blockers.end.toLocaleString()} of {review.blockers.total.toLocaleString()}
+            </p>
+          </div>
+          <PaginationLinks ariaLabel="Publication blocker pages" page={review.blockers.page} pageCount={review.blockers.pageCount} pageParam="blockersPage" pathname="/app/publishing" searchParams={params} />
+        </div>
+        {review.blockers.items.length > 0 ? (
           <table className="data-table">
             <thead>
               <tr>
@@ -110,7 +134,7 @@ export default async function PublishingPage() {
               </tr>
             </thead>
             <tbody>
-              {nextBlockers.map((issue) => (
+              {review.blockers.items.map((issue) => (
                 <tr key={issue.id}>
                   <td>
                     <Link href={`/app/people/${issue.personId}`}>{issue.personName}</Link>
@@ -127,6 +151,12 @@ export default async function PublishingPage() {
         ) : (
           <p className="muted">No blocking publication issues found in the current demo set.</p>
         )}
+        <div className="table-footer-row">
+          <p className="muted">
+            Page {review.blockers.page.toLocaleString()} of {review.blockers.pageCount.toLocaleString()}
+          </p>
+          <PaginationLinks ariaLabel="Publication blocker pages" page={review.blockers.page} pageCount={review.blockers.pageCount} pageParam="blockersPage" pathname="/app/publishing" searchParams={params} />
+        </div>
       </section>
     </AppShell>
   );

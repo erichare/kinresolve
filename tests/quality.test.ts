@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { demoCases, demoDnaMatches, demoPeople } from "@/lib/demo-data";
-import { buildQualityReport } from "@/lib/quality";
+import { buildQualityReport, buildQualityReportPage } from "@/lib/quality";
 
 describe("quality reports", () => {
   it("summarizes source, DNA, and case gaps", () => {
@@ -25,5 +25,12 @@ describe("quality reports", () => {
       ])
     );
   });
-});
 
+  it("paginates issue rows while preserving report summary", () => {
+    const report = buildQualityReportPage(demoPeople, demoDnaMatches, demoCases, { page: 1, pageSize: 2 });
+
+    expect(report.issues.items).toHaveLength(2);
+    expect(report.issues.total).toBeGreaterThan(2);
+    expect(report.summary.sourceGaps).toBeGreaterThan(0);
+  });
+});

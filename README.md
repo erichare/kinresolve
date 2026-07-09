@@ -105,6 +105,13 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - `/app/people` no longer hydrates the full GEDCOM person/fact payload into the browser.
 - People list responses return slim rows plus workspace counts, keeping large real trees much lighter to browse.
 
+## V0.15 checkpoint
+
+- Quality reports now paginate the prioritized issue queue on `/app/reports`.
+- Publishing review now paginates both profile readiness and blocker queues on `/app/publishing`.
+- Report and publishing APIs return paged rows by default, reducing large review payloads.
+- Shared pagination utilities now back people, DNA, reports, and publishing review surfaces.
+
 ## Quick start
 
 ```bash

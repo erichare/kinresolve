@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { demoPeople } from "@/lib/demo-data";
-import { buildPublicationPlan, evaluatePublicationReadiness } from "@/lib/publishing";
+import { buildPublicationPlan, buildPublicationReview, evaluatePublicationReadiness } from "@/lib/publishing";
 import type { PersonSummary } from "@/lib/models";
 
 describe("publishing readiness", () => {
@@ -49,5 +49,14 @@ describe("publishing readiness", () => {
     expect(plan.summary.ready).toBe(1);
     expect(plan.summary.blocked).toBeGreaterThan(0);
     expect(plan.profiles[0].status).toBe("blocked");
+  });
+
+  it("paginates profile and blocker review queues", () => {
+    const review = buildPublicationReview(demoPeople, { profilePage: 1, blockerPage: 1, pageSize: 1 });
+
+    expect(review.profiles.items).toHaveLength(1);
+    expect(review.profiles.total).toBe(demoPeople.length);
+    expect(review.blockers.items).toHaveLength(1);
+    expect(review.summary.blockerCount).toBeGreaterThan(1);
   });
 });

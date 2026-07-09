@@ -1,4 +1,8 @@
 import type { PersonSummary, PrivacyLevel } from "./models";
+import { paginateItems, type PaginationInput, type PaginationResult } from "./pagination";
+
+export { paginateItems };
+export type { PaginationInput, PaginationResult };
 
 export type PeoplePublicationFilter = "all" | "published" | "unpublished";
 export type PeoplePrivacyFilter = "all" | PrivacyLevel;
@@ -37,21 +41,6 @@ export type PeopleSearchStats = {
 
 export type PeopleSearchResult = PaginationResult<PeopleListItem> & {
   stats: PeopleSearchStats;
-};
-
-export type PaginationInput = {
-  page: number;
-  pageSize: number;
-};
-
-export type PaginationResult<T> = {
-  items: T[];
-  page: number;
-  pageSize: number;
-  pageCount: number;
-  total: number;
-  start: number;
-  end: number;
 };
 
 export function filterPeople(people: PersonSummary[], filters: PeopleSearchFilters = {}): PersonSummary[] {
@@ -112,24 +101,6 @@ export function toPeopleListItem(person: PersonSummary): PeopleListItem {
     privacy: person.privacy,
     published: person.published,
     factCount: person.facts.length
-  };
-}
-
-export function paginateItems<T>(items: T[], input: PaginationInput): PaginationResult<T> {
-  const pageSize = clampInteger(input.pageSize, 1, 500);
-  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
-  const page = clampInteger(input.page, 1, pageCount);
-  const startIndex = (page - 1) * pageSize;
-  const pageItems = items.slice(startIndex, startIndex + pageSize);
-
-  return {
-    items: pageItems,
-    page,
-    pageSize,
-    pageCount,
-    total: items.length,
-    start: pageItems.length === 0 ? 0 : startIndex + 1,
-    end: startIndex + pageItems.length
   };
 }
 
@@ -195,12 +166,4 @@ function compareNullableStrings(left?: string, right?: string): number {
   if (!left) return 1;
   if (!right) return -1;
   return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
-}
-
-function clampInteger(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) {
-    return min;
-  }
-
-  return Math.max(min, Math.min(max, Math.trunc(value)));
 }

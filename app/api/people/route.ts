@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { searchPeoplePage, type PeopleLivingFilter, type PeoplePrivacyFilter, type PeoplePublicationFilter, type PeopleSortKey } from "@/lib/people-search";
+import { parsePositiveInteger } from "@/lib/pagination";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -33,13 +34,4 @@ export async function GET(request: Request) {
 
 function parseEnum<T extends string>(value: string | null, allowed: Set<T>, fallback: T): T {
   return value && allowed.has(value as T) ? (value as T) : fallback;
-}
-
-function parsePositiveInteger(value: string | null, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    return fallback;
-  }
-
-  return Math.trunc(parsed);
 }

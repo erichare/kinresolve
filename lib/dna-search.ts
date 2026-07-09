@@ -1,4 +1,5 @@
 import type { DnaMatch, DnaSide, DnaTreeStatus } from "./models";
+import { paginateItems, type PaginationResult } from "./pagination";
 
 export type ScoredDnaMatch = DnaMatch & { helpfulnessScore: number };
 
@@ -17,15 +18,7 @@ export type DnaMatchFilters = {
   sort?: DnaSortKey;
 };
 
-export type DnaPaginationResult = {
-  items: ScoredDnaMatch[];
-  page: number;
-  pageSize: number;
-  pageCount: number;
-  total: number;
-  start: number;
-  end: number;
-};
+export type DnaPaginationResult = PaginationResult<ScoredDnaMatch>;
 
 export function filterDnaMatches(matches: ScoredDnaMatch[], filters: DnaMatchFilters = {}): ScoredDnaMatch[] {
   const terms = normalizeSearchTerms(filters.query);
@@ -53,21 +46,7 @@ export function filterDnaMatches(matches: ScoredDnaMatch[], filters: DnaMatchFil
 }
 
 export function paginateDnaMatches(matches: ScoredDnaMatch[], page: number, pageSize: number): DnaPaginationResult {
-  const safePageSize = clampInteger(pageSize, 1, 250);
-  const pageCount = Math.max(1, Math.ceil(matches.length / safePageSize));
-  const safePage = clampInteger(page, 1, pageCount);
-  const startIndex = (safePage - 1) * safePageSize;
-  const items = matches.slice(startIndex, startIndex + safePageSize);
-
-  return {
-    items,
-    page: safePage,
-    pageSize: safePageSize,
-    pageCount,
-    total: matches.length,
-    start: items.length === 0 ? 0 : startIndex + 1,
-    end: startIndex + items.length
-  };
+  return paginateItems(matches, { page, pageSize }, 250);
 }
 
 export function helpfulnessBucket(score: number): "high" | "medium" | "low" {
@@ -126,12 +105,4 @@ function compareDnaMatches(left: ScoredDnaMatch, right: ScoredDnaMatch, sort: Dn
 
 function compareNames(left: DnaMatch, right: DnaMatch): number {
   return left.displayName.localeCompare(right.displayName, undefined, { sensitivity: "base" });
-}
-
-function clampInteger(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) {
-    return min;
-  }
-
-  return Math.max(min, Math.min(max, Math.trunc(value)));
 }

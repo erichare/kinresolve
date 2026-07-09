@@ -1,4 +1,5 @@
 import type { PersonSummary } from "./models";
+import { paginateItems, type PaginationResult } from "./pagination";
 import { publicFactFilter } from "./privacy";
 
 export type PublicationIssue = {
@@ -42,6 +43,22 @@ export type PublicationPlan = {
     blockerCount: number;
     warningCount: number;
   };
+};
+
+export type PublicationBlocker = PublicationIssue & {
+  personId: string;
+  personName: string;
+};
+
+export type PublicationReview = Omit<PublicationPlan, "profiles"> & {
+  profiles: PaginationResult<PublicationProfile>;
+  blockers: PaginationResult<PublicationBlocker>;
+};
+
+export type PublicationReviewInput = {
+  profilePage: number;
+  blockerPage: number;
+  pageSize: number;
 };
 
 export function evaluatePublicationReadiness(person: PersonSummary): PublicationProfile {
@@ -176,6 +193,26 @@ export function buildPublicationPlan(people: PersonSummary[]): PublicationPlan {
       blockerCount,
       warningCount
     }
+  };
+}
+
+export function buildPublicationReview(people: PersonSummary[], input: PublicationReviewInput): PublicationReview {
+  const plan = buildPublicationPlan(people);
+  const blockers = plan.profiles.flatMap((profile) =>
+    profile.issues
+      .filter((issue) => issue.severity === "blocker")
+      .map((issue) => ({
+        ...issue,
+        personName: profile.displayName,
+        personId: profile.personId
+      }))
+  );
+
+  return {
+    score: plan.score,
+    summary: plan.summary,
+    profiles: paginateItems(plan.profiles, { page: input.profilePage, pageSize: input.pageSize }),
+    blockers: paginateItems(blockers, { page: input.blockerPage, pageSize: input.pageSize })
   };
 }
 

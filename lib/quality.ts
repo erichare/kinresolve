@@ -1,5 +1,6 @@
 import type { DnaMatch, PersonSummary, ResearchCase } from "./models";
 import { findStructuredAnomalies } from "./ai";
+import { paginateItems, type PaginationInput, type PaginationResult } from "./pagination";
 
 export type QualityIssue = {
   id: string;
@@ -23,6 +24,10 @@ export type QualityReport = {
     dnaGaps: number;
     caseGaps: number;
   };
+};
+
+export type QualityReportPage = Omit<QualityReport, "issues"> & {
+  issues: PaginationResult<QualityIssue>;
 };
 
 export function buildQualityReport(people: PersonSummary[], dnaMatches: DnaMatch[], cases: ResearchCase[]): QualityReport {
@@ -109,6 +114,17 @@ export function buildQualityReport(people: PersonSummary[], dnaMatches: DnaMatch
       caseGaps: issues.filter((issue) => issue.area === "cases").length
     }
   };
+}
+
+export function paginateQualityReport(report: QualityReport, pagination: PaginationInput): QualityReportPage {
+  return {
+    ...report,
+    issues: paginateItems(report.issues, pagination)
+  };
+}
+
+export function buildQualityReportPage(people: PersonSummary[], dnaMatches: DnaMatch[], cases: ResearchCase[], pagination: PaginationInput): QualityReportPage {
+  return paginateQualityReport(buildQualityReport(people, dnaMatches, cases), pagination);
 }
 
 function severityRank(severity: QualityIssue["severity"]): number {
