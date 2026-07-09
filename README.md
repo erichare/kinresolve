@@ -71,6 +71,13 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - A JSON backup is written under ignored `storage/backups/` before each apply.
 - Person curation settings are preserved when the same GEDCOM xref is reapplied.
 
+## V0.10 checkpoint
+
+- Private people workspace now supports full-text search across names, places, dates, notes, facts, and GEDCOM identifiers.
+- People can be filtered by publication state, privacy level, and living status.
+- Large imported trees render through paginated result sets instead of dumping every person into one browser table.
+- People table now surfaces publication/privacy/living safety states and fact counts for faster curation.
+
 ## Quick start
 
 ```bash

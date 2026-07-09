@@ -614,12 +614,112 @@ textarea {
   gap: 14px;
 }
 
+.people-workspace {
+  display: grid;
+  gap: 20px;
+}
+
+.people-search-card {
+  display: grid;
+  gap: 18px;
+}
+
+.people-search-header,
+.table-heading-row,
+.table-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.people-search-header h2,
+.table-heading-row h2 {
+  margin-bottom: 4px;
+}
+
+.people-search-header p,
+.table-heading-row p,
+.table-footer-row p {
+  margin: 0;
+}
+
+.people-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 2fr) repeat(5, minmax(130px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.people-search-field {
+  min-width: 0;
+}
+
+.input-with-icon {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 11px;
+  background: #ffffff;
+}
+
+.input-with-icon svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.input-with-icon input {
+  min-width: 0;
+  min-height: 38px;
+  flex: 1;
+  border: 0;
+  padding: 0;
+}
+
+.input-with-icon input:focus {
+  outline: none;
+}
+
+.people-table td:first-child {
+  min-width: 220px;
+}
+
+.status-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pagination-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-button {
+  width: 38px;
+  padding: 0;
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.empty-state {
+  margin: 18px 0 0;
+}
+
 .field {
   display: grid;
   gap: 7px;
 }
 
-.field label {
+.field label,
+.field > span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
@@ -683,8 +783,16 @@ textarea {
 
   .metric-row,
   .grid-3,
-  .form-grid {
+  .form-grid,
+  .people-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .people-search-header,
+  .table-heading-row,
+  .table-footer-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .public-nav,
