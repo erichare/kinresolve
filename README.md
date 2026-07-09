@@ -1,37 +1,35 @@
 # KinSleuth
 
-KinSleuth is a self-hosted genealogy research workspace for one private family archive. It pairs a curated public family-history site with a private workspace for GEDCOM imports, people curation, cases, evidence, DNA match triage, source review, publishing readiness, quality reports, and local AI-assisted analysis.
+KinSleuth is a self-hosted genealogy research workspace for one private family archive. It pairs a curated public family-history site with a private Postgres-backed workspace for GEDCOM imports, people curation, cases, evidence, DNA match triage, source review, publishing readiness, quality reports, and provider-backed AI-assisted analysis.
 
-The repository uses synthetic fixtures only. Put real GEDCOM exports, DNA match files, source uploads, and workspace snapshots in ignored local storage such as `data/`, `uploads/`, or `storage/`.
+The repository uses synthetic fixtures only. Put real GEDCOM exports, DNA match files, source uploads, and research exports in ignored local storage such as `data/` or `uploads/`.
 
 ## What is included
 
 - Public archive routes for the home page, published people, person profiles, stories, and places.
 - Private workspace routes under `/app` for dashboard, people, cases, DNA, sources, GEDCOM imports, AI Analyst, reports, publishing, and settings.
-- Server-backed workspace persistence at `storage/workspace.json`, seeded from synthetic demo data on first run.
+- Postgres workspace persistence, seeded idempotently from synthetic demo data on first run.
 - GEDCOM 5.5.1 parsing and apply flow that preserves raw records, source records, custom tags, checksums, and import history.
 - People search with server pagination, publication/privacy/living filters, and private curation controls.
 - DNA match triage with CSV import, helpfulness scoring, editable match details, case evidence linking, and connection hypotheses.
 - Source register with upload metadata, transcript/notes fields, filters, search, and person/case links.
 - Publishing readiness and quality reports for privacy risks, source gaps, low-confidence facts, and case/DNA follow-up.
 - Optional password gate for private pages and APIs.
-- AI Analyst local checks for source gaps, privacy risks, date conflicts, DNA leads, and case-focused next steps, with an OpenAI-compatible provider configuration reserved for richer semantic analysis.
+- AI Analyst deterministic checks plus OpenAI-compatible provider calls, saved run history, cited context, provider fallback handling, and staged case-task suggestions.
+- Case tasks can be added and moved through todo, doing, and done states from the case detail page.
 
 ## Quick start
 
 ```bash
 npm install
+cp .env.example .env
+docker compose up -d postgres
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-By default, private `/app` routes are open in local development. To protect them, copy `.env.example` to `.env` and set `KINSLEUTH_APP_PASSWORD` plus a long `AUTH_SECRET`.
-
-```bash
-cp .env.example .env
-npm run dev
-```
+`DATABASE_URL` is required. The default `.env.example` value matches the Postgres service in `docker-compose.yml`. By default, private `/app` routes are open in local development. To protect them, set `KINSLEUTH_APP_PASSWORD` plus a long `AUTH_SECRET`.
 
 ## Useful routes
 
@@ -42,14 +40,15 @@ npm run dev
 | `/people/[slug]` | Public person profile |
 | `/app` | Private investigation dashboard |
 | `/app/people` | Search, filter, and curate people |
-| `/app/cases` | Research cases and evidence |
+| `/app/cases` | Research cases, evidence, and task queues |
 | `/app/dna` | DNA match triage and hypotheses |
 | `/app/sources` | Source register and transcript review |
 | `/app/imports` | GEDCOM preview and apply flow |
-| `/app/ai` | AI Analyst local research pass |
+| `/app/ai` | Provider-backed AI Analyst, saved run history, cited context, and staged task creation |
 | `/app/reports` | Quality and evidence reports |
 | `/app/publishing` | Public-profile readiness review |
-| `/app/settings` | Workspace snapshot export/import/reset |
+| `/app/settings` | Runtime, provider, archive, and role settings |
+| `/api/health` | JSON runtime health for Postgres and AI provider configuration |
 
 ## Data and storage
 
@@ -58,12 +57,10 @@ KinSleuth intentionally keeps real genealogy data out of Git.
 | Path | Contents | Git status |
 | --- | --- | --- |
 | `fixtures/` | Synthetic sample GEDCOM/data used by tests and demos | committed |
-| `storage/workspace.json` | Runtime workspace store created on first run | ignored |
-| `storage/backups/` | JSON backups written before GEDCOM apply operations | ignored |
 | `uploads/sources/` | Uploaded source files | ignored |
 | `data/` | Optional local GEDCOM, DNA CSV, and research exports | ignored |
 
-If you want to reset local demo data, use the reset flow in `/app/settings` or remove `storage/workspace.json` while the dev server is stopped.
+Workspace records live in Postgres. To reset local demo data, use a disposable local database or clear the `archives` row for your `KINSLEUTH_ARCHIVE_ID`; the next read seeds synthetic data again.
 
 ## Environment
 
@@ -74,13 +71,15 @@ If you want to reset local demo data, use the reset flow in `/app/settings` or r
 | `APP_BASE_URL` | Base URL for the running app |
 | `AUTH_SECRET` | Secret used to sign the private workspace session cookie |
 | `KINSLEUTH_APP_PASSWORD` | Enables password protection for `/app` and private APIs when set |
-| `KINSLEUTH_WORKSPACE_PATH` | Optional override for the JSON workspace store path |
-| `DATABASE_URL` | Reserved for the Docker/Postgres architecture |
+| `KINSLEUTH_ARCHIVE_ID` | Optional archive id; defaults to `archive-default` |
+| `DATABASE_URL` | Required Postgres connection string for runtime workspace storage |
+| `TEST_DATABASE_URL` | Optional Postgres connection string for DB integration tests |
 | `S3_*` | Reserved for object storage-backed uploads |
 | `AI_BASE_URL` | OpenAI-compatible provider base URL |
-| `AI_API_KEY` | Optional; local deterministic AI checks still run without it |
+| `AI_API_KEY` / `OPENAI_API_KEY` | Optional; provider-backed AI runs when present, deterministic fallback runs without it |
+| `AI_API_MODE` | `responses` by default; set `chat` for chat-completions-compatible providers |
 | `AI_CHAT_MODEL` | Chat model name for provider-backed analysis |
-| `AI_EMBEDDING_MODEL` | Embedding model name for future semantic retrieval |
+| `AI_EMBEDDING_MODEL` | Embedding model name for pgvector-backed semantic retrieval |
 
 ## Docker Compose
 
@@ -89,7 +88,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The app runs at [http://localhost:3000](http://localhost:3000). Compose also provisions Postgres and MinIO-compatible object storage for the intended self-hosted architecture, although the current vertical slice primarily uses the JSON workspace store.
+The app runs at [http://localhost:3000](http://localhost:3000). Compose provisions Postgres with pgvector and MinIO-compatible object storage. Runtime workspace data is stored in Postgres; uploads still write to local ignored paths in the current slice.
 
 ## Development commands
 
@@ -97,10 +96,13 @@ The app runs at [http://localhost:3000](http://localhost:3000). Compose also pro
 npm run typecheck
 npm run lint
 npm run test
+npm run test:db
 npm run build
 ```
 
-Use `npm run test:watch` for focused Vitest iteration.
+Use `npm run test:watch` for focused Vitest iteration. Set `TEST_DATABASE_URL` before `npm run test:db` to run the Postgres-backed workspace and GEDCOM apply integration tests; without it, those tests are skipped.
+
+`/api/health` returns `200` when Postgres is reachable and `503` when the app is degraded because `DATABASE_URL` is missing or the database cannot be reached.
 
 ## Project map
 
@@ -112,7 +114,7 @@ Use `npm run test:watch` for focused Vitest iteration.
 | `tests/` | Vitest coverage for core domain behavior |
 | `docs/architecture.md` | Architecture notes and privacy model |
 | `scripts/worker.mjs` | Placeholder worker entry point |
-| `db/migrations/` | Planned relational schema |
+| `db/migrations/` | Postgres and pgvector schema |
 
 ## Privacy model
 
@@ -122,4 +124,4 @@ Before publishing real data, review `/app/publishing` and `/app/reports`, then i
 
 ## Current status
 
-KinSleuth is an early vertical slice, not a production genealogy platform. The main workflows are functional enough for local/self-hosted beta exploration, but relational persistence, background jobs, object-storage integration, semantic indexing, role management, and production deployment hardening are still evolving.
+KinSleuth is an early vertical slice, not a production genealogy platform. The main workflows are functional enough for local/self-hosted beta exploration, and runtime persistence now uses Postgres. Background jobs, object-storage integration, semantic indexing refreshes, role management, and production deployment hardening are still evolving.

@@ -1072,6 +1072,132 @@ textarea {
   line-height: 1.5;
 }
 
+.analysis-context-list {
+  background: rgba(238, 244, 241, 0.56);
+}
+
+.analysis-task-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  border: 1px solid rgba(0, 107, 88, 0.14);
+  border-radius: 8px;
+  padding: 14px;
+  background:
+    linear-gradient(180deg, rgba(226, 244, 237, 0.42), rgba(255, 255, 253, 0.82)),
+    var(--texture);
+  background-size: auto, 680px auto;
+}
+
+.analysis-task-panel p {
+  margin: 4px 0 0;
+}
+
+.analysis-suggestion-list {
+  display: grid;
+  gap: 10px;
+}
+
+.analysis-suggestion-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgba(0, 107, 88, 0.14);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 253, 0.9);
+}
+
+.analysis-suggestion-card p {
+  line-height: 1.45;
+}
+
+.analysis-run-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.analysis-run-item {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.analysis-run-item p {
+  margin: 0;
+  line-height: 1.52;
+}
+
+.case-task-workspace {
+  display: grid;
+  gap: 14px;
+}
+
+.task-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.task-list {
+  display: grid;
+  gap: 10px;
+}
+
+.task-item {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 253, 0.88);
+}
+
+.task-item > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+  background: rgba(238, 244, 241, 0.72);
+}
+
+.segmented-control button {
+  min-height: 32px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.segmented-control button:last-child {
+  border-right: 0;
+}
+
+.segmented-control button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 -2px 0 rgba(0, 107, 88, 0.36);
+}
+
+.segmented-control button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .hypothesis-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

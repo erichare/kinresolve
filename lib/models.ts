@@ -63,6 +63,45 @@ export type ResearchCase = {
   }>;
 };
 
+export type AIAnalysisStatus = "ready" | "configuration_required" | "provider_error";
+
+export type AIContextReference = {
+  id: string;
+  type: "person" | "case" | "source" | "dna_match" | "hypothesis" | "anomaly" | "task" | "evidence";
+  label: string;
+  summary?: string;
+};
+
+export type AIStagedSuggestion = {
+  id: string;
+  type: "task" | "evidence_check" | "source_gap" | "privacy_review";
+  title: string;
+  summary: string;
+  linkedCaseId?: string;
+  contextRefs: string[];
+  confidence: number;
+};
+
+export type AIAnalysisRun = {
+  id: string;
+  question: string;
+  answer: string;
+  status: AIAnalysisStatus;
+  evidenceUsed: string[];
+  uncertainty: string[];
+  anomalyCount: number;
+  suggestions: AIStagedSuggestion[];
+  contextReferences: AIContextReference[];
+  provider?: string;
+  model?: string;
+  providerStatus?: "not_configured" | "completed" | "failed";
+  promptPreview?: string;
+  error?: string;
+  linkedCaseId?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
 export type SourceDocument = {
   id: string;
   title: string;

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { CaseTaskList } from "@/components/case-task-list";
 import { Confidence, Status } from "@/components/ui";
 import { readWorkspace } from "@/lib/workspace-store";
 
@@ -38,14 +39,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
         </div>
         <aside className="app-card">
           <h2>Tasks</h2>
-          <div className="evidence-list">
-            {researchCase.tasks.map((task) => (
-              <div className="evidence-item" key={task.id}>
-                <strong>{task.title}</strong>
-                <div className="muted">{task.status}</div>
-              </div>
-            ))}
-          </div>
+          <CaseTaskList caseId={researchCase.id} initialTasks={researchCase.tasks} />
         </aside>
       </section>
 

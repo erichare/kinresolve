@@ -11,8 +11,8 @@ The V0.1 implementation is intentionally one-family-archive-per-deployment. That
 ## Runtime
 
 - Next.js App Router renders public and private routes.
-- Postgres stores normalized data, role grants, import snapshots, and audit logs.
-- `pgvector` stores semantic embeddings for source notes, facts, case evidence, and DNA match notes.
+- Postgres stores normalized workspace data, import snapshots, backups, case tasks, and AI run history.
+- `pgvector` is provisioned for semantic embeddings for source notes, facts, case evidence, and DNA match notes.
 - Object storage stores uploaded source images, PDFs, and transcripts.
 - A background worker owns GEDCOM imports, re-import diffs, embedding refreshes, and long AI jobs.
 
@@ -22,5 +22,4 @@ Anonymous visitors can only see manually published content. Private routes requi
 
 ## AI
 
-AI is a provider abstraction, not a hard dependency. Structured checks run deterministically. Semantic retrieval and generation use an OpenAI-compatible API when configured. Whole-tree AI is owner/admin only by default.
-
+AI is a provider abstraction, not a hard dependency. Structured checks run deterministically. Provider-backed analysis uses an OpenAI-compatible API when configured, sends full private workspace context, and stages suggestions for explicit user confirmation. Whole-tree AI is owner/admin only by default.

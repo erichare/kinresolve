@@ -1,24 +1,35 @@
-import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { closeDatabasePools, query } from "@/lib/db";
 import { applyGedcomImport, readWorkspace, updatePersonCuration } from "@/lib/workspace-store";
 import { prepareGedcomImport } from "@/lib/gedcom/apply";
 
-let tempDir: string;
-let storagePath: string;
+const databaseUrl = process.env.TEST_DATABASE_URL;
+const describeIfDatabase = databaseUrl ? describe : describe.skip;
 
-beforeEach(async () => {
-  tempDir = await mkdtemp(path.join(os.tmpdir(), "kinsleuth-apply-"));
-  storagePath = path.join(tempDir, "workspace.json");
+let storeOptions: { databaseUrl: string; archiveId: string };
+
+beforeAll(async () => {
+  if (!databaseUrl) return;
+  await query("DELETE FROM archives WHERE id LIKE 'test-%'", [], { databaseUrl });
+});
+
+beforeEach(() => {
+  if (!databaseUrl) return;
+  storeOptions = { databaseUrl, archiveId: `test-${randomUUID()}` };
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  if (!databaseUrl) return;
+  await query("DELETE FROM archives WHERE id = $1", [storeOptions.archiveId], { databaseUrl });
 });
 
-describe("GEDCOM apply", () => {
+afterAll(async () => {
+  await closeDatabasePools();
+});
+
+describe("GEDCOM prepare", () => {
   it("prepares people, sources, and raw records from GEDCOM content", () => {
     const content = readFileSync("fixtures/synthetic-family.ged", "utf8");
     const prepared = prepareGedcomImport("synthetic-family.ged", content, new Date("2026-01-01T00:00:00.000Z"));
@@ -35,11 +46,13 @@ describe("GEDCOM apply", () => {
     );
     expect(prepared.rawRecords).toHaveLength(prepared.snapshot.records.length);
   });
+});
 
+describeIfDatabase("GEDCOM apply", () => {
   it("applies a GEDCOM into the workspace and writes a backup", async () => {
     const content = readFileSync("fixtures/synthetic-family.ged", "utf8");
-    const result = await applyGedcomImport({ sourceName: "synthetic-family.ged", content }, { storagePath });
-    const workspace = await readWorkspace({ storagePath });
+    const result = await applyGedcomImport({ sourceName: "synthetic-family.ged", content }, storeOptions);
+    const workspace = await readWorkspace(storeOptions);
 
     expect(result.import.peopleImported).toBe(3);
     expect(workspace.imports[0]).toMatchObject({
@@ -48,15 +61,15 @@ describe("GEDCOM apply", () => {
     });
     expect(workspace.people.map((person) => person.id)).toEqual(expect.arrayContaining(["@I1@", "@I2@", "@I3@"]));
     expect(workspace.rawRecords).toHaveLength(result.rawRecordCount);
-    expect(existsSync(path.join(tempDir, result.backup.storageKey))).toBe(true);
+    expect(result.backup.storageKey).toContain("postgres://workspace_backups/");
   });
 
   it("preserves existing curation when an imported person is reapplied", async () => {
     const content = readFileSync("fixtures/synthetic-family.ged", "utf8");
-    await applyGedcomImport({ sourceName: "synthetic-family.ged", content }, { storagePath });
-    await updatePersonCuration("@I1@", { published: true, privacy: "public", livingStatus: "deceased" }, { storagePath });
-    await applyGedcomImport({ sourceName: "synthetic-family.ged", content }, { storagePath });
-    const workspace = await readWorkspace({ storagePath });
+    await applyGedcomImport({ sourceName: "synthetic-family.ged", content }, storeOptions);
+    await updatePersonCuration("@I1@", { published: true, privacy: "public", livingStatus: "deceased" }, storeOptions);
+    await applyGedcomImport({ sourceName: "synthetic-family.ged", content }, storeOptions);
+    const workspace = await readWorkspace(storeOptions);
     const person = workspace.people.find((item) => item.id === "@I1@");
 
     expect(person).toMatchObject({

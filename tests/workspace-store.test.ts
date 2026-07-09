@@ -1,30 +1,40 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { closeDatabasePools, query } from "@/lib/db";
 import type { DnaMatch } from "@/lib/models";
-import { createCase, deleteDnaMatch, linkDnaMatchToCase, readWorkspace, saveDnaMatch, saveDnaMatches, saveSourceDocument, updateDnaMatch, updatePersonCuration } from "@/lib/workspace-store";
+import { addCaseTask, createCase, deleteDnaMatch, linkDnaMatchToCase, readWorkspace, saveAIAnalysisRun, saveDnaMatch, saveDnaMatches, saveSourceDocument, updateCaseTask, updateDnaMatch, updatePersonCuration } from "@/lib/workspace-store";
 
-let tempDir: string;
-let storagePath: string;
+const databaseUrl = process.env.TEST_DATABASE_URL;
+const describeIfDatabase = databaseUrl ? describe : describe.skip;
 
-beforeEach(async () => {
-  tempDir = await mkdtemp(path.join(os.tmpdir(), "kinsleuth-store-"));
-  storagePath = path.join(tempDir, "workspace.json");
+let storeOptions: { databaseUrl: string; archiveId: string };
+
+beforeAll(async () => {
+  if (!databaseUrl) return;
+  await query("DELETE FROM archives WHERE id LIKE 'test-%'", [], { databaseUrl });
+});
+
+beforeEach(() => {
+  if (!databaseUrl) return;
+  storeOptions = { databaseUrl, archiveId: `test-${randomUUID()}` };
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  if (!databaseUrl) return;
+  await query("DELETE FROM archives WHERE id = $1", [storeOptions.archiveId], { databaseUrl });
 });
 
-describe("workspace store", () => {
-  it("seeds a workspace file when storage is empty", async () => {
-    const workspace = await readWorkspace({ storagePath });
-    const raw = JSON.parse(await readFile(storagePath, "utf8"));
+afterAll(async () => {
+  await closeDatabasePools();
+});
+
+describeIfDatabase("workspace store", () => {
+  it("seeds a Postgres archive when storage is empty", async () => {
+    const workspace = await readWorkspace(storeOptions);
 
     expect(workspace.people.length).toBeGreaterThan(0);
     expect(workspace.cases.length).toBeGreaterThan(0);
-    expect(raw.archiveName).toBe("Riemer - Zajicek Archive");
+    expect(workspace.archiveName).toBe("Riemer - Zajicek Archive");
   });
 
   it("persists created cases", async () => {
@@ -42,15 +52,108 @@ describe("workspace store", () => {
           }
         ]
       },
-      { storagePath }
+      storeOptions
     );
-    const workspace = await readWorkspace({ storagePath });
+    const workspace = await readWorkspace(storeOptions);
 
     expect(created.id).toMatch(/^case-/);
     expect(workspace.cases[0]).toMatchObject({
       id: created.id,
       title: "Test case",
       privacy: "private"
+    });
+  });
+
+  it("adds tasks to existing cases", async () => {
+    const createdCase = await createCase(
+      {
+        id: "case-task-test",
+        title: "Task test",
+        question: "What should happen next?",
+        focus: "Follow-up"
+      },
+      storeOptions
+    );
+
+    const result = await addCaseTask(createdCase.id, { title: "Check the parish register" }, storeOptions);
+    const workspace = await readWorkspace(storeOptions);
+
+    expect(result.task).toMatchObject({
+      title: "Check the parish register",
+      status: "todo"
+    });
+    expect(workspace.cases.find((item) => item.id === createdCase.id)?.tasks[0]).toMatchObject({
+      id: result.task.id,
+      title: "Check the parish register"
+    });
+  });
+
+  it("updates existing case task status", async () => {
+    const createdCase = await createCase(
+      {
+        id: "case-task-update",
+        title: "Task update test",
+        question: "Can a task move?",
+        focus: "Follow-up"
+      },
+      storeOptions
+    );
+    const createdTask = await addCaseTask(createdCase.id, { id: "task-update-target", title: "Review the census" }, storeOptions);
+
+    const result = await updateCaseTask(createdCase.id, createdTask.task.id, { status: "done" }, storeOptions);
+    const workspace = await readWorkspace(storeOptions);
+
+    expect(result.task).toMatchObject({
+      id: "task-update-target",
+      status: "done"
+    });
+    expect(workspace.cases.find((item) => item.id === createdCase.id)?.tasks[0]).toMatchObject({
+      id: "task-update-target",
+      status: "done"
+    });
+  });
+
+  it("persists compact AI analysis runs", async () => {
+    const run = await saveAIAnalysisRun(
+      {
+        id: "ai-test-run",
+        question: "What should I investigate next?",
+        answer: "Recommendation: Check the strongest DNA lead.",
+        status: "configuration_required",
+        evidenceUsed: ["3 people", "2 cases"],
+        uncertainty: ["No external AI call was made."],
+        anomalyCount: 2,
+        suggestions: [
+          {
+            id: "sugg-test",
+            type: "task",
+            title: "Check the strongest DNA lead",
+            summary: "Review against primary evidence.",
+            contextRefs: ["case-riemer-chicago"],
+            confidence: 0.7
+          }
+        ],
+        contextReferences: [
+          {
+            id: "case-riemer-chicago",
+            type: "case",
+            label: "Riemer immigration to Chicago"
+          }
+        ],
+        linkedCaseId: "case-riemer-chicago",
+        createdAt: "2026-07-09T12:00:00.000Z"
+      },
+      storeOptions
+    );
+    const workspace = await readWorkspace(storeOptions);
+
+    expect(run.id).toBe("ai-test-run");
+    expect(workspace.aiRuns[0]).toMatchObject({
+      id: "ai-test-run",
+      question: "What should I investigate next?",
+      anomalyCount: 2,
+      suggestions: expect.arrayContaining([expect.objectContaining({ id: "sugg-test" })]),
+      linkedCaseId: "case-riemer-chicago"
     });
   });
 
@@ -69,8 +172,8 @@ describe("workspace store", () => {
       triageStatus: "needs_review"
     };
 
-    const result = await saveDnaMatch(match, { storagePath });
-    const workspace = await readWorkspace({ storagePath });
+    const result = await saveDnaMatch(match, storeOptions);
+    const workspace = await readWorkspace(storeOptions);
 
     expect(result.helpfulnessScore).toBeGreaterThan(50);
     expect(result.hypothesis.matchId).toBe(match.id);
@@ -97,9 +200,9 @@ describe("workspace store", () => {
           triageStatus: "needs_review"
         }
       ],
-      { storagePath }
+      storeOptions
     );
-    const workspace = await readWorkspace({ storagePath });
+    const workspace = await readWorkspace(storeOptions);
 
     expect(results[0].helpfulnessScore).toBeGreaterThanOrEqual(75);
     expect(results[0].match.triageStatus).toBe("high_priority");
@@ -124,7 +227,7 @@ describe("workspace store", () => {
         notes: "",
         triageStatus: "needs_review"
       },
-      { storagePath }
+      storeOptions
     );
 
     const updated = await updateDnaMatch(
@@ -135,9 +238,9 @@ describe("workspace store", () => {
         triageStatus: "ignored",
         notes: "Not actionable without a visible tree."
       },
-      { storagePath }
+      storeOptions
     );
-    let workspace = await readWorkspace({ storagePath });
+    let workspace = await readWorkspace(storeOptions);
 
     expect(updated.match).toMatchObject({
       id: "dna-update-delete",
@@ -150,8 +253,8 @@ describe("workspace store", () => {
       triageStatus: "ignored"
     });
 
-    await deleteDnaMatch("dna-update-delete", { storagePath });
-    workspace = await readWorkspace({ storagePath });
+    await deleteDnaMatch("dna-update-delete", storeOptions);
+    workspace = await readWorkspace(storeOptions);
     expect(workspace.dnaMatches.some((match) => match.id === "dna-update-delete")).toBe(false);
   });
 
@@ -163,7 +266,7 @@ describe("workspace store", () => {
         question: "Where does this match belong?",
         focus: "DNA cluster"
       },
-      { storagePath }
+      storeOptions
     );
     await saveDnaMatch(
       {
@@ -179,7 +282,7 @@ describe("workspace store", () => {
         notes: "Useful match.",
         triageStatus: "high_priority"
       },
-      { storagePath }
+      storeOptions
     );
 
     const first = await linkDnaMatchToCase(
@@ -190,7 +293,7 @@ describe("workspace store", () => {
         summary: "First evidence summary.",
         confidence: 0.81
       },
-      { storagePath }
+      storeOptions
     );
     const second = await linkDnaMatchToCase(
       createdCase.id,
@@ -200,9 +303,9 @@ describe("workspace store", () => {
         summary: "Updated evidence summary.",
         confidence: 0.84
       },
-      { storagePath }
+      storeOptions
     );
-    const workspace = await readWorkspace({ storagePath });
+    const workspace = await readWorkspace(storeOptions);
     const updatedCase = workspace.cases.find((item) => item.id === createdCase.id);
 
     expect(first.created).toBe(true);
@@ -228,9 +331,9 @@ describe("workspace store", () => {
         privacy: "private",
         confidence: 0.74
       },
-      { storagePath }
+      storeOptions
     );
-    const workspace = await readWorkspace({ storagePath });
+    const workspace = await readWorkspace(storeOptions);
 
     expect(source.id).toMatch(/^src-/);
     expect(workspace.sources[0]).toMatchObject({
@@ -249,9 +352,9 @@ describe("workspace store", () => {
         privacy: "public",
         livingStatus: "deceased"
       },
-      { storagePath }
+      storeOptions
     );
-    const workspace = await readWorkspace({ storagePath });
+    const workspace = await readWorkspace(storeOptions);
 
     expect(updated).toMatchObject({
       id: "p-mary-zajicek",

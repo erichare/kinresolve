@@ -1,10 +1,25 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
+import { withTransaction, type DatabaseOptions } from "./db";
 import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoPeople } from "./demo-data";
 import { prepareGedcomImport } from "./gedcom/apply";
-import type { AppliedGedcomImport, DnaConnectionHypothesis, DnaMatch, PersonSummary, PrivacyLevel, RawGedcomRecord, ResearchCase, SourceDocument, WorkspaceBackup } from "./models";
+import type {
+  AIAnalysisRun,
+  AIAnalysisStatus,
+  AIContextReference,
+  AIStagedSuggestion,
+  AppliedGedcomImport,
+  DnaConnectionHypothesis,
+  DnaMatch,
+  PersonFact,
+  PersonSummary,
+  PrivacyLevel,
+  RawGedcomRecord,
+  ResearchCase,
+  SourceDocument,
+  WorkspaceBackup
+} from "./models";
 
 export type ScoredDnaMatch = DnaMatch & { helpfulnessScore: number };
 
@@ -15,22 +30,21 @@ export type WorkspaceData = {
   cases: ResearchCase[];
   sources: SourceDocument[];
   dnaMatches: DnaMatch[];
+  aiRuns: AIAnalysisRun[];
   imports: AppliedGedcomImport[];
   rawRecords: RawGedcomRecord[];
   backups: WorkspaceBackup[];
   updatedAt: string;
 };
 
-export type WorkspaceStoreOptions = {
-  storagePath?: string;
+export type WorkspaceStoreOptions = DatabaseOptions & {
+  archiveId?: string;
 };
 
-const defaultStoragePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "storage", "workspace.json");
+const defaultArchiveId = "archive-default";
 
-let writeQueue = Promise.resolve();
-
-export function getWorkspacePath(options: WorkspaceStoreOptions = {}): string {
-  return options.storagePath ?? process.env.KINSLEUTH_WORKSPACE_PATH ?? defaultStoragePath;
+export function getArchiveId(options: WorkspaceStoreOptions = {}): string {
+  return options.archiveId ?? process.env.KINSLEUTH_ARCHIVE_ID ?? defaultArchiveId;
 }
 
 export function createSeedWorkspace(now = new Date()): WorkspaceData {
@@ -55,6 +69,7 @@ export function createSeedWorkspace(now = new Date()): WorkspaceData {
       }
     ],
     dnaMatches: demoDnaMatches,
+    aiRuns: [],
     imports: [],
     rawRecords: [],
     backups: [],
@@ -63,35 +78,31 @@ export function createSeedWorkspace(now = new Date()): WorkspaceData {
 }
 
 export async function readWorkspace(options: WorkspaceStoreOptions = {}): Promise<WorkspaceData> {
-  const storagePath = getWorkspacePath(options);
+  const archiveId = getArchiveId(options);
 
-  try {
-    const raw = await readFile(storagePath, "utf8");
-    return normalizeWorkspaceData(JSON.parse(raw));
-  } catch (error) {
-    if (!isMissingFile(error)) {
-      throw error;
+  return withTransaction(options, async (client) => {
+    const archive = await client.query<{ id: string }>("SELECT id FROM archives WHERE id = $1", [archiveId]);
+    if (archive.rowCount === 0) {
+      const seed = createSeedWorkspace();
+      await persistWorkspace(client, archiveId, seed);
+      return seed;
     }
 
-    const seed = createSeedWorkspace();
-    await writeWorkspace(seed, options);
-    return seed;
-  }
+    return loadWorkspace(client, archiveId);
+  });
 }
 
 export async function writeWorkspace(workspace: WorkspaceData, options: WorkspaceStoreOptions = {}): Promise<WorkspaceData> {
-  const storagePath = getWorkspacePath(options);
+  const archiveId = getArchiveId(options);
   const next = normalizeWorkspaceData({
     ...workspace,
     updatedAt: new Date().toISOString()
   });
 
-  writeQueue = writeQueue.then(async () => {
-    await mkdir(path.dirname(storagePath), { recursive: true });
-    await writeFile(storagePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await withTransaction(options, async (client) => {
+    await persistWorkspace(client, archiveId, next);
   });
 
-  await writeQueue;
   return next;
 }
 
@@ -128,6 +139,112 @@ export async function createCase(input: Partial<ResearchCase>, options: Workspac
 
   await writeWorkspace({ ...workspace, cases: [created, ...workspace.cases.filter((item) => item.id !== created.id)] }, options);
   return created;
+}
+
+export async function addCaseTask(
+  caseId: string,
+  input: { id?: string; title?: string; status?: ResearchCase["tasks"][number]["status"] },
+  options: WorkspaceStoreOptions = {}
+): Promise<{ case: ResearchCase; task: ResearchCase["tasks"][number] }> {
+  if (!input.title?.trim()) {
+    throw new Error("task title is required");
+  }
+
+  const workspace = await readWorkspace(options);
+  const researchCase = workspace.cases.find((item) => item.id === caseId);
+  if (!researchCase) {
+    throw new Error("case not found");
+  }
+
+  const task: ResearchCase["tasks"][number] = {
+    id: input.id ?? `task-${randomUUID()}`,
+    title: input.title.trim(),
+    status: input.status ?? "todo"
+  };
+  const updatedCase: ResearchCase = {
+    ...researchCase,
+    tasks: [task, ...researchCase.tasks.filter((item) => item.id !== task.id)]
+  };
+
+  await writeWorkspace(
+    {
+      ...workspace,
+      cases: workspace.cases.map((item) => (item.id === caseId ? updatedCase : item))
+    },
+    options
+  );
+
+  return { case: updatedCase, task };
+}
+
+export async function updateCaseTask(
+  caseId: string,
+  taskId: string,
+  input: { title?: string; status?: ResearchCase["tasks"][number]["status"] },
+  options: WorkspaceStoreOptions = {}
+): Promise<{ case: ResearchCase; task: ResearchCase["tasks"][number] }> {
+  const workspace = await readWorkspace(options);
+  const researchCase = workspace.cases.find((item) => item.id === caseId);
+  if (!researchCase) {
+    throw new Error("case not found");
+  }
+
+  const currentTask = researchCase.tasks.find((task) => task.id === taskId);
+  if (!currentTask) {
+    throw new Error("task not found");
+  }
+
+  const task: ResearchCase["tasks"][number] = {
+    ...currentTask,
+    title: input.title?.trim() || currentTask.title,
+    status: input.status ?? currentTask.status
+  };
+  const updatedCase: ResearchCase = {
+    ...researchCase,
+    tasks: researchCase.tasks.map((item) => (item.id === taskId ? task : item))
+  };
+
+  await writeWorkspace(
+    {
+      ...workspace,
+      cases: workspace.cases.map((item) => (item.id === caseId ? updatedCase : item))
+    },
+    options
+  );
+
+  return { case: updatedCase, task };
+}
+
+export async function saveAIAnalysisRun(
+  input: Omit<AIAnalysisRun, "id" | "createdAt"> & Partial<Pick<AIAnalysisRun, "id" | "createdAt" | "completedAt">>,
+  options: WorkspaceStoreOptions = {}
+): Promise<AIAnalysisRun> {
+  if (!input.question.trim()) {
+    throw new Error("analysis question is required");
+  }
+
+  const workspace = await readWorkspace(options);
+  const run: AIAnalysisRun = normalizeAIAnalysisRun({
+    ...input,
+    id: input.id ?? `ai-${randomUUID()}`,
+    question: input.question.trim(),
+    evidenceUsed: input.evidenceUsed ?? [],
+    uncertainty: input.uncertainty ?? [],
+    suggestions: input.suggestions ?? [],
+    contextReferences: input.contextReferences ?? [],
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    completedAt: input.completedAt ?? new Date().toISOString()
+  });
+
+  await writeWorkspace(
+    {
+      ...workspace,
+      aiRuns: [run, ...workspace.aiRuns.filter((item) => item.id !== run.id)].slice(0, 25)
+    },
+    options
+  );
+
+  return run;
 }
 
 export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptions = {}): Promise<{
@@ -302,11 +419,15 @@ export async function saveSourceDocument(input: Partial<SourceDocument>, options
     id: input.id ?? `src-${randomUUID()}`,
     title: input.title.trim(),
     sourceType: input.sourceType?.trim() || "Document",
+    importId: input.importId,
+    rawRecordId: input.rawRecordId,
     fileName: input.fileName,
     storageKey: input.storageKey,
     mimeType: input.mimeType,
     size: input.size,
     repository: input.repository,
+    url: input.url,
+    ancestryApid: input.ancestryApid,
     citationDate: input.citationDate,
     linkedPersonId: input.linkedPersonId,
     linkedCaseId: input.linkedCaseId,
@@ -365,7 +486,7 @@ export async function applyGedcomImport(
 
   const workspace = await readWorkspace(options);
   const prepared = prepareGedcomImport(input.sourceName.trim(), input.content);
-  const backup = await writeWorkspaceBackup(workspace, `Before applying ${prepared.snapshot.sourceName}`, options);
+  const backup = createWorkspaceBackup(workspace, `Before applying ${prepared.snapshot.sourceName}`);
   const importedPeople = mergeImportedPeople(workspace.people, prepared.people);
   const importedSources = mergeById(workspace.sources, prepared.sources);
   const rawRecords = [
@@ -409,6 +530,527 @@ export function createWorkspaceDnaHypotheses(workspace: Pick<WorkspaceData, "peo
   return workspace.dnaMatches.map((match) => createDnaConnectionHypothesis(match, workspace.people));
 }
 
+async function loadWorkspace(client: PoolClient, archiveId: string): Promise<WorkspaceData> {
+  const archiveResult = await client.query<{ name: string; updated_at: Date }>("SELECT name, updated_at FROM archives WHERE id = $1", [archiveId]);
+  const archive = archiveResult.rows[0];
+  if (!archive) {
+    throw new Error("archive not found");
+  }
+
+  const peopleResult = await client.query("SELECT * FROM people WHERE archive_id = $1 ORDER BY sort_order ASC, display_name ASC", [archiveId]);
+  const factsResult = await client.query("SELECT * FROM person_facts WHERE archive_id = $1 ORDER BY sort_order ASC, id ASC", [archiveId]);
+  const casesResult = await client.query("SELECT * FROM research_cases WHERE archive_id = $1 ORDER BY sort_order ASC, title ASC", [archiveId]);
+  const hypothesesResult = await client.query("SELECT * FROM hypotheses WHERE archive_id = $1 ORDER BY sort_order ASC, id ASC", [archiveId]);
+  const evidenceResult = await client.query("SELECT * FROM evidence_items WHERE archive_id = $1 ORDER BY sort_order ASC, id ASC", [archiveId]);
+  const tasksResult = await client.query("SELECT * FROM tasks WHERE archive_id = $1 ORDER BY sort_order ASC, id ASC", [archiveId]);
+  const sourcesResult = await client.query("SELECT * FROM sources WHERE archive_id = $1 ORDER BY sort_order ASC, created_at DESC, title ASC", [archiveId]);
+  const dnaMatchesResult = await client.query("SELECT * FROM dna_matches WHERE archive_id = $1 ORDER BY sort_order ASC, display_name ASC", [archiveId]);
+  const aiRunsResult = await client.query("SELECT * FROM ai_runs WHERE archive_id = $1 ORDER BY sort_order ASC, created_at DESC", [archiveId]);
+  const importsResult = await client.query("SELECT * FROM import_snapshots WHERE archive_id = $1 ORDER BY sort_order ASC, applied_at DESC", [archiveId]);
+  const rawRecordsResult = await client.query("SELECT * FROM raw_records WHERE archive_id = $1 ORDER BY sort_order ASC, id ASC", [archiveId]);
+  const backupsResult = await client.query("SELECT * FROM workspace_backups WHERE archive_id = $1 ORDER BY sort_order ASC, created_at DESC", [archiveId]);
+
+  const factsByPerson = groupBy(factsResult.rows.map(mapPersonFact), (fact) => fact.personId);
+  const hypothesesByCase = groupBy(hypothesesResult.rows.map(mapHypothesis), (hypothesis) => hypothesis.caseId);
+  const evidenceByCase = groupBy(evidenceResult.rows.map(mapEvidence), (evidence) => evidence.caseId);
+  const tasksByCase = groupBy(tasksResult.rows.map(mapTask), (task) => task.caseId);
+
+  return normalizeWorkspaceData({
+    archiveName: archive.name,
+    people: peopleResult.rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      displayName: row.display_name,
+      givenName: row.given_name ?? undefined,
+      surname: row.surname ?? undefined,
+      birthDate: row.birth_date ?? undefined,
+      birthPlace: row.birth_place ?? undefined,
+      deathDate: row.death_date ?? undefined,
+      deathPlace: row.death_place ?? undefined,
+      sex: row.sex ?? undefined,
+      livingStatus: row.living_status,
+      privacy: row.privacy,
+      published: row.published,
+      facts: (factsByPerson.get(row.id) ?? []).map(({ personId: _personId, ...fact }) => {
+        void _personId;
+        return fact;
+      }),
+      relatives: row.relatives ?? [],
+      notes: row.notes ?? undefined
+    })),
+    cases: casesResult.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      question: row.question,
+      status: row.status,
+      focus: row.focus ?? "",
+      privacy: row.privacy,
+      hypotheses: (hypothesesByCase.get(row.id) ?? []).map(({ caseId: _caseId, ...hypothesis }) => {
+        void _caseId;
+        return hypothesis;
+      }),
+      evidence: (evidenceByCase.get(row.id) ?? []).map(({ caseId: _caseId, ...evidence }) => {
+        void _caseId;
+        return evidence;
+      }),
+      tasks: (tasksByCase.get(row.id) ?? []).map(({ caseId: _caseId, ...task }) => {
+        void _caseId;
+        return task;
+      })
+    })),
+    sources: sourcesResult.rows.map(mapSourceDocument),
+    dnaMatches: dnaMatchesResult.rows.map(mapDnaMatch),
+    aiRuns: aiRunsResult.rows.map(mapAIAnalysisRun),
+    imports: importsResult.rows.map(mapAppliedImport),
+    rawRecords: rawRecordsResult.rows.map(mapRawRecord),
+    backups: backupsResult.rows.map(mapWorkspaceBackup),
+    updatedAt: archive.updated_at.toISOString()
+  });
+}
+
+async function persistWorkspace(client: PoolClient, archiveId: string, workspace: WorkspaceData): Promise<void> {
+  const normalized = normalizeWorkspaceData(workspace);
+
+  await client.query(
+    `INSERT INTO archives (id, name, tagline, slug, updated_at)
+     VALUES ($1, $2, '', $3, $4)
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at`,
+    [archiveId, normalized.archiveName, slugifyArchive(`${normalized.archiveName}-${archiveId}`), normalized.updatedAt]
+  );
+
+  await client.query("DELETE FROM ai_runs WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM dna_hypotheses WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM dna_matches WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM tasks WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM evidence_items WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM hypotheses WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM research_cases WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM sources WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM raw_records WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM import_snapshots WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM workspace_backups WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM person_facts WHERE archive_id = $1", [archiveId]);
+  await client.query("DELETE FROM people WHERE archive_id = $1", [archiveId]);
+
+  for (const [index, person] of normalized.people.entries()) {
+    await client.query(
+      `INSERT INTO people (
+        id, archive_id, slug, display_name, given_name, surname, sex, birth_date, birth_place,
+        death_date, death_place, living_status, privacy, published, relatives, notes, confidence, sort_order
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0.5, $17)`,
+      [
+        person.id,
+        archiveId,
+        person.slug,
+        person.displayName,
+        person.givenName,
+        person.surname,
+        person.sex,
+        person.birthDate,
+        person.birthPlace,
+        person.deathDate,
+        person.deathPlace,
+        person.livingStatus,
+        person.privacy,
+        person.published,
+        person.relatives,
+        person.notes,
+        index
+      ]
+    );
+
+    for (const [factIndex, fact] of person.facts.entries()) {
+      await client.query(
+        `INSERT INTO person_facts (
+          id, archive_id, person_id, fact_type, date_text, place_text, value_text, source_text, privacy, confidence, sort_order
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          fact.id,
+          archiveId,
+          person.id,
+          fact.type,
+          fact.date,
+          fact.place,
+          fact.value,
+          fact.source,
+          fact.privacy,
+          normalizeConfidence(fact.confidence),
+          factIndex
+        ]
+      );
+    }
+  }
+
+  for (const [index, source] of normalized.sources.entries()) {
+    await client.query(
+      `INSERT INTO sources (
+        id, archive_id, title, source_type, import_id, raw_record_id, file_name, storage_key,
+        mime_type, size_bytes, repository, url, ancestry_apid, citation_date, linked_person_id,
+        linked_case_id, transcript, notes, privacy, confidence, created_at, sort_order
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+      [
+        source.id,
+        archiveId,
+        source.title,
+        source.sourceType,
+        source.importId,
+        source.rawRecordId,
+        source.fileName,
+        source.storageKey,
+        source.mimeType,
+        source.size,
+        source.repository,
+        source.url,
+        source.ancestryApid,
+        source.citationDate,
+        source.linkedPersonId,
+        source.linkedCaseId,
+        source.transcript,
+        source.notes,
+        source.privacy,
+        normalizeConfidence(source.confidence),
+        source.createdAt,
+        index
+      ]
+    );
+  }
+
+  for (const [index, researchCase] of normalized.cases.entries()) {
+    await client.query(
+      `INSERT INTO research_cases (id, archive_id, title, question, status, focus, privacy, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [researchCase.id, archiveId, researchCase.title, researchCase.question, researchCase.status, researchCase.focus, researchCase.privacy, index]
+    );
+
+    for (const [hypothesisIndex, hypothesis] of researchCase.hypotheses.entries()) {
+      await client.query(
+        `INSERT INTO hypotheses (id, archive_id, case_id, statement, confidence, status, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [hypothesis.id, archiveId, researchCase.id, hypothesis.statement, normalizeConfidence(hypothesis.confidence), hypothesis.status, hypothesisIndex]
+      );
+    }
+
+    for (const [evidenceIndex, evidence] of researchCase.evidence.entries()) {
+      await client.query(
+        `INSERT INTO evidence_items (
+          id, archive_id, case_id, title, evidence_type, summary, confidence, linked_person_id, linked_dna_match_id, sort_order
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          evidence.id,
+          archiveId,
+          researchCase.id,
+          evidence.title,
+          evidence.type,
+          evidence.summary,
+          normalizeConfidence(evidence.confidence),
+          evidence.linkedPersonId,
+          evidence.linkedDnaMatchId,
+          evidenceIndex
+        ]
+      );
+    }
+
+    for (const [taskIndex, task] of researchCase.tasks.entries()) {
+      await client.query(
+        "INSERT INTO tasks (id, archive_id, case_id, title, status, sort_order) VALUES ($1, $2, $3, $4, $5, $6)",
+        [task.id, archiveId, researchCase.id, task.title, task.status, taskIndex]
+      );
+    }
+  }
+
+  for (const [index, match] of normalized.dnaMatches.entries()) {
+    await client.query(
+      `INSERT INTO dna_matches (
+        id, archive_id, display_name, total_cm, longest_segment_cm, shared_dna_percent,
+        predicted_relationship, side, tree_status, surnames, places, shared_matches, notes,
+        ancestry_url, triage_status, sort_order
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      [
+        match.id,
+        archiveId,
+        match.displayName,
+        match.totalCm,
+        match.longestSegmentCm,
+        match.sharedDnaPercent,
+        match.predictedRelationship,
+        match.side,
+        match.treeStatus,
+        match.surnames,
+        match.places,
+        match.sharedMatches,
+        match.notes,
+        match.ancestryUrl,
+        match.triageStatus,
+        index
+      ]
+    );
+
+    const hypothesis = createDnaConnectionHypothesis(match, normalized.people);
+    await client.query(
+      `INSERT INTO dna_hypotheses (
+        id, archive_id, dna_match_id, likely_branch, likely_generation, geography,
+        candidate_common_ancestors, confidence, explanation, evidence, uncertainty
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)`,
+      [
+        `hyp-${match.id}`,
+        archiveId,
+        match.id,
+        hypothesis.likelyBranch,
+        hypothesis.likelyGeneration,
+        hypothesis.geography,
+        hypothesis.candidateCommonAncestors,
+        normalizeConfidence(hypothesis.confidence),
+        hypothesis.explanation,
+        JSON.stringify(hypothesis.evidence),
+        JSON.stringify(hypothesis.uncertainty)
+      ]
+    );
+  }
+
+  for (const [index, run] of normalized.aiRuns.entries()) {
+    await client.query(
+      `INSERT INTO ai_runs (
+        id, archive_id, run_type, provider, model, question, answer, status, provider_status,
+        evidence, uncertainty, suggestions, context_references, result, anomaly_count, linked_case_id,
+        prompt_redacted, error, created_at, completed_at, sort_order
+      ) VALUES (
+        $1, $2, 'analysis', $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
+        $13::jsonb, $14, $15, $16, $17, $18, $19, $20
+      )`,
+      [
+        run.id,
+        archiveId,
+        run.provider ?? "local",
+        run.model ?? "local",
+        run.question,
+        run.answer,
+        run.status,
+        run.providerStatus ?? (run.status === "ready" ? "completed" : run.status === "provider_error" ? "failed" : "not_configured"),
+        JSON.stringify(run.evidenceUsed),
+        JSON.stringify(run.uncertainty),
+        JSON.stringify(run.suggestions),
+        JSON.stringify(run.contextReferences),
+        JSON.stringify({ answer: run.answer, status: run.status }),
+        run.anomalyCount,
+        run.linkedCaseId,
+        run.promptPreview ?? "",
+        run.error,
+        run.createdAt,
+        run.completedAt,
+        index
+      ]
+    );
+  }
+
+  for (const [index, item] of normalized.imports.entries()) {
+    await client.query(
+      `INSERT INTO import_snapshots (
+        id, archive_id, source_name, checksum, summary, record_count, people_imported,
+        sources_imported, raw_record_count, backup_id, applied_at, sort_order
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        item.id,
+        archiveId,
+        item.sourceName,
+        item.checksum,
+        JSON.stringify(item.summary),
+        item.recordCount,
+        item.peopleImported,
+        item.sourcesImported,
+        item.rawRecordCount,
+        item.backupId,
+        item.appliedAt,
+        index
+      ]
+    );
+  }
+
+  for (const [index, record] of normalized.rawRecords.entries()) {
+    await client.query(
+      `INSERT INTO raw_records (id, archive_id, import_id, xref, record_type, raw_text, checksum, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [record.id, archiveId, record.importId, record.xref, record.type, record.raw, record.checksum, index]
+    );
+  }
+
+  for (const [index, backup] of normalized.backups.entries()) {
+    await client.query(
+      `INSERT INTO workspace_backups (
+        id, archive_id, created_at, reason, storage_key, people_count, sources_count,
+        cases_count, dna_match_count, import_count, raw_record_count, snapshot, sort_order
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, '{}'::jsonb, $12)`,
+      [
+        backup.id,
+        archiveId,
+        backup.createdAt,
+        backup.reason,
+        backup.storageKey,
+        backup.peopleCount,
+        backup.sourcesCount,
+        backup.casesCount,
+        backup.dnaMatchCount,
+        backup.importCount,
+        backup.rawRecordCount,
+        index
+      ]
+    );
+  }
+}
+
+function mapPersonFact(row: Record<string, unknown>): PersonFact & { personId: string } {
+  return {
+    personId: String(row.person_id),
+    id: String(row.id),
+    type: String(row.fact_type),
+    date: optionalString(row.date_text),
+    place: optionalString(row.place_text),
+    value: optionalString(row.value_text),
+    source: optionalString(row.source_text),
+    confidence: Number(row.confidence ?? 0.5),
+    privacy: row.privacy ? (String(row.privacy) as PrivacyLevel) : undefined
+  };
+}
+
+function mapHypothesis(row: Record<string, unknown>): ResearchCase["hypotheses"][number] & { caseId: string } {
+  return {
+    caseId: String(row.case_id),
+    id: String(row.id),
+    statement: String(row.statement),
+    confidence: Number(row.confidence ?? 0.5),
+    status: row.status as ResearchCase["hypotheses"][number]["status"]
+  };
+}
+
+function mapEvidence(row: Record<string, unknown>): ResearchCase["evidence"][number] & { caseId: string } {
+  return {
+    caseId: String(row.case_id),
+    id: String(row.id),
+    title: String(row.title),
+    type: String(row.evidence_type),
+    summary: String(row.summary),
+    confidence: Number(row.confidence ?? 0.5),
+    linkedPersonId: optionalString(row.linked_person_id),
+    linkedDnaMatchId: optionalString(row.linked_dna_match_id)
+  };
+}
+
+function mapTask(row: Record<string, unknown>): ResearchCase["tasks"][number] & { caseId: string } {
+  return {
+    caseId: String(row.case_id),
+    id: String(row.id),
+    title: String(row.title),
+    status: row.status as ResearchCase["tasks"][number]["status"]
+  };
+}
+
+function mapSourceDocument(row: Record<string, unknown>): SourceDocument {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    sourceType: String(row.source_type),
+    importId: optionalString(row.import_id),
+    rawRecordId: optionalString(row.raw_record_id),
+    fileName: optionalString(row.file_name),
+    storageKey: optionalString(row.storage_key),
+    mimeType: optionalString(row.mime_type),
+    size: row.size_bytes === null || row.size_bytes === undefined ? undefined : Number(row.size_bytes),
+    repository: optionalString(row.repository),
+    url: optionalString(row.url),
+    ancestryApid: optionalString(row.ancestry_apid),
+    citationDate: optionalString(row.citation_date),
+    linkedPersonId: optionalString(row.linked_person_id),
+    linkedCaseId: optionalString(row.linked_case_id),
+    transcript: optionalString(row.transcript),
+    notes: optionalString(row.notes),
+    privacy: row.privacy as PrivacyLevel,
+    confidence: Number(row.confidence ?? 0.5),
+    createdAt: toIsoString(row.created_at)
+  };
+}
+
+function mapDnaMatch(row: Record<string, unknown>): DnaMatch {
+  return {
+    id: String(row.id),
+    displayName: String(row.display_name),
+    totalCm: Number(row.total_cm),
+    longestSegmentCm: row.longest_segment_cm === null || row.longest_segment_cm === undefined ? undefined : Number(row.longest_segment_cm),
+    sharedDnaPercent: row.shared_dna_percent === null || row.shared_dna_percent === undefined ? undefined : Number(row.shared_dna_percent),
+    predictedRelationship: optionalString(row.predicted_relationship),
+    side: row.side as DnaMatch["side"],
+    treeStatus: row.tree_status as DnaMatch["treeStatus"],
+    surnames: toStringArray(row.surnames),
+    places: toStringArray(row.places),
+    sharedMatches: toStringArray(row.shared_matches),
+    notes: String(row.notes ?? ""),
+    ancestryUrl: optionalString(row.ancestry_url),
+    triageStatus: row.triage_status as DnaMatch["triageStatus"]
+  };
+}
+
+function mapAIAnalysisRun(row: Record<string, unknown>): AIAnalysisRun {
+  const status = row.status as AIAnalysisStatus;
+  return normalizeAIAnalysisRun({
+    id: String(row.id),
+    question: String(row.question),
+    answer: String(row.answer),
+    status,
+    evidenceUsed: toJsonArray<string>(row.evidence),
+    uncertainty: toJsonArray<string>(row.uncertainty),
+    anomalyCount: Number(row.anomaly_count ?? 0),
+    suggestions: toJsonArray<AIStagedSuggestion>(row.suggestions),
+    contextReferences: toJsonArray<AIContextReference>(row.context_references),
+    provider: optionalString(row.provider),
+    model: optionalString(row.model),
+    providerStatus: row.provider_status as AIAnalysisRun["providerStatus"],
+    promptPreview: optionalString(row.prompt_redacted),
+    error: optionalString(row.error),
+    linkedCaseId: optionalString(row.linked_case_id),
+    createdAt: toIsoString(row.created_at),
+    completedAt: row.completed_at ? toIsoString(row.completed_at) : undefined
+  });
+}
+
+function mapAppliedImport(row: Record<string, unknown>): AppliedGedcomImport {
+  return {
+    id: String(row.id),
+    sourceName: String(row.source_name),
+    checksum: String(row.checksum),
+    appliedAt: toIsoString(row.applied_at),
+    summary: row.summary as AppliedGedcomImport["summary"],
+    recordCount: Number(row.record_count ?? 0),
+    peopleImported: Number(row.people_imported ?? 0),
+    sourcesImported: Number(row.sources_imported ?? 0),
+    rawRecordCount: Number(row.raw_record_count ?? 0),
+    backupId: String(row.backup_id ?? "")
+  };
+}
+
+function mapRawRecord(row: Record<string, unknown>): RawGedcomRecord {
+  return {
+    id: String(row.id),
+    importId: String(row.import_id),
+    xref: optionalString(row.xref),
+    type: String(row.record_type),
+    checksum: String(row.checksum),
+    raw: String(row.raw_text)
+  };
+}
+
+function mapWorkspaceBackup(row: Record<string, unknown>): WorkspaceBackup {
+  return {
+    id: String(row.id),
+    createdAt: toIsoString(row.created_at),
+    reason: String(row.reason),
+    storageKey: String(row.storage_key),
+    peopleCount: Number(row.people_count ?? 0),
+    sourcesCount: Number(row.sources_count ?? 0),
+    casesCount: Number(row.cases_count ?? 0),
+    dnaMatchCount: Number(row.dna_match_count ?? 0),
+    importCount: Number(row.import_count ?? 0),
+    rawRecordCount: Number(row.raw_record_count ?? 0)
+  };
+}
+
 function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {
   return {
     version: "0.17.0",
@@ -417,6 +1059,7 @@ function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {
     cases: Array.isArray(value.cases) ? value.cases : [],
     sources: Array.isArray(value.sources) ? value.sources : [],
     dnaMatches: Array.isArray(value.dnaMatches) ? value.dnaMatches : [],
+    aiRuns: Array.isArray(value.aiRuns) ? value.aiRuns.map(normalizeAIAnalysisRun) : [],
     imports: Array.isArray(value.imports) ? value.imports : [],
     rawRecords: Array.isArray(value.rawRecords) ? value.rawRecords : [],
     backups: Array.isArray(value.backups) ? value.backups : [],
@@ -424,14 +1067,28 @@ function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {
   };
 }
 
-async function writeWorkspaceBackup(workspace: WorkspaceData, reason: string, options: WorkspaceStoreOptions): Promise<WorkspaceBackup> {
+function normalizeAIAnalysisRun(run: AIAnalysisRun): AIAnalysisRun {
+  return {
+    ...run,
+    status: run.status,
+    evidenceUsed: run.evidenceUsed ?? [],
+    uncertainty: run.uncertainty ?? [],
+    anomalyCount: run.anomalyCount ?? 0,
+    suggestions: run.suggestions ?? [],
+    contextReferences: run.contextReferences ?? [],
+    createdAt: run.createdAt ?? new Date().toISOString()
+  };
+}
+
+function createWorkspaceBackup(workspace: WorkspaceData, reason: string): WorkspaceBackup {
   const createdAt = new Date().toISOString();
   const id = `backup-${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
-  const backup: WorkspaceBackup = {
+
+  return {
     id,
     createdAt,
     reason,
-    storageKey: `backups/${id}.json`,
+    storageKey: `postgres://workspace_backups/${id}`,
     peopleCount: workspace.people.length,
     sourcesCount: workspace.sources.length,
     casesCount: workspace.cases.length,
@@ -439,11 +1096,6 @@ async function writeWorkspaceBackup(workspace: WorkspaceData, reason: string, op
     importCount: workspace.imports.length,
     rawRecordCount: workspace.rawRecords.length
   };
-  const storagePath = getWorkspacePath(options);
-  const backupPath = path.join(path.dirname(storagePath), backup.storageKey);
-  await mkdir(path.dirname(backupPath), { recursive: true });
-  await writeFile(backupPath, `${JSON.stringify(workspace, null, 2)}\n`, "utf8");
-  return backup;
 }
 
 function createDnaEvidenceSummary(match: DnaMatch, helpfulnessScore: number): string {
@@ -524,6 +1176,42 @@ function mergeById<T extends { id: string }>(existing: T[], imported: T[]): T[] 
   return [...imported, ...existing.filter((item) => !importedIds.has(item.id))];
 }
 
-function isMissingFile(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+function groupBy<T, K>(items: T[], keyForItem: (item: T) => K): Map<K, T[]> {
+  const grouped = new Map<K, T[]>();
+  for (const item of items) {
+    const key = keyForItem(item);
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+  return grouped;
+}
+
+function toJsonArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) {
+    return value as T[];
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length ? value : undefined;
+}
+
+function toIsoString(value: unknown): string {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function slugifyArchive(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "archive";
 }

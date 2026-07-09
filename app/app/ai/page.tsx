@@ -16,6 +16,8 @@ export default async function AIPage() {
     <AppShell title="AI Analyst" active="/app/ai">
       <AIAnalystWorkspace
         initialQuestion={initialQuestion}
+        cases={workspace.cases}
+        initialRuns={workspace.aiRuns}
         anomalies={anomalies}
         counts={{
           people: workspace.people.length,
