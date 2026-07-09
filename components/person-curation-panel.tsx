@@ -12,7 +12,7 @@ export function PersonCurationPanel({ person }: { person: PersonSummary }) {
 
   async function save() {
     setStatus("saving");
-    const response = await fetch(`/api/people/${person.id}/curation`, {
+    const response = await fetch(`/api/people/${encodeURIComponent(person.id)}/curation`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ published, privacy, livingStatus })

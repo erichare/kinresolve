@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ImportDiff, ImportSnapshot } from "@/lib/gedcom/importer";
 import { workspaceStorageKeys, type StoredImportPreview } from "@/lib/workspace-snapshot";
@@ -192,9 +193,11 @@ export function ImportPreviewWorkspace() {
                 {result.snapshot.summary.sourceReferences.toLocaleString()} source refs · {result.snapshot.summary.urls.toLocaleString()} URLs · {result.snapshot.summary.ancestryApids.toLocaleString()} Ancestry IDs · {result.snapshot.summary.notes.toLocaleString()} notes
               </p>
             </div>
-            <button className="button" disabled={status === "applying"} onClick={applyImport}>
-              {status === "applying" ? "Applying..." : "Apply import"}
-            </button>
+            {result.applied ? null : (
+              <button className="button" disabled={status === "applying"} onClick={applyImport}>
+                {status === "applying" ? "Applying..." : "Apply import"}
+              </button>
+            )}
             {result.applied ? (
               <div className="evidence-item">
                 <strong>Applied to workspace</strong>
@@ -202,6 +205,15 @@ export function ImportPreviewWorkspace() {
                   {result.applied.import.peopleImported.toLocaleString()} people · {result.applied.import.sourcesImported.toLocaleString()} sources · {result.applied.import.rawRecordCount.toLocaleString()} raw records
                 </p>
                 <p className="muted">Backup {result.applied.backup.id} saved to {result.applied.backup.storageKey}</p>
+                <p className="muted">Private person pages are available now. Public profiles stay hidden until you curate privacy, living status, and publication.</p>
+                <div className="hero-actions">
+                  <Link className="button" href="/app/people">
+                    Review people
+                  </Link>
+                  <Link className="button-secondary" href="/app/publishing">
+                    Publication review
+                  </Link>
+                </div>
               </div>
             ) : null}
           </div>

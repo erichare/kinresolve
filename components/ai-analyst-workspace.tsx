@@ -41,6 +41,8 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [busySuggestionId, setBusySuggestionId] = useState("");
   const [confirmedSuggestionIds, setConfirmedSuggestionIds] = useState<string[]>([]);
+  const visibleAnomalies = anomalies.slice(0, 75);
+  const hiddenAnomalyCount = anomalies.length - visibleAnomalies.length;
 
   async function runAnalysis(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -220,9 +222,17 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
           </div>
           <div className="evidence-list">
             {anomalies.length > 0 ? (
-              anomalies.map((anomaly) => (
-                <AnomalyItem anomaly={anomaly} key={anomaly.title} />
-              ))
+              <>
+                {visibleAnomalies.map((anomaly, index) => (
+                  <AnomalyItem anomaly={anomaly} key={`${anomaly.type}-${anomaly.title}-${index}`} />
+                ))}
+                {hiddenAnomalyCount > 0 ? (
+                  <div className="evidence-item">
+                    <strong>{hiddenAnomalyCount.toLocaleString()} more checks are included in analysis context</strong>
+                    <p className="muted">The sidebar is capped so large GEDCOM imports stay readable. Use Quality Reports for the paginated review queue.</p>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <div className="evidence-item">
                 <strong>No high-risk anomalies in demo data</strong>
@@ -327,11 +337,11 @@ function TaskAction({
       </div>
       {result.suggestions.length ? (
         <div className="analysis-suggestion-list">
-          {result.suggestions.map((suggestion) => {
+          {result.suggestions.map((suggestion, index) => {
             const targetCase = cases.find((researchCase) => researchCase.id === (suggestion.linkedCaseId || selectedCaseId));
             const confirmed = confirmedSuggestionIds.includes(suggestion.id);
             return (
-              <div className="analysis-suggestion-card" key={suggestion.id}>
+              <div className="analysis-suggestion-card" key={`${suggestion.id}-${index}`}>
                 <div>
                   <div className="evidence-item-heading">
                     <strong>{suggestion.title}</strong>
@@ -392,8 +402,8 @@ function AnalysisResult({ result }: { result: AIAnalysisResult | null }) {
         {result.provider} · {result.model} · {result.providerStatus === "completed" ? "provider response saved" : result.providerStatus === "failed" ? "local fallback saved" : "local analysis saved"}
       </p>
       <div className="analysis-answer">
-        {result.answer.split("\n\n").map((paragraph) => (
-          <p key={paragraph}>{paragraph}</p>
+        {result.answer.split("\n\n").map((paragraph, index) => (
+          <p key={`answer-${index}`}>{paragraph}</p>
         ))}
       </div>
       <div className="analysis-columns">
@@ -404,8 +414,8 @@ function AnalysisResult({ result }: { result: AIAnalysisResult | null }) {
         <div className="analysis-list analysis-context-list">
           <strong>Cited context</strong>
           <ul>
-            {result.contextReferences.slice(0, 8).map((reference) => (
-              <li key={`${reference.type}-${reference.id}`}>
+            {result.contextReferences.slice(0, 8).map((reference, index) => (
+              <li key={`${reference.type}-${reference.id}-${index}`}>
                 {reference.label} <span className="muted">({reference.type})</span>
               </li>
             ))}
@@ -421,8 +431,8 @@ function ResultList({ title, items }: { title: string; items: string[] }) {
     <div className="analysis-list">
       <strong>{title}</strong>
       <ul>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
+        {items.map((item, index) => (
+          <li key={`${title}-${index}`}>{item}</li>
         ))}
       </ul>
     </div>

@@ -9,6 +9,7 @@ const livingStatuses = new Set<PersonSummary["livingStatus"]>(["living", "deceas
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const personId = decodeURIComponent(id);
   const body = (await request.json()) as { published?: boolean; privacy?: PrivacyLevel; livingStatus?: PersonSummary["livingStatus"] };
 
   if (body.privacy && !privacyLevels.has(body.privacy)) {
@@ -19,7 +20,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   try {
-    return NextResponse.json(await updatePersonCuration(id, body));
+    return NextResponse.json(await updatePersonCuration(personId, body));
   } catch {
     return NextResponse.json({ error: "Person not found" }, { status: 404 });
   }

@@ -1257,6 +1257,25 @@ textarea {
   gap: 20px;
 }
 
+.workspace-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(0, 107, 88, 0.16);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: rgba(226, 244, 237, 0.46);
+}
+
+.workspace-notice svg {
+  color: var(--accent);
+}
+
+.workspace-notice p {
+  margin: 3px 0 0;
+}
+
 .people-search-card {
   display: grid;
   align-content: start;
@@ -1599,6 +1618,10 @@ textarea {
   .source-filter-grid,
   .case-filter-grid,
   .dna-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-notice {
     grid-template-columns: 1fr;
   }
 

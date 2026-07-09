@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
 
 export default async function AppPersonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const personId = decodeURIComponent(id);
   const workspace = await readWorkspace();
-  const person = workspace.people.find((item) => item.id === id);
+  const person = workspace.people.find((item) => item.id === personId);
 
   if (!person) {
     notFound();
@@ -103,7 +104,7 @@ export default async function AppPersonPage({ params }: { params: Promise<{ id: 
             <div className="evidence-list">
               {relatives.length > 0 ? (
                 relatives.map((relative) => (
-                  <Link className="evidence-item relationship-link" href={`/app/people/${relative.id}`} key={relative.id}>
+                  <Link className="evidence-item relationship-link" href={`/app/people/${encodeURIComponent(relative.id)}`} key={relative.id}>
                     <strong>{relative.displayName}</strong>
                     <span className="muted">{relative.birthDate ?? "Unknown date"}</span>
                   </Link>

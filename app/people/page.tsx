@@ -16,7 +16,15 @@ export default async function PeoplePage() {
       <div className="page-wrap">
         <section className="page-title section">
           <h1>Published People</h1>
-          <p>Only manually published profiles are visible here. Private imported records, living people, DNA matches, and investigations stay in the workspace.</p>
+          <p>Only manually published profiles are visible here. If you just imported a GEDCOM, those private workspace profiles are ready for curation before public sharing.</p>
+          <div className="hero-actions">
+            <Link className="button-secondary" href="/app/people">
+              Open private people
+            </Link>
+            <Link className="button-ghost" href="/app/publishing">
+              Review publishing
+            </Link>
+          </div>
         </section>
         <section className="table-panel">
           <table className="data-table">
@@ -39,8 +47,8 @@ export default async function PeoplePage() {
                       <small>{person.slug}</small>
                     </Link>
                   </td>
-                  <td>{person.birthDate} · {person.birthPlace}</td>
-                  <td>{person.deathDate} · {person.deathPlace}</td>
+                  <td>{formatVital(person.birthDate, person.birthPlace)}</td>
+                  <td>{formatVital(person.deathDate, person.deathPlace)}</td>
                   <td>
                     <Confidence value={0.86} />
                   </td>
@@ -57,8 +65,13 @@ export default async function PeoplePage() {
               ))}
             </tbody>
           </table>
+          {publishedPeople.length === 0 ? <p className="muted empty-state">No public profiles have been published yet.</p> : null}
         </section>
       </div>
     </PublicShell>
   );
+}
+
+function formatVital(date?: string, place?: string): string {
+  return [date, place].filter(Boolean).join(" · ") || "Unknown";
 }

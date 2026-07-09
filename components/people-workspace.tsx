@@ -23,6 +23,7 @@ export function PeopleWorkspace({ initialResult }: Props) {
   const [page, setPage] = useState(1);
   const [result, setResult] = useState(initialResult);
   const [error, setError] = useState("");
+  const privateRecordCount = Math.max(result.stats.total - result.stats.published, 0);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query), 250);
@@ -67,6 +68,19 @@ export function PeopleWorkspace({ initialResult }: Props) {
         <Metric label="Published" value={result.stats.published.toLocaleString()} detail="public profiles" />
         <Metric label="Protected" value={result.stats.protectedCount.toLocaleString()} detail={`${result.stats.living.toLocaleString()} living`} />
       </div>
+
+      {privateRecordCount > 0 ? (
+        <div className="workspace-notice">
+          <Icons.Lock size={18} aria-hidden />
+          <div>
+            <strong>{privateRecordCount.toLocaleString()} people are private or unpublished</strong>
+            <p className="muted">Imported people get private workspace pages immediately. Public profiles only appear after curation marks them public, deceased, and published.</p>
+          </div>
+          <Link className="button-secondary" href="/app/publishing">
+            Publication review
+          </Link>
+        </div>
+      ) : null}
 
       <div className="app-card people-search-card">
         <div className="people-search-header">
@@ -201,7 +215,7 @@ export function PeopleWorkspace({ initialResult }: Props) {
             {result.items.map((person) => (
               <tr key={person.id}>
                 <td>
-                  <Link className="person-name-link" href={`/app/people/${person.id}`}>
+                  <Link className="person-name-link" href={`/app/people/${encodeURIComponent(person.id)}`}>
                     <span>{person.displayName}</span>
                     <small>{person.surname || person.slug}</small>
                   </Link>
@@ -217,7 +231,7 @@ export function PeopleWorkspace({ initialResult }: Props) {
                 </td>
                 <td>{person.factCount}</td>
                 <td>
-                  <Link className="row-action-link" href={`/app/people/${person.id}`} aria-label={`Open ${person.displayName} profile`}>
+                  <Link className="row-action-link" href={`/app/people/${encodeURIComponent(person.id)}`} aria-label={`Open ${person.displayName} profile`}>
                     Open
                     <Icons.ChevronRight size={14} aria-hidden />
                   </Link>
