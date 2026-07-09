@@ -1,9 +1,5 @@
 export function parseCsvRows(input: string): Record<string, string>[] {
-  const lines = input
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .filter((line) => line.trim().length > 0);
+  const lines = splitCsvRecords(input).filter((line) => line.trim().length > 0);
 
   if (lines.length === 0) {
     return [];
@@ -14,6 +10,37 @@ export function parseCsvRows(input: string): Record<string, string>[] {
     const values = splitCsvLine(line);
     return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
   });
+}
+
+export function splitCsvRecords(input: string): string[] {
+  const records: string[] = [];
+  const normalized = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    const next = normalized[index + 1];
+
+    if (char === '"' && next === '"') {
+      current += char + next;
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+      current += char;
+    } else if (char === "\n" && !quoted) {
+      records.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  if (current.length > 0) {
+    records.push(current);
+  }
+
+  return records;
 }
 
 export function splitCsvLine(line: string): string[] {
@@ -41,4 +68,3 @@ export function splitCsvLine(line: string): string[] {
   values.push(current);
   return values;
 }
-

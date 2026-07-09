@@ -8,12 +8,22 @@ import { Confidence, Status } from "./ui";
 type DnaAnalysisResponse = {
   helpfulnessScore: number;
   hypothesis: DnaConnectionHypothesis;
+  match: ScoredDnaMatch;
+};
+
+type DnaImportResponse = {
+  imported: number;
+  skipped: Array<{ rowNumber: number; reason: string }>;
+  matches: ScoredDnaMatch[];
+  hypotheses: DnaConnectionHypothesis[];
 };
 
 type Props = {
-  initialMatches: Array<DnaMatch & { helpfulnessScore: number }>;
-  initialHypothesis: DnaConnectionHypothesis;
+  initialMatches: ScoredDnaMatch[];
+  initialHypothesis?: DnaConnectionHypothesis;
 };
+
+type ScoredDnaMatch = DnaMatch & { helpfulnessScore: number };
 
 const defaultForm = {
   displayName: "J. Fletcher",
@@ -31,10 +41,13 @@ const defaultForm = {
 export function DnaTriageWorkspace({ initialMatches, initialHypothesis }: Props) {
   const [matches, setMatches] = useState(initialMatches);
   const [form, setForm] = useState(defaultForm);
-  const [hypothesis, setHypothesis] = useState(initialHypothesis);
+  const [hypothesis, setHypothesis] = useState(initialHypothesis ?? createFallbackHypothesis(initialMatches[0]));
   const [score, setScore] = useState(initialMatches[0]?.helpfulnessScore ?? 0);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importStatus, setImportStatus] = useState<"idle" | "loading" | "error" | "success">("idle");
+  const [importMessage, setImportMessage] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
   const selectedMatch = useMemo(() => matches[0], [matches]);
@@ -44,17 +57,18 @@ export function DnaTriageWorkspace({ initialMatches, initialHypothesis }: Props)
       const storedMatches = readLocalJson<StoredDnaMatch[]>(workspaceStorageKeys.dnaMatches);
       const storedHypothesis = readLocalJson<DnaConnectionHypothesis>(workspaceStorageKeys.dnaHypothesis);
       if (storedMatches?.length) {
-        setMatches(storedMatches);
-        setScore(storedMatches[0].helpfulnessScore);
+        const merged = mergeScoredMatches(initialMatches, storedMatches);
+        setMatches(merged);
+        setScore(merged[0]?.helpfulnessScore ?? 0);
       }
-      if (storedHypothesis) {
+      if (storedHypothesis && !initialHypothesis) {
         setHypothesis(storedHypothesis);
       }
       setHydrated(true);
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, []);
+  }, [initialHypothesis, initialMatches]);
 
   useEffect(() => {
     if (!hydrated) {
@@ -104,8 +118,46 @@ export function DnaTriageWorkspace({ initialMatches, initialHypothesis }: Props)
     const result = (await response.json()) as DnaAnalysisResponse;
     setHypothesis(result.hypothesis);
     setScore(result.helpfulnessScore);
-    setMatches((current) => [{ ...match, helpfulnessScore: result.helpfulnessScore }, ...current.filter((item) => item.id !== match.id)]);
+    setMatches((current) => mergeScoredMatches([result.match ?? { ...match, helpfulnessScore: result.helpfulnessScore }], current));
     setStatus("idle");
+  }
+
+  async function importCsv() {
+    if (!importFile) {
+      setImportStatus("error");
+      setImportMessage("Choose a CSV file first.");
+      return;
+    }
+
+    setImportStatus("loading");
+    setImportMessage("");
+
+    const formData = new FormData();
+    formData.set("file", importFile);
+
+    const response = await fetch("/api/dna/import", {
+      method: "POST",
+      body: formData
+    });
+    const body = (await response.json()) as Partial<DnaImportResponse> & { error?: string };
+
+    if (!response.ok) {
+      setImportStatus("error");
+      setImportMessage(body.error ?? "DNA CSV import failed.");
+      return;
+    }
+
+    const importedMatches = body.matches ?? [];
+    const importedHypothesis = body.hypotheses?.[0];
+    const skippedCount = body.skipped?.length ?? 0;
+
+    setMatches((current) => mergeScoredMatches(importedMatches, current));
+    setScore(importedMatches[0]?.helpfulnessScore ?? score);
+    if (importedHypothesis) {
+      setHypothesis(importedHypothesis);
+    }
+    setImportStatus("success");
+    setImportMessage(`${body.imported ?? importedMatches.length} imported${skippedCount ? `, ${skippedCount} skipped` : ""}.`);
   }
 
   return (
@@ -140,6 +192,28 @@ export function DnaTriageWorkspace({ initialMatches, initialHypothesis }: Props)
             ))}
           </tbody>
         </table>
+
+        <section className="section">
+          <h2>Import DNA matches</h2>
+          <div className="form-grid">
+            <div className="field">
+              <label>CSV file</label>
+              <input accept=".csv,text/csv" type="file" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} />
+            </div>
+            <div className="field">
+              <label>Expected columns</label>
+              <input readOnly value="Match name, shared cM, side, tree, surnames, places, notes" />
+            </div>
+          </div>
+          <div className="hero-actions">
+            <button className="button" disabled={importStatus === "loading"} onClick={importCsv} type="button">
+              {importStatus === "loading" ? "Importing..." : "Import CSV"}
+            </button>
+            {importStatus === "error" ? <Status tone="warning">Import failed</Status> : null}
+            {importStatus === "success" ? <Status>Import complete</Status> : null}
+          </div>
+          {importMessage ? <p className="muted">{importMessage}</p> : null}
+        </section>
 
         <section className="section">
           <h2>Analyze a match</h2>
@@ -201,6 +275,26 @@ export function DnaTriageWorkspace({ initialMatches, initialHypothesis }: Props)
       </aside>
     </div>
   );
+}
+
+function mergeScoredMatches(incoming: ScoredDnaMatch[], current: ScoredDnaMatch[]): ScoredDnaMatch[] {
+  const incomingIds = new Set(incoming.map((match) => match.id));
+  return [...incoming, ...current.filter((match) => !incomingIds.has(match.id))];
+}
+
+function createFallbackHypothesis(match?: ScoredDnaMatch): DnaConnectionHypothesis {
+  const matchId = match?.id ?? "dna-empty";
+  return {
+    matchId,
+    likelyBranch: "Unknown side; prioritize shared-match clustering",
+    likelyGeneration: "unknown generation",
+    geography: [],
+    candidateCommonAncestors: ["No candidate ancestor yet"],
+    confidence: 0.1,
+    evidence: ["No DNA match selected yet"],
+    uncertainty: ["Add or import DNA matches to generate stronger hypotheses"],
+    explanation: "Import or analyze a DNA match to generate a connection hypothesis."
+  };
 }
 
 function readLocalJson<T>(key: string): T | undefined {

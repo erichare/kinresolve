@@ -9,7 +9,7 @@ import type { AppliedGedcomImport, DnaConnectionHypothesis, DnaMatch, PersonSumm
 export type ScoredDnaMatch = DnaMatch & { helpfulnessScore: number };
 
 export type WorkspaceData = {
-  version: "0.10.0";
+  version: "0.11.0";
   archiveName: string;
   people: PersonSummary[];
   cases: ResearchCase[];
@@ -35,7 +35,7 @@ export function getWorkspacePath(options: WorkspaceStoreOptions = {}): string {
 
 export function createSeedWorkspace(now = new Date()): WorkspaceData {
   return {
-    version: "0.10.0",
+    version: "0.11.0",
     archiveName: "Riemer - Zajicek Archive",
     people: demoPeople,
     cases: demoCases,
@@ -135,23 +135,8 @@ export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptio
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }> {
-  if (!match.displayName?.trim() || !Number.isFinite(match.totalCm)) {
-    throw new Error("displayName and numeric totalCm are required");
-  }
-
   const workspace = await readWorkspace(options);
-  const normalized: DnaMatch = {
-    ...match,
-    id: match.id || `dna-${randomUUID()}`,
-    displayName: match.displayName.trim(),
-    surnames: match.surnames ?? [],
-    places: match.places ?? [],
-    sharedMatches: match.sharedMatches ?? [],
-    notes: match.notes ?? "",
-    side: match.side ?? "unknown",
-    treeStatus: match.treeStatus ?? "unknown",
-    triageStatus: match.triageStatus ?? "needs_review"
-  };
+  const normalized = normalizeDnaMatch(match);
   const helpfulnessScore = scoreDnaMatch(normalized);
   const hypothesis = createDnaConnectionHypothesis(normalized, workspace.people);
 
@@ -162,6 +147,42 @@ export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptio
     hypothesis,
     match: { ...normalized, helpfulnessScore }
   };
+}
+
+export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStoreOptions = {}): Promise<Array<{
+  helpfulnessScore: number;
+  hypothesis: DnaConnectionHypothesis;
+  match: ScoredDnaMatch;
+}>> {
+  const workspace = await readWorkspace(options);
+  const results = matches.map((match) => {
+    const normalized = normalizeDnaMatch(match);
+    const helpfulnessScore = scoreDnaMatch(normalized);
+    const triaged: DnaMatch = {
+      ...normalized,
+      triageStatus: normalized.triageStatus === "needs_review" && helpfulnessScore >= 75 ? "high_priority" : normalized.triageStatus
+    };
+
+    return {
+      helpfulnessScore,
+      hypothesis: createDnaConnectionHypothesis(triaged, workspace.people),
+      match: { ...triaged, helpfulnessScore }
+    };
+  });
+  const importedIds = new Set(results.map((result) => result.match.id));
+
+  await writeWorkspace(
+    {
+      ...workspace,
+      dnaMatches: [
+        ...results.map((result) => removeDnaScore(result.match)),
+        ...workspace.dnaMatches.filter((item) => !importedIds.has(item.id))
+      ]
+    },
+    options
+  );
+
+  return results;
 }
 
 export async function saveSourceDocument(input: Partial<SourceDocument>, options: WorkspaceStoreOptions = {}): Promise<SourceDocument> {
@@ -283,7 +304,7 @@ export function createWorkspaceDnaHypotheses(workspace: Pick<WorkspaceData, "peo
 
 function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {
   return {
-    version: "0.10.0",
+    version: "0.11.0",
     archiveName: value.archiveName || "Riemer - Zajicek Archive",
     people: Array.isArray(value.people) ? value.people : [],
     cases: Array.isArray(value.cases) ? value.cases : [],
@@ -316,6 +337,33 @@ async function writeWorkspaceBackup(workspace: WorkspaceData, reason: string, op
   await mkdir(path.dirname(backupPath), { recursive: true });
   await writeFile(backupPath, `${JSON.stringify(workspace, null, 2)}\n`, "utf8");
   return backup;
+}
+
+function normalizeDnaMatch(match: DnaMatch): DnaMatch {
+  if (!match.displayName?.trim() || !Number.isFinite(match.totalCm)) {
+    throw new Error("displayName and numeric totalCm are required");
+  }
+
+  return {
+    ...match,
+    id: match.id || `dna-${randomUUID()}`,
+    displayName: match.displayName.trim(),
+    totalCm: Number(match.totalCm),
+    longestSegmentCm: match.longestSegmentCm !== undefined && Number.isFinite(match.longestSegmentCm) ? match.longestSegmentCm : undefined,
+    surnames: match.surnames ?? [],
+    places: match.places ?? [],
+    sharedMatches: match.sharedMatches ?? [],
+    notes: match.notes ?? "",
+    side: match.side ?? "unknown",
+    treeStatus: match.treeStatus ?? "unknown",
+    triageStatus: match.triageStatus ?? "needs_review"
+  };
+}
+
+function removeDnaScore(match: ScoredDnaMatch): DnaMatch {
+  const { helpfulnessScore: _helpfulnessScore, ...dnaMatch } = match;
+  void _helpfulnessScore;
+  return dnaMatch;
 }
 
 function mergeImportedPeople(existing: PersonSummary[], imported: PersonSummary[]): PersonSummary[] {

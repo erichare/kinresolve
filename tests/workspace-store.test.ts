@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DnaMatch } from "@/lib/models";
-import { createCase, readWorkspace, saveDnaMatch, saveSourceDocument, updatePersonCuration } from "@/lib/workspace-store";
+import { createCase, readWorkspace, saveDnaMatch, saveDnaMatches, saveSourceDocument, updatePersonCuration } from "@/lib/workspace-store";
 
 let tempDir: string;
 let storagePath: string;
@@ -77,6 +77,35 @@ describe("workspace store", () => {
     expect(workspace.dnaMatches[0]).toMatchObject({
       id: match.id,
       displayName: "Storage Test"
+    });
+  });
+
+  it("saves DNA matches in bulk with high-priority scoring", async () => {
+    const results = await saveDnaMatches(
+      [
+        {
+          id: "dna-bulk-strong",
+          displayName: "Bulk Strong",
+          totalCm: 312,
+          predictedRelationship: "likely 2C",
+          side: "maternal",
+          treeStatus: "public",
+          surnames: ["Riemer", "Zajicek"],
+          places: ["Chicago", "Limerick"],
+          sharedMatches: ["J. Fletcher", "A. Zajicek"],
+          notes: "Public tree with surname and place overlap.",
+          triageStatus: "needs_review"
+        }
+      ],
+      { storagePath }
+    );
+    const workspace = await readWorkspace({ storagePath });
+
+    expect(results[0].helpfulnessScore).toBeGreaterThanOrEqual(75);
+    expect(results[0].match.triageStatus).toBe("high_priority");
+    expect(workspace.dnaMatches[0]).toMatchObject({
+      id: "dna-bulk-strong",
+      triageStatus: "high_priority"
     });
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCsvRows, splitCsvLine } from "@/lib/csv";
+import { parseCsvRows, splitCsvLine, splitCsvRecords } from "@/lib/csv";
 
 describe("CSV helpers", () => {
   it("splits quoted commas and escaped quotes", () => {
@@ -21,5 +21,12 @@ describe("CSV helpers", () => {
       }
     ]);
   });
-});
 
+  it("keeps quoted newlines inside one record", () => {
+    expect(splitCsvRecords('name,notes\n"J. Fletcher","line one\nline two"\n"M. Riemer","done"')).toHaveLength(3);
+    expect(parseCsvRows('name,notes\n"J. Fletcher","line one\nline two"')[0]).toEqual({
+      name: "J. Fletcher",
+      notes: "line one\nline two"
+    });
+  });
+});

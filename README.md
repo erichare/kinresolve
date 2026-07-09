@@ -78,6 +78,13 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - Large imported trees render through paginated result sets instead of dumping every person into one browser table.
 - People table now surfaces publication/privacy/living safety states and fact counts for faster curation.
 
+## V0.11 checkpoint
+
+- DNA match triage now supports CSV bulk import from `/app/dna`.
+- Import mapping accepts common match-name, shared-cM, tree-status, side, surname, place, shared-match, note, and URL headers.
+- DNA CSV rows are validated with row-level skip reasons while valid rows still import.
+- Bulk imports persist through the server workspace store and automatically mark very helpful matches as high priority.
+
 ## Quick start
 
 ```bash
