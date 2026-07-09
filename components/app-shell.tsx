@@ -38,6 +38,13 @@ export function AppShell({ children, active = "/app", title, actions }: { childr
             );
           })}
         </nav>
+        <div className="sidebar-archive-card" aria-label="Active archive">
+          <Icons.Database size={17} aria-hidden />
+          <span>
+            <small>Active archive</small>
+            Riemer - Zajicek
+          </span>
+        </div>
         <form action="/api/auth/logout" className="sidebar-auth" method="post">
           <button type="submit">Sign out</button>
         </form>

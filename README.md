@@ -112,6 +112,12 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - Report and publishing APIs return paged rows by default, reducing large review payloads.
 - Shared pagination utilities now back people, DNA, reports, and publishing review surfaces.
 
+## V0.16 checkpoint
+
+- Added a professional archival visual sweep across private and public surfaces.
+- Introduced a subtle generated contour-map texture, richer evergreen shell, brass dividers, and refined table/card treatments.
+- Improved status, metric, form, button, sidebar, and responsive mobile polish while preserving the research-focused workflow.
+
 ## Quick start
 
 ```bash
