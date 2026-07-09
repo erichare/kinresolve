@@ -13,6 +13,32 @@ export type PeopleSearchFilters = {
   sort?: PeopleSortKey;
 };
 
+export type PeopleListItem = {
+  id: string;
+  slug: string;
+  displayName: string;
+  surname?: string;
+  birthDate?: string;
+  birthPlace?: string;
+  deathDate?: string;
+  deathPlace?: string;
+  livingStatus: PersonSummary["livingStatus"];
+  privacy: PrivacyLevel;
+  published: boolean;
+  factCount: number;
+};
+
+export type PeopleSearchStats = {
+  total: number;
+  published: number;
+  protectedCount: number;
+  living: number;
+};
+
+export type PeopleSearchResult = PaginationResult<PeopleListItem> & {
+  stats: PeopleSearchStats;
+};
+
 export type PaginationInput = {
   page: number;
   pageSize: number;
@@ -50,6 +76,43 @@ export function filterPeople(people: PersonSummary[], filters: PeopleSearchFilte
       return terms.every((term) => searchText.includes(term));
     })
     .sort((left, right) => comparePeople(left, right, sort));
+}
+
+export function searchPeoplePage(people: PersonSummary[], filters: PeopleSearchFilters = {}, pagination: PaginationInput = { page: 1, pageSize: 50 }): PeopleSearchResult {
+  const filteredPeople = filterPeople(people, filters);
+  const page = paginateItems(filteredPeople, pagination);
+
+  return {
+    ...page,
+    items: page.items.map(toPeopleListItem),
+    stats: summarizePeople(people)
+  };
+}
+
+export function summarizePeople(people: PersonSummary[]): PeopleSearchStats {
+  return {
+    total: people.length,
+    published: people.filter((person) => person.published).length,
+    protectedCount: people.filter((person) => person.privacy !== "public").length,
+    living: people.filter((person) => person.livingStatus === "living").length
+  };
+}
+
+export function toPeopleListItem(person: PersonSummary): PeopleListItem {
+  return {
+    id: person.id,
+    slug: person.slug,
+    displayName: person.displayName,
+    surname: person.surname,
+    birthDate: person.birthDate,
+    birthPlace: person.birthPlace,
+    deathDate: person.deathDate,
+    deathPlace: person.deathPlace,
+    livingStatus: person.livingStatus,
+    privacy: person.privacy,
+    published: person.published,
+    factCount: person.facts.length
+  };
 }
 
 export function paginateItems<T>(items: T[], input: PaginationInput): PaginationResult<T> {

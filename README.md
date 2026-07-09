@@ -99,6 +99,12 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - New `/api/cases/[id]/evidence` endpoint persists linked DNA evidence to the workspace case store.
 - Case list/detail views now make linked DNA evidence easier to spot during investigation review.
 
+## V0.14 checkpoint
+
+- Private people search now uses server-backed pagination through `/api/people`.
+- `/app/people` no longer hydrates the full GEDCOM person/fact payload into the browser.
+- People list responses return slim rows plus workspace counts, keeping large real trees much lighter to browse.
+
 ## Quick start
 
 ```bash

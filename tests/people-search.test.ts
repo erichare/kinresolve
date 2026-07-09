@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PersonSummary } from "@/lib/models";
-import { filterPeople, paginateItems } from "@/lib/people-search";
+import { filterPeople, paginateItems, searchPeoplePage } from "@/lib/people-search";
 
 const people: PersonSummary[] = [
   person({
@@ -54,6 +54,25 @@ describe("people search", () => {
     expect(result.start).toBe(3);
     expect(result.end).toBe(3);
     expect(result.items).toHaveLength(1);
+  });
+
+  it("returns slim paged people rows and workspace stats", () => {
+    const result = searchPeoplePage(people, { query: "riemer", sort: "name" }, { page: 1, pageSize: 1 });
+
+    expect(result.total).toBe(2);
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: "p-elizabeth-riemer",
+        factCount: 0
+      })
+    ]);
+    expect(result.items[0]).not.toHaveProperty("facts");
+    expect(result.stats).toEqual({
+      total: 3,
+      published: 1,
+      protectedCount: 2,
+      living: 1
+    });
   });
 });
 

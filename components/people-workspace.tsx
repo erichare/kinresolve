@@ -1,42 +1,59 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Icons } from "@/components/icons";
 import { Metric, Status } from "@/components/ui";
-import type { PersonSummary } from "@/lib/models";
-import { filterPeople, paginateItems, type PeopleLivingFilter, type PeoplePrivacyFilter, type PeoplePublicationFilter, type PeopleSortKey } from "@/lib/people-search";
+import { type PeopleListItem, type PeopleLivingFilter, type PeoplePrivacyFilter, type PeoplePublicationFilter, type PeopleSearchResult, type PeopleSortKey } from "@/lib/people-search";
 
 type Props = {
-  people: PersonSummary[];
+  initialResult: PeopleSearchResult;
 };
 
 const pageSizeOptions = [25, 50, 100, 250];
 
-export function PeopleWorkspace({ people }: Props) {
+export function PeopleWorkspace({ initialResult }: Props) {
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [publication, setPublication] = useState<PeoplePublicationFilter>("all");
   const [privacy, setPrivacy] = useState<PeoplePrivacyFilter>("all");
   const [livingStatus, setLivingStatus] = useState<PeopleLivingFilter>("all");
   const [sort, setSort] = useState<PeopleSortKey>("name");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const [result, setResult] = useState(initialResult);
+  const [error, setError] = useState("");
 
-  const filteredPeople = useMemo(
-    () =>
-      filterPeople(people, {
-        query,
-        publication,
-        privacy,
-        livingStatus,
-        sort
-      }),
-    [people, query, publication, privacy, livingStatus, sort]
-  );
-  const pagination = useMemo(() => paginateItems(filteredPeople, { page, pageSize }), [filteredPeople, page, pageSize]);
-  const publishedCount = useMemo(() => people.filter((person) => person.published).length, [people]);
-  const privateCount = useMemo(() => people.filter((person) => person.privacy !== "public").length, [people]);
-  const livingCount = useMemo(() => people.filter((person) => person.livingStatus === "living").length, [people]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query), 250);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadPeople() {
+      try {
+        const response = await fetch(buildPeopleApiPath({ query: debouncedQuery, publication, privacy, livingStatus, sort, page, pageSize }), {
+          signal: controller.signal
+        });
+
+        if (!response.ok) {
+          throw new Error("People search failed");
+        }
+
+        setResult((await response.json()) as PeopleSearchResult);
+        setError("");
+      } catch (requestError) {
+        if (!controller.signal.aborted) {
+          setError(requestError instanceof Error ? requestError.message : "People search failed");
+        }
+      }
+    }
+
+    void loadPeople();
+    return () => controller.abort();
+  }, [debouncedQuery, publication, privacy, livingStatus, sort, page, pageSize]);
 
   function resetPaging() {
     setPage(1);
@@ -45,10 +62,10 @@ export function PeopleWorkspace({ people }: Props) {
   return (
     <div className="people-workspace">
       <div className="metric-row">
-        <Metric label="People" value={people.length.toLocaleString()} detail="in workspace" />
-        <Metric label="Current set" value={filteredPeople.length.toLocaleString()} detail={`${pagination.start}-${pagination.end} shown`} />
-        <Metric label="Published" value={publishedCount.toLocaleString()} detail="public profiles" />
-        <Metric label="Protected" value={privateCount.toLocaleString()} detail={`${livingCount.toLocaleString()} living`} />
+        <Metric label="People" value={result.stats.total.toLocaleString()} detail="in workspace" />
+        <Metric label="Current set" value={result.total.toLocaleString()} detail={`${result.start}-${result.end} shown`} />
+        <Metric label="Published" value={result.stats.published.toLocaleString()} detail="public profiles" />
+        <Metric label="Protected" value={result.stats.protectedCount.toLocaleString()} detail={`${result.stats.living.toLocaleString()} living`} />
       </div>
 
       <div className="app-card people-search-card">
@@ -162,10 +179,11 @@ export function PeopleWorkspace({ people }: Props) {
           <div>
             <h2>Imported and curated people</h2>
             <p className="muted">
-              Showing {pagination.start.toLocaleString()}-{pagination.end.toLocaleString()} of {pagination.total.toLocaleString()}
+              Showing {result.start.toLocaleString()}-{result.end.toLocaleString()} of {result.total.toLocaleString()}
             </p>
+            {error ? <p className="muted">{error}</p> : null}
           </div>
-          <PaginationControls page={pagination.page} pageCount={pagination.pageCount} onPageChange={setPage} />
+          <PaginationControls page={result.page} pageCount={result.pageCount} onPageChange={setPage} />
         </div>
 
         <table className="data-table people-table">
@@ -179,7 +197,7 @@ export function PeopleWorkspace({ people }: Props) {
             </tr>
           </thead>
           <tbody>
-            {pagination.items.map((person) => (
+            {result.items.map((person) => (
               <tr key={person.id}>
                 <td>
                   <Link href={`/app/people/${person.id}`}>{person.displayName}</Link>
@@ -194,19 +212,19 @@ export function PeopleWorkspace({ people }: Props) {
                     {person.livingStatus === "living" ? <Status tone="warning">living</Status> : null}
                   </div>
                 </td>
-                <td>{person.facts.length}</td>
+                <td>{person.factCount}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        {pagination.items.length === 0 ? <p className="muted empty-state">No people match these filters.</p> : null}
+        {result.items.length === 0 ? <p className="muted empty-state">No people match these filters.</p> : null}
 
         <div className="table-footer-row">
           <p className="muted">
-            Page {pagination.page.toLocaleString()} of {pagination.pageCount.toLocaleString()}
+            Page {result.page.toLocaleString()} of {result.pageCount.toLocaleString()}
           </p>
-          <PaginationControls page={pagination.page} pageCount={pagination.pageCount} onPageChange={setPage} />
+          <PaginationControls page={result.page} pageCount={result.pageCount} onPageChange={setPage} />
         </div>
       </div>
     </div>
@@ -246,8 +264,29 @@ function formatVital(date?: string, place?: string): string {
   return [date, place].filter(Boolean).join(" · ") || "Unknown";
 }
 
-function privacyTone(privacy: PersonSummary["privacy"]): "ok" | "private" | "warning" | "danger" {
+function privacyTone(privacy: PeopleListItem["privacy"]): "ok" | "private" | "warning" | "danger" {
   if (privacy === "public") return "ok";
   if (privacy === "sensitive") return "danger";
   return "private";
+}
+
+function buildPeopleApiPath(input: {
+  query: string;
+  publication: PeoplePublicationFilter;
+  privacy: PeoplePrivacyFilter;
+  livingStatus: PeopleLivingFilter;
+  sort: PeopleSortKey;
+  page: number;
+  pageSize: number;
+}): string {
+  const params = new URLSearchParams({
+    query: input.query,
+    publication: input.publication,
+    privacy: input.privacy,
+    livingStatus: input.livingStatus,
+    sort: input.sort,
+    page: String(input.page),
+    pageSize: String(input.pageSize)
+  });
+  return `/api/people?${params.toString()}`;
 }
