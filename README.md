@@ -85,6 +85,13 @@ This repository is MIT licensed and intentionally uses synthetic fixtures. Real 
 - DNA CSV rows are validated with row-level skip reasons while valid rows still import.
 - Bulk imports persist through the server workspace store and automatically mark very helpful matches as high priority.
 
+## V0.12 checkpoint
+
+- DNA match triage now has search, side/tree/status/helpfulness filters, sorting, and pagination for larger match lists.
+- Selecting a DNA row updates the hypothesis panel instead of always showing the first match.
+- Selected matches can be triaged, annotated, re-sided, reclassified by tree status, and deleted from the workspace.
+- New `/api/dna/[id]` update/delete endpoints persist match queue cleanup through the server workspace store.
+
 ## Quick start
 
 ```bash

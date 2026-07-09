@@ -9,7 +9,7 @@ import type { AppliedGedcomImport, DnaConnectionHypothesis, DnaMatch, PersonSumm
 export type ScoredDnaMatch = DnaMatch & { helpfulnessScore: number };
 
 export type WorkspaceData = {
-  version: "0.11.0";
+  version: "0.12.0";
   archiveName: string;
   people: PersonSummary[];
   cases: ResearchCase[];
@@ -35,7 +35,7 @@ export function getWorkspacePath(options: WorkspaceStoreOptions = {}): string {
 
 export function createSeedWorkspace(now = new Date()): WorkspaceData {
   return {
-    version: "0.11.0",
+    version: "0.12.0",
     archiveName: "Riemer - Zajicek Archive",
     people: demoPeople,
     cases: demoCases,
@@ -138,14 +138,15 @@ export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptio
   const workspace = await readWorkspace(options);
   const normalized = normalizeDnaMatch(match);
   const helpfulnessScore = scoreDnaMatch(normalized);
-  const hypothesis = createDnaConnectionHypothesis(normalized, workspace.people);
+  const triaged = autoPrioritizeDnaMatch(normalized, helpfulnessScore);
+  const hypothesis = createDnaConnectionHypothesis(triaged, workspace.people);
 
-  await writeWorkspace({ ...workspace, dnaMatches: [normalized, ...workspace.dnaMatches.filter((item) => item.id !== normalized.id)] }, options);
+  await writeWorkspace({ ...workspace, dnaMatches: [triaged, ...workspace.dnaMatches.filter((item) => item.id !== triaged.id)] }, options);
 
   return {
     helpfulnessScore,
     hypothesis,
-    match: { ...normalized, helpfulnessScore }
+    match: { ...triaged, helpfulnessScore }
   };
 }
 
@@ -158,10 +159,7 @@ export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStor
   const results = matches.map((match) => {
     const normalized = normalizeDnaMatch(match);
     const helpfulnessScore = scoreDnaMatch(normalized);
-    const triaged: DnaMatch = {
-      ...normalized,
-      triageStatus: normalized.triageStatus === "needs_review" && helpfulnessScore >= 75 ? "high_priority" : normalized.triageStatus
-    };
+    const triaged = autoPrioritizeDnaMatch(normalized, helpfulnessScore);
 
     return {
       helpfulnessScore,
@@ -183,6 +181,60 @@ export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStor
   );
 
   return results;
+}
+
+export async function updateDnaMatch(matchId: string, input: Partial<DnaMatch>, options: WorkspaceStoreOptions = {}): Promise<{
+  helpfulnessScore: number;
+  hypothesis: DnaConnectionHypothesis;
+  match: ScoredDnaMatch;
+}> {
+  const workspace = await readWorkspace(options);
+  const current = workspace.dnaMatches.find((match) => match.id === matchId);
+  if (!current) {
+    throw new Error("DNA match not found");
+  }
+
+  const updated = normalizeDnaMatch({
+    ...current,
+    ...input,
+    id: current.id,
+    displayName: input.displayName ?? current.displayName,
+    totalCm: input.totalCm ?? current.totalCm
+  });
+  const helpfulnessScore = scoreDnaMatch(updated);
+  const hypothesis = createDnaConnectionHypothesis(updated, workspace.people);
+
+  await writeWorkspace(
+    {
+      ...workspace,
+      dnaMatches: workspace.dnaMatches.map((match) => (match.id === matchId ? updated : match))
+    },
+    options
+  );
+
+  return {
+    helpfulnessScore,
+    hypothesis,
+    match: { ...updated, helpfulnessScore }
+  };
+}
+
+export async function deleteDnaMatch(matchId: string, options: WorkspaceStoreOptions = {}): Promise<{ deleted: string }> {
+  const workspace = await readWorkspace(options);
+  const exists = workspace.dnaMatches.some((match) => match.id === matchId);
+  if (!exists) {
+    throw new Error("DNA match not found");
+  }
+
+  await writeWorkspace(
+    {
+      ...workspace,
+      dnaMatches: workspace.dnaMatches.filter((match) => match.id !== matchId)
+    },
+    options
+  );
+
+  return { deleted: matchId };
 }
 
 export async function saveSourceDocument(input: Partial<SourceDocument>, options: WorkspaceStoreOptions = {}): Promise<SourceDocument> {
@@ -304,7 +356,7 @@ export function createWorkspaceDnaHypotheses(workspace: Pick<WorkspaceData, "peo
 
 function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {
   return {
-    version: "0.11.0",
+    version: "0.12.0",
     archiveName: value.archiveName || "Riemer - Zajicek Archive",
     people: Array.isArray(value.people) ? value.people : [],
     cases: Array.isArray(value.cases) ? value.cases : [],
@@ -357,6 +409,13 @@ function normalizeDnaMatch(match: DnaMatch): DnaMatch {
     side: match.side ?? "unknown",
     treeStatus: match.treeStatus ?? "unknown",
     triageStatus: match.triageStatus ?? "needs_review"
+  };
+}
+
+function autoPrioritizeDnaMatch(match: DnaMatch, helpfulnessScore: number): DnaMatch {
+  return {
+    ...match,
+    triageStatus: match.triageStatus === "needs_review" && helpfulnessScore >= 75 ? "high_priority" : match.triageStatus
   };
 }
 

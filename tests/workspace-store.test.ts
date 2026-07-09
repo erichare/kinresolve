@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DnaMatch } from "@/lib/models";
-import { createCase, readWorkspace, saveDnaMatch, saveDnaMatches, saveSourceDocument, updatePersonCuration } from "@/lib/workspace-store";
+import { createCase, deleteDnaMatch, readWorkspace, saveDnaMatch, saveDnaMatches, saveSourceDocument, updateDnaMatch, updatePersonCuration } from "@/lib/workspace-store";
 
 let tempDir: string;
 let storagePath: string;
@@ -107,6 +107,52 @@ describe("workspace store", () => {
       id: "dna-bulk-strong",
       triageStatus: "high_priority"
     });
+  });
+
+  it("updates and deletes DNA matches", async () => {
+    await saveDnaMatch(
+      {
+        id: "dna-update-delete",
+        displayName: "Queue Cleanup",
+        totalCm: 94,
+        predictedRelationship: "likely 3C",
+        side: "unknown",
+        treeStatus: "unknown",
+        surnames: [],
+        places: [],
+        sharedMatches: [],
+        notes: "",
+        triageStatus: "needs_review"
+      },
+      { storagePath }
+    );
+
+    const updated = await updateDnaMatch(
+      "dna-update-delete",
+      {
+        side: "paternal",
+        treeStatus: "private",
+        triageStatus: "ignored",
+        notes: "Not actionable without a visible tree."
+      },
+      { storagePath }
+    );
+    let workspace = await readWorkspace({ storagePath });
+
+    expect(updated.match).toMatchObject({
+      id: "dna-update-delete",
+      side: "paternal",
+      treeStatus: "private",
+      triageStatus: "ignored",
+      notes: "Not actionable without a visible tree."
+    });
+    expect(workspace.dnaMatches.find((match) => match.id === "dna-update-delete")).toMatchObject({
+      triageStatus: "ignored"
+    });
+
+    await deleteDnaMatch("dna-update-delete", { storagePath });
+    workspace = await readWorkspace({ storagePath });
+    expect(workspace.dnaMatches.some((match) => match.id === "dna-update-delete")).toBe(false);
   });
 
   it("persists source documents with links and transcripts", async () => {

@@ -651,6 +651,62 @@ textarea {
   align-items: end;
 }
 
+.dna-workspace {
+  display: grid;
+  gap: 20px;
+}
+
+.dna-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 0;
+}
+
+.dna-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.dna-filter-grid .people-search-field {
+  grid-column: span 2;
+}
+
+.dna-table {
+  min-width: 680px;
+}
+
+.dna-table th,
+.dna-table td {
+  padding: 12px 10px;
+}
+
+.dna-table tr.selected-row td {
+  background: var(--accent-soft);
+}
+
+.table-link {
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.table-link:hover {
+  color: var(--accent);
+}
+
+.dna-edit-panel {
+  padding-bottom: 0;
+}
+
+.danger-action {
+  color: var(--danger);
+}
+
 .people-search-field {
   min-width: 0;
 }
@@ -784,7 +840,8 @@ textarea {
   .metric-row,
   .grid-3,
   .form-grid,
-  .people-filter-grid {
+  .people-filter-grid,
+  .dna-filter-grid {
     grid-template-columns: 1fr;
   }
 
@@ -793,6 +850,10 @@ textarea {
   .table-footer-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .dna-filter-grid .people-search-field {
+    grid-column: auto;
   }
 
   .public-nav,
