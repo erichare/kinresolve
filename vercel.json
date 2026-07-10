@@ -4,5 +4,11 @@
   "git": {
     "deploymentEnabled": false
   },
-  "regions": ["sfo1"]
+  "regions": ["sfo1"],
+  "crons": [
+    {
+      "path": "/api/cron/import-uploads",
+      "schedule": "17 7 * * *"
+    }
+  ]
 }

@@ -7,6 +7,7 @@ import { prepareGedcomImport } from "@/lib/gedcom/apply";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
+const itLarge = process.env.RUN_LARGE_GEDCOM_TEST === "true" ? it : it.skip;
 
 let storeOptions: { databaseUrl: string; archiveId: string };
 
@@ -23,11 +24,11 @@ beforeEach(() => {
 afterEach(async () => {
   if (!databaseUrl) return;
   await query("DELETE FROM archives WHERE id = $1", [storeOptions.archiveId], { databaseUrl });
-});
+}, 120_000);
 
 afterAll(async () => {
   await closeDatabasePools();
-});
+}, 120_000);
 
 describe("GEDCOM prepare", () => {
   it("prepares people, sources, and raw records from GEDCOM content", () => {
@@ -101,4 +102,26 @@ describeIfDatabase("GEDCOM apply", () => {
     expect(repairedElizabeth?.relatives).not.toContain("@F1@");
     expect(repairedElizabeth).toMatchObject({ published: true, privacy: "public", livingStatus: "deceased" });
   });
+
+  itLarge("applies a GEDCOM larger than 10.5 MB with batched persistence", async () => {
+    const personCount = 65_000;
+    const note = "x".repeat(96);
+    const content = Array.from({ length: personCount }, (_, index) => (
+      `0 @I${index}@ INDI\n1 NAME Person ${index} /Loadtest/\n1 BIRT\n2 DATE 1 JAN ${1800 + (index % 200)}\n1 NOTE ${note}`
+    )).join("\n");
+
+    expect(Buffer.byteLength(content)).toBeGreaterThan(10.5 * 1024 * 1024);
+    const result = await applyGedcomImport({ sourceName: "large-family.ged", content }, storeOptions);
+    const counts = await query<{ people: string; raw_records: string }>(
+      `SELECT
+        (SELECT count(*) FROM people WHERE archive_id = $1 AND id LIKE '@I%') AS people,
+        (SELECT count(*) FROM raw_records WHERE archive_id = $1) AS raw_records`,
+      [storeOptions.archiveId],
+      { databaseUrl: storeOptions.databaseUrl }
+    );
+
+    expect(result.peopleImported).toBe(personCount);
+    expect(Number(counts.rows[0].people)).toBe(personCount);
+    expect(Number(counts.rows[0].raw_records)).toBe(personCount);
+  }, 120_000);
 });

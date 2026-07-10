@@ -59,7 +59,7 @@ export default async function SettingsPage() {
         <div className="app-card-header">
           <div>
             <h2>Runtime storage</h2>
-            <p className="muted">Postgres is the active workspace store for people, sources, DNA, cases, imports, tasks, and AI runs.</p>
+            <p className="muted">Postgres stores workspace data; private Blob storage stages large GEDCOM files outside the function request path.</p>
           </div>
           <Status tone={runtime.database.connected ? "ok" : "warning"}>{runtime.database.connected ? "Postgres connected" : "Database unavailable"}</Status>
         </div>
@@ -71,6 +71,10 @@ export default async function SettingsPage() {
           <label className="field">
             <span>Archive id</span>
             <input readOnly value={runtime.database.archiveId} />
+          </label>
+          <label className="field">
+            <span>Large-file staging</span>
+            <input readOnly value={runtime.storage.configured ? "Private Blob configured" : "Missing BLOB_READ_WRITE_TOKEN"} />
           </label>
           <label className="field">
             <span>People</span>

@@ -19,6 +19,7 @@ export type ImportDiff = {
   changed: number;
   deleted: number;
   unchanged: number;
+  omittedRecords?: number;
   records: Array<{
     xref?: string;
     type: string;
@@ -87,4 +88,3 @@ export function stableHash(value: string): string {
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
-

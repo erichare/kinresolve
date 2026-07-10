@@ -80,4 +80,12 @@ describe("GEDCOM parser", () => {
   it("rejects malformed lines", () => {
     expect(() => parseGedcom("not a gedcom line")).toThrow(/Invalid GEDCOM line/);
   });
+
+  it("bounds malformed-line excerpts so API errors stay small", () => {
+    const invalidLine = "x".repeat(1_000_000);
+
+    expect(() => parseGedcom(invalidLine)).toThrowError(
+      expect.objectContaining({ message: expect.stringMatching(/^Invalid GEDCOM line 1: x{157}\.\.\.$/) })
+    );
+  });
 });

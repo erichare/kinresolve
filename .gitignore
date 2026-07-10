@@ -21,3 +21,5 @@ dist/
 *.sqlite3
 postgres-data/
 minio-data/
+.env*.local
+.playwright-cli/

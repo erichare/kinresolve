@@ -20,5 +20,19 @@ describe("import snapshots", () => {
     expect(diff.deleted).toBe(1);
     expect(diff.unchanged).toBe(2);
   });
-});
 
+  it("previews a GEDCOM larger than the Vercel request limit", () => {
+    const personCount = 65_000;
+    const note = "x".repeat(96);
+    const content = Array.from({ length: personCount }, (_, index) => (
+      `0 @I${index}@ INDI\n1 NAME Person ${index} /Loadtest/\n1 BIRT\n2 DATE 1 JAN ${1800 + (index % 200)}\n1 NOTE ${note}`
+    )).join("\n");
+
+    expect(Buffer.byteLength(content)).toBeGreaterThan(10.5 * 1024 * 1024);
+    const snapshot = createImportSnapshot("large-family.ged", content);
+
+    expect(snapshot.records).toHaveLength(personCount);
+    expect(snapshot.summary.individuals).toBe(personCount);
+    expect(snapshot.summary.dateRange).toEqual({ minYear: 1800, maxYear: 1999 });
+  }, 20_000);
+});

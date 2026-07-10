@@ -18,6 +18,9 @@ export async function GET() {
       },
       ai: {
         configured: status.ai.configured
+      },
+      storage: {
+        configured: status.storage.configured
       }
     },
     { status: status.database.connected ? 200 : 503 }

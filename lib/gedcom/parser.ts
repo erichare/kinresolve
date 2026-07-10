@@ -30,7 +30,8 @@ const eventTags = new Set(["BIRT", "DEAT", "BURI", "CHR", "CENS", "MARR", "DIV",
 export function parseGedcomLine(raw: string, index: number): GedcomLine {
   const match = raw.match(/^(\d+)(?:\s+(@[^@]+@))?\s+([A-Za-z0-9_]+)(?:\s+(.*))?$/);
   if (!match) {
-    throw new Error(`Invalid GEDCOM line ${index + 1}: ${raw}`);
+    const excerpt = raw.length > 160 ? `${raw.slice(0, 157)}...` : raw;
+    throw new Error(`Invalid GEDCOM line ${index + 1}: ${excerpt}`);
   }
 
   return {
@@ -125,7 +126,8 @@ export function summarizeGedcom(records: GedcomRecord[]): ImportSummary {
     ancestryApids: 0
   };
 
-  const years: number[] = [];
+  let minYear: number | undefined;
+  let maxYear: number | undefined;
 
   for (const record of records) {
     if (record.type === "INDI") summary.individuals += 1;
@@ -140,15 +142,19 @@ export function summarizeGedcom(records: GedcomRecord[]): ImportSummary {
       if (node.tag === "_APID") summary.ancestryApids += 1;
       if (node.tag === "DATE" && node.value) {
         const match = node.value.match(/(\d{4})/);
-        if (match) years.push(Number(match[1]));
+        if (match) {
+          const year = Number(match[1]);
+          minYear = minYear === undefined ? year : Math.min(minYear, year);
+          maxYear = maxYear === undefined ? year : Math.max(maxYear, year);
+        }
       }
     });
   }
 
-  if (years.length > 0) {
+  if (minYear !== undefined && maxYear !== undefined) {
     summary.dateRange = {
-      minYear: Math.min(...years),
-      maxYear: Math.max(...years)
+      minYear,
+      maxYear
     };
   }
 

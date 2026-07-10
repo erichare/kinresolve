@@ -3,7 +3,7 @@ import { getArchiveId } from "./workspace-store";
 
 export type RuntimeStatus = {
   product: "KinSleuth";
-  version: "0.17.3";
+  version: "0.17.4";
   database: {
     configured: boolean;
     connected: boolean;
@@ -21,18 +21,23 @@ export type RuntimeStatus = {
     embeddingModel: string;
     mode: "responses" | "chat";
   };
+  storage: {
+    configured: boolean;
+  };
 };
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   const databaseUrl = process.env.DATABASE_URL;
   const archiveId = getArchiveId();
   const ai = getAIStatus();
+  const storage = getStorageStatus();
 
   if (!databaseUrl) {
     return {
       product: "KinSleuth",
-      version: "0.17.3",
+      version: "0.17.4",
       ai,
+      storage,
       database: {
         configured: false,
         connected: false,
@@ -65,8 +70,9 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
 
     return {
       product: "KinSleuth",
-      version: "0.17.3",
+      version: "0.17.4",
       ai,
+      storage,
       database: {
         configured: true,
         connected: true,
@@ -80,8 +86,9 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   } catch (error) {
     return {
       product: "KinSleuth",
-      version: "0.17.3",
+      version: "0.17.4",
       ai,
+      storage,
       database: {
         configured: true,
         connected: false,
@@ -103,5 +110,11 @@ export function getAIStatus(): RuntimeStatus["ai"] {
     chatModel: process.env.AI_CHAT_MODEL ?? "gpt-5-mini",
     embeddingModel: process.env.AI_EMBEDDING_MODEL ?? "text-embedding-3-small",
     mode: process.env.AI_API_MODE === "chat" ? "chat" : "responses"
+  };
+}
+
+export function getStorageStatus(): RuntimeStatus["storage"] {
+  return {
+    configured: Boolean(process.env.BLOB_READ_WRITE_TOKEN)
   };
 }
