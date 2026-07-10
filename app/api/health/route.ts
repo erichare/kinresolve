@@ -10,7 +10,15 @@ export async function GET() {
   return NextResponse.json(
     {
       status: status.database.connected ? "ok" : "degraded",
-      ...status
+      product: status.product,
+      version: status.version,
+      database: {
+        configured: status.database.configured,
+        connected: status.database.connected
+      },
+      ai: {
+        configured: status.ai.configured
+      }
     },
     { status: status.database.connected ? 200 : 503 }
   );

@@ -7,6 +7,11 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const body = (await request.json()) as { password?: string; next?: string };
   const configuredPassword = process.env.KINSLEUTH_APP_PASSWORD;
+  const authSecret = process.env.AUTH_SECRET;
+
+  if (process.env.NODE_ENV === "production" && (!configuredPassword || !authSecret)) {
+    return NextResponse.json({ error: "Private workspace authentication is not configured" }, { status: 503 });
+  }
 
   if (configuredPassword && body.password !== configuredPassword) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
@@ -15,7 +20,7 @@ export async function POST(request: Request) {
   const response = NextResponse.json({ ok: true, next: safeNextPath(body.next) });
   response.cookies.set({
     name: sessionCookieName,
-    value: await createSessionToken(process.env.AUTH_SECRET || "kinsleuth-dev-secret"),
+    value: await createSessionToken(authSecret || "kinsleuth-dev-secret"),
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
