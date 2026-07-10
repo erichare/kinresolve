@@ -73,6 +73,8 @@ Workspace records live in Postgres. To reset local demo data, use a disposable l
 | `KINSLEUTH_APP_PASSWORD` | Enables password protection for `/app` and private APIs when set |
 | `KINSLEUTH_ARCHIVE_ID` | Optional archive id; defaults to `archive-default` |
 | `DATABASE_URL` | Required Postgres connection string for runtime workspace storage |
+| `DATABASE_POOL_MAX` | Maximum connections per app instance; use `2` for serverless deployments |
+| `DATABASE_AUTO_MIGRATE` | Runs the idempotent bootstrap schema when enabled; set `false` after provisioning production |
 | `TEST_DATABASE_URL` | Optional Postgres connection string for DB integration tests |
 | `S3_*` | Reserved for object storage-backed uploads |
 | `AI_BASE_URL` | OpenAI-compatible provider base URL |
@@ -103,6 +105,22 @@ npm run build
 Use `npm run test:watch` for focused Vitest iteration. Set `TEST_DATABASE_URL` before `npm run test:db` to run the Postgres-backed workspace and GEDCOM apply integration tests; without it, those tests are skipped.
 
 `/api/health` returns `200` when Postgres is reachable and `503` when the app is degraded because `DATABASE_URL` is missing or the database cannot be reached.
+
+## Production releases
+
+Production deployments are release-driven. Vercel Git auto-deployments are disabled in `vercel.json`; publishing a stable GitHub Release runs `.github/workflows/vercel-release.yml`, checks out that release tag, validates it, builds it with the production environment, and deploys the prebuilt artifact.
+
+Configure these GitHub Actions secrets before publishing a release:
+
+| Secret | Purpose |
+| --- | --- |
+| `VERCEL_TOKEN` | Project-scoped Vercel token used only by the release workflow |
+| `VERCEL_ORG_ID` | Vercel team id from `.vercel/project.json` |
+| `VERCEL_PROJECT_ID` | Vercel project id from `.vercel/project.json` |
+
+The Vercel production environment must include `DATABASE_URL`, `DATABASE_POOL_MAX=2`, `DATABASE_AUTO_MIGRATE=false`, `AUTH_SECRET`, and `KINSLEUTH_APP_PASSWORD`. Use Supabase's transaction-pooler connection string on port `6543` for `DATABASE_URL` and include the documented `workaround=supabase-pooler.vercel` query parameter; never use the production database as `TEST_DATABASE_URL`.
+
+Source-file uploads still target local disk in this slice. Vercel's function filesystem is ephemeral, so production file uploads require object-storage support before they should be used; transcript-only source records and all Postgres-backed workflows are unaffected.
 
 ## Project map
 

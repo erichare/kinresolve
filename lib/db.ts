@@ -9,6 +9,20 @@ export type DatabaseOptions = {
 const pools = new Map<string, Pool>();
 const schemaPromises = new Map<string, Promise<void>>();
 
+export function getDatabasePoolMax(): number {
+  const configured = Number.parseInt(process.env.DATABASE_POOL_MAX ?? "", 10);
+  if (Number.isSafeInteger(configured) && configured > 0) {
+    return configured;
+  }
+
+  return process.env.NODE_ENV === "development" ? 10 : 2;
+}
+
+export function isDatabaseAutoMigrateEnabled(): boolean {
+  const configured = process.env.DATABASE_AUTO_MIGRATE?.trim().toLowerCase();
+  return !configured || !["0", "false", "no", "off"].includes(configured);
+}
+
 export function getDatabaseUrl(options: DatabaseOptions = {}): string {
   const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
 
@@ -28,13 +42,19 @@ export function getPool(options: DatabaseOptions = {}): Pool {
 
   const pool = new Pool({
     connectionString: databaseUrl,
-    max: process.env.NODE_ENV === "test" ? 2 : 10
+    max: getDatabasePoolMax(),
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 10_000
   });
   pools.set(databaseUrl, pool);
   return pool;
 }
 
 export async function ensureDatabaseSchema(options: DatabaseOptions = {}): Promise<void> {
+  if (!isDatabaseAutoMigrateEnabled()) {
+    return;
+  }
+
   const databaseUrl = getDatabaseUrl(options);
   const existing = schemaPromises.get(databaseUrl);
   if (existing) {

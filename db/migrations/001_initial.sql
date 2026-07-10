@@ -1,4 +1,19 @@
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_extension extension
+    JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace
+    WHERE extension.extname = 'vector'
+      AND namespace.nspname <> 'extensions'
+  ) THEN
+    ALTER EXTENSION vector SET SCHEMA extensions;
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS archives (
   id text PRIMARY KEY,
@@ -215,7 +230,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
   entity_type text NOT NULL,
   entity_id text NOT NULL,
   content text NOT NULL,
-  embedding vector(1536),
+  embedding extensions.vector(1536),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -253,3 +268,52 @@ CREATE INDEX IF NOT EXISTS tasks_case_status_idx ON tasks (case_id, status);
 CREATE INDEX IF NOT EXISTS dna_archive_status_idx ON dna_matches (archive_id, triage_status);
 CREATE INDEX IF NOT EXISTS embeddings_archive_entity_idx ON embeddings (archive_id, entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS ai_runs_archive_created_idx ON ai_runs (archive_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS dna_hypotheses_archive_idx ON dna_hypotheses (archive_id);
+CREATE INDEX IF NOT EXISTS dna_hypotheses_match_idx ON dna_hypotheses (dna_match_id);
+CREATE INDEX IF NOT EXISTS evidence_items_archive_idx ON evidence_items (archive_id);
+CREATE INDEX IF NOT EXISTS evidence_items_case_idx ON evidence_items (case_id);
+CREATE INDEX IF NOT EXISTS hypotheses_archive_idx ON hypotheses (archive_id);
+CREATE INDEX IF NOT EXISTS hypotheses_case_idx ON hypotheses (case_id);
+CREATE INDEX IF NOT EXISTS import_snapshots_archive_idx ON import_snapshots (archive_id);
+CREATE INDEX IF NOT EXISTS person_facts_archive_idx ON person_facts (archive_id);
+CREATE INDEX IF NOT EXISTS raw_records_archive_idx ON raw_records (archive_id);
+CREATE INDEX IF NOT EXISTS tasks_archive_idx ON tasks (archive_id);
+CREATE INDEX IF NOT EXISTS workspace_backups_archive_idx ON workspace_backups (archive_id);
+
+ALTER TABLE archives ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE people ENABLE ROW LEVEL SECURITY;
+ALTER TABLE person_facts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE import_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE raw_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspace_backups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE research_cases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hypotheses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evidence_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dna_matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dna_hypotheses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_runs ENABLE ROW LEVEL SECURITY;
+
+-- Supabase exposes the public schema through its Data API. KinSleuth accesses
+-- Postgres only from the server, so keep the public API roles denied by default.
+DO $$
+DECLARE
+  api_role text;
+BEGIN
+  FOREACH api_role IN ARRAY ARRAY['anon', 'authenticated']
+  LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = api_role) THEN
+      EXECUTE format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I', api_role);
+      EXECUTE format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I', api_role);
+      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM %I', api_role);
+      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM %I', api_role);
+    END IF;
+  END LOOP;
+END
+$$;
+
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;

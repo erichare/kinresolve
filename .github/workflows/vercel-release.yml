@@ -1,0 +1,82 @@
+name: Deploy stable release to Vercel
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Check out the released revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Pull Vercel production settings
+        run: npx --yes vercel@55.0.0 pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Verify required production settings
+        run: |
+          node --env-file=.vercel/.env.production.local -e '
+            const required = ["DATABASE_URL", "AUTH_SECRET", "KINSLEUTH_APP_PASSWORD"];
+            const missing = required.filter((name) => !process.env[name]);
+            if (missing.length) {
+              console.error(`Missing required Vercel production settings: ${missing.join(", ")}`);
+              process.exit(1);
+            }
+          '
+
+      - name: Build production artifact
+        run: npx --yes vercel@55.0.0 build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy production artifact
+        id: deploy
+        run: |
+          deployment_url="$(npx --yes vercel@55.0.0 deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+
+      - name: Verify production health and access gate
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          health_status="$(curl --retry 10 --retry-delay 3 --retry-all-errors --max-time 20 --silent --show-error --output health.json --write-out '%{http_code}' "$DEPLOYMENT_URL/api/health")"
+          test "$health_status" = "200"
+
+          app_status="$(curl --max-time 20 --silent --show-error --output /dev/null --write-out '%{http_code}' "$DEPLOYMENT_URL/app")"
+          case "$app_status" in
+            302|303|307|308) ;;
+            *) echo "Expected /app to redirect to login, got HTTP $app_status" >&2; exit 1 ;;
+          esac

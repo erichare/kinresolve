@@ -5,20 +5,28 @@ const protectedPagePrefixes = ["/app"];
 const protectedApiPrefixes = ["/api/ai", "/api/cases", "/api/dna", "/api/imports", "/api/people", "/api/publishing", "/api/reports", "/api/sources", "/api/uploads"];
 
 export async function proxy(request: NextRequest) {
-  const password = process.env.KINSLEUTH_APP_PASSWORD;
-  if (!password) {
-    return NextResponse.next();
-  }
-
   const { pathname } = request.nextUrl;
   const protectsApi = protectedApiPrefixes.some((prefix) => pathname.startsWith(prefix));
   const protectsPage = protectedPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const password = process.env.KINSLEUTH_APP_PASSWORD;
+  const authSecret = process.env.AUTH_SECRET;
+
+  if (!password || !authSecret) {
+    if (process.env.NODE_ENV === "production") {
+      const message = "Private workspace authentication is not configured";
+      return protectsApi
+        ? NextResponse.json({ error: message }, { status: 503 })
+        : new NextResponse(message, { status: 503 });
+    }
+
+    return NextResponse.next();
+  }
 
   if (!protectsApi && !protectsPage) {
     return NextResponse.next();
   }
 
-  const isAuthenticated = await verifySessionToken(request.cookies.get(sessionCookieName)?.value, process.env.AUTH_SECRET || "kinsleuth-dev-secret");
+  const isAuthenticated = await verifySessionToken(request.cookies.get(sessionCookieName)?.value, authSecret);
   if (isAuthenticated) {
     return NextResponse.next();
   }
@@ -29,6 +37,7 @@ export async function proxy(request: NextRequest) {
 
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
+  loginUrl.search = "";
   loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
   return NextResponse.redirect(loginUrl);
 }
