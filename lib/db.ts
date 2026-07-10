@@ -8,6 +8,9 @@ export type DatabaseOptions = {
 
 const pools = new Map<string, Pool>();
 const schemaPromises = new Map<string, Promise<void>>();
+const supabasePoolerHostnameSuffix = ".pooler.supabase.com";
+const supabaseRootCertificatePath = path.join(process.cwd(), "certs", "supabase-prod-ca-2021.crt");
+const databaseUrlSslParameters = ["ssl", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"];
 
 export function getDatabasePoolMax(): number {
   const configured = Number.parseInt(process.env.DATABASE_POOL_MAX ?? "", 10);
@@ -33,20 +36,43 @@ export function getDatabaseUrl(options: DatabaseOptions = {}): string {
   return databaseUrl;
 }
 
+export function getDatabaseConnectionString(databaseUrl: string): string {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    return databaseUrl;
+  }
+
+  if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname.endsWith(supabasePoolerHostnameSuffix)) {
+    return databaseUrl;
+  }
+
+  for (const parameter of databaseUrlSslParameters) {
+    parsed.searchParams.delete(parameter);
+  }
+  parsed.searchParams.set("sslmode", "verify-full");
+  parsed.searchParams.set("sslrootcert", supabaseRootCertificatePath);
+
+  return parsed.toString();
+}
+
 export function getPool(options: DatabaseOptions = {}): Pool {
   const databaseUrl = getDatabaseUrl(options);
-  const existing = pools.get(databaseUrl);
+  const connectionString = getDatabaseConnectionString(databaseUrl);
+  const existing = pools.get(connectionString);
   if (existing) {
     return existing;
   }
 
   const pool = new Pool({
-    connectionString: databaseUrl,
+    connectionString,
     max: getDatabasePoolMax(),
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 10_000
   });
-  pools.set(databaseUrl, pool);
+  pools.set(connectionString, pool);
   return pool;
 }
 

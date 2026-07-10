@@ -118,7 +118,7 @@ Configure these GitHub Actions secrets before publishing a release:
 | `VERCEL_ORG_ID` | Vercel team id from `.vercel/project.json` |
 | `VERCEL_PROJECT_ID` | Vercel project id from `.vercel/project.json` |
 
-The Vercel production environment must include `DATABASE_URL`, `DATABASE_POOL_MAX=2`, `DATABASE_AUTO_MIGRATE=false`, `AUTH_SECRET`, and `KINSLEUTH_APP_PASSWORD`. Use Supabase's transaction-pooler connection string on port `6543` for `DATABASE_URL` and include the documented `workaround=supabase-pooler.vercel` query parameter; never use the production database as `TEST_DATABASE_URL`.
+The Vercel production environment must include `DATABASE_URL`, `DATABASE_POOL_MAX=2`, `DATABASE_AUTO_MIGRATE=false`, `AUTH_SECRET`, and `KINSLEUTH_APP_PASSWORD`. Use Supabase's transaction-pooler connection string on port `6543` for `DATABASE_URL` with `sslmode=require`; KinSleuth upgrades known Supabase pooler connections to `verify-full` with the bundled Supabase root CA. Never use the production database as `TEST_DATABASE_URL`.
 
 Source-file uploads still target local disk in this slice. Vercel's function filesystem is ephemeral, so production file uploads require object-storage support before they should be used; transcript-only source records and all Postgres-backed workflows are unaffected.
 
