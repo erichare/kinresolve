@@ -1,8 +1,17 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ImportDiff, ImportSnapshot } from "@/lib/gedcom/importer";
+import {
+  createGedcomUploadPath,
+  formatFileSize,
+  maximumCombinedGedcomSizeBytes,
+  maximumGedcomFileSizeBytes,
+  shouldStageGedcomFiles,
+  type GedcomUploadReference
+} from "@/lib/gedcom/upload-policy";
 import { workspaceStorageKeys, type StoredImportPreview } from "@/lib/workspace-snapshot";
 import { Status } from "./ui";
 
@@ -30,13 +39,17 @@ export function ImportPreviewWorkspace() {
   const [sourceName, setSourceName] = useState("Riemer-Zajicek.ged");
   const [currentFile, setCurrentFile] = useState<File | undefined>();
   const [previousFile, setPreviousFile] = useState<File | undefined>();
+  const [currentUpload, setCurrentUpload] = useState<GedcomUploadReference | undefined>();
+  const [previousUpload, setPreviousUpload] = useState<GedcomUploadReference | undefined>();
   const [currentContent, setCurrentContent] = useState("");
   const [previousContent, setPreviousContent] = useState("");
   const [result, setResult] = useState<ImportResponse | undefined>();
   const [recentPreviews, setRecentPreviews] = useState<StoredImportPreview[]>([]);
-  const [status, setStatus] = useState<"idle" | "loading" | "applying" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "uploading" | "loading" | "applying" | "error">("idle");
+  const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percentage: number } | undefined>();
   const [error, setError] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const requestInProgress = status === "uploading" || status === "loading" || status === "applying";
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -57,14 +70,68 @@ export function ImportPreviewWorkspace() {
     window.localStorage.setItem(workspaceStorageKeys.importPreviews, JSON.stringify(recentPreviews));
   }, [hydrated, recentPreviews]);
 
-  async function readFile(file: File | undefined, setter: (content: string) => void, fileSetter: (file: File | undefined) => void) {
-    fileSetter(file);
+  async function readCurrentFile(file: File | undefined) {
+    releaseStagedUpload(currentUpload);
+    setCurrentUpload(undefined);
+    setCurrentFile(file);
+    setCurrentContent("");
+    setResult(undefined);
+    setError("");
+    setUploadProgress(undefined);
+
     if (!file) {
+      return;
+    }
+    if (!validateSelectedFile(file, previousFile)) {
+      setCurrentFile(undefined);
       return;
     }
 
     setSourceName(file.name);
-    setter(await file.text());
+    if (!shouldStageGedcomFiles([file])) {
+      setCurrentContent(await file.text());
+    }
+  }
+
+  async function readPreviousFile(file: File | undefined) {
+    releaseStagedUpload(previousUpload);
+    setPreviousUpload(undefined);
+    setPreviousFile(file);
+    setPreviousContent("");
+    setResult(undefined);
+    setError("");
+    setUploadProgress(undefined);
+
+    if (!file) {
+      return;
+    }
+    if (!validateSelectedFile(file, currentFile)) {
+      setPreviousFile(undefined);
+      return;
+    }
+    if (!shouldStageGedcomFiles([file])) {
+      setPreviousContent(await file.text());
+    }
+  }
+
+  function validateSelectedFile(file: File, companionFile: File | undefined): boolean {
+    if (!/\.(?:ged|gedcom)$/i.test(file.name)) {
+      setStatus("error");
+      setError("Choose a GEDCOM file ending in .ged or .gedcom.");
+      return false;
+    }
+    if (file.size <= 0 || file.size > maximumGedcomFileSizeBytes) {
+      setStatus("error");
+      setError(`GEDCOM files must be between 1 byte and ${formatFileSize(maximumGedcomFileSizeBytes)}.`);
+      return false;
+    }
+    if (file.size + (companionFile?.size ?? 0) > maximumCombinedGedcomSizeBytes) {
+      setStatus("error");
+      setError(`The current and previous GEDCOM files must total ${formatFileSize(maximumCombinedGedcomSizeBytes)} or less.`);
+      return false;
+    }
+    setStatus("idle");
+    return true;
   }
 
   async function previewImport() {
@@ -72,11 +139,22 @@ export function ImportPreviewWorkspace() {
     setError("");
     setResult(undefined);
 
-    const response = await sendImportRequest(false);
+    let response: Response;
+    try {
+      response = await sendImportRequest(false);
+    } catch (requestError) {
+      setStatus("error");
+      setUploadProgress(undefined);
+      setError(errorMessage(requestError));
+      return;
+    }
 
     if (!response.ok) {
+      if (response.status === 404 || response.status === 409) {
+        resetStagedUploads();
+      }
       setStatus("error");
-      setError((await response.text()) || "GEDCOM preview failed.");
+      setError(await responseError(response, "GEDCOM preview failed."));
       return;
     }
 
@@ -97,26 +175,71 @@ export function ImportPreviewWorkspace() {
   }
 
   async function applyImport() {
-    if (!result || !currentContent) {
+    if (!result || (!currentFile && !currentContent)) {
       return;
     }
 
     setStatus("applying");
     setError("");
 
-    const response = await sendImportRequest(true);
+    let response: Response;
+    try {
+      response = await sendImportRequest(true);
+    } catch (requestError) {
+      setStatus("error");
+      setUploadProgress(undefined);
+      setError(errorMessage(requestError));
+      return;
+    }
 
     if (!response.ok) {
+      if (response.status === 404 || response.status === 409) {
+        resetStagedUploads();
+      }
       setStatus("error");
-      setError((await response.text()) || "GEDCOM import failed.");
+      setError(await responseError(response, "GEDCOM import failed."));
       return;
     }
 
     setResult((await response.json()) as ImportResponse);
+    setCurrentUpload(undefined);
+    setPreviousUpload(undefined);
     setStatus("idle");
   }
 
-  function sendImportRequest(apply: boolean): Promise<Response> {
+  async function sendImportRequest(apply: boolean): Promise<Response> {
+    if ((currentFile?.size ?? 0) + (previousFile?.size ?? 0) > maximumCombinedGedcomSizeBytes) {
+      throw new Error(`The current and previous GEDCOM files must total ${formatFileSize(maximumCombinedGedcomSizeBytes)} or less.`);
+    }
+    if (shouldStageGedcomFiles([currentFile, previousFile])) {
+      setStatus("uploading");
+      const stagedCurrent = currentFile
+        ? currentUpload ?? await stageFile(currentFile)
+        : undefined;
+      if (stagedCurrent && stagedCurrent !== currentUpload) {
+        setCurrentUpload(stagedCurrent);
+      }
+      const stagedPrevious = previousFile
+        ? previousUpload ?? await stageFile(previousFile)
+        : undefined;
+      if (stagedPrevious && stagedPrevious !== previousUpload) {
+        setPreviousUpload(stagedPrevious);
+      }
+      setUploadProgress(undefined);
+      setStatus(apply ? "applying" : "loading");
+
+      return fetch("/api/imports", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceName,
+          currentUpload: stagedCurrent,
+          previousUpload: stagedPrevious,
+          apply
+        })
+      });
+    }
+
     if (currentFile) {
       const formData = new FormData();
       formData.set("sourceName", sourceName);
@@ -146,31 +269,79 @@ export function ImportPreviewWorkspace() {
     });
   }
 
+  async function stageFile(file: File): Promise<GedcomUploadReference> {
+    const uploadId = crypto.randomUUID();
+    const pathname = createGedcomUploadPath(uploadId, file.name);
+    const blob = await upload(pathname, file, {
+      access: "private",
+      contentType: "text/plain",
+      handleUploadUrl: "/api/imports/uploads",
+      clientPayload: JSON.stringify({ uploadId, originalName: file.name, size: file.size }),
+      onUploadProgress: ({ percentage }) => setUploadProgress({ fileName: file.name, percentage })
+    });
+
+    return { pathname: blob.pathname, etag: blob.etag, size: file.size };
+  }
+
+  function releaseStagedUpload(reference: GedcomUploadReference | undefined) {
+    if (!reference) {
+      return;
+    }
+    void fetch("/api/imports/uploads", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pathname: reference.pathname }),
+      keepalive: true
+    });
+  }
+
+  function resetStagedUploads() {
+    releaseStagedUpload(currentUpload);
+    releaseStagedUpload(previousUpload);
+    setCurrentUpload(undefined);
+    setPreviousUpload(undefined);
+  }
+
   return (
     <div className="app-grid">
-      <div aria-busy={status === "loading"} className="app-card">
+      <div aria-busy={status === "loading" || status === "uploading"} className="app-card">
         <h2>Preview GEDCOM import</h2>
         <p className="muted">Preview a GEDCOM, preserve raw records, and apply it to the private workspace with a backup before changes are saved.</p>
         <div className="form-grid">
           <label className="field">
             <span>New GEDCOM</span>
-            <input accept=".ged,.gedcom,text/plain" type="file" onChange={(event) => readFile(event.target.files?.[0], setCurrentContent, setCurrentFile)} />
+            <input accept=".ged,.gedcom,text/plain" disabled={requestInProgress} type="file" onChange={(event) => void readCurrentFile(event.target.files?.[0])} />
           </label>
           <label className="field">
             <span>Previous GEDCOM for diff</span>
-            <input accept=".ged,.gedcom,text/plain" type="file" onChange={(event) => readFile(event.target.files?.[0], setPreviousContent, setPreviousFile)} />
+            <input accept=".ged,.gedcom,text/plain" disabled={requestInProgress} type="file" onChange={(event) => void readPreviousFile(event.target.files?.[0])} />
           </label>
           <label className="field" style={{ gridColumn: "1 / -1" }}>
             <span>Source name</span>
-            <input value={sourceName} onChange={(event) => setSourceName(event.target.value)} />
+            <input
+              disabled={requestInProgress}
+              value={sourceName}
+              onChange={(event) => {
+                setSourceName(event.target.value);
+                setResult(undefined);
+              }}
+            />
           </label>
         </div>
         <div className="hero-actions">
-          <button aria-busy={status === "loading"} className="button" disabled={status === "loading" || currentContent.length === 0} onClick={previewImport} type="button">
-            {status === "loading" ? "Parsing..." : "Preview import"}
+          <button aria-busy={status === "loading" || status === "uploading"} className="button" disabled={requestInProgress || (!currentFile && currentContent.length === 0)} onClick={previewImport} type="button">
+            {status === "uploading" ? "Uploading..." : status === "loading" ? "Parsing..." : "Preview import"}
           </button>
           <span aria-atomic="true" aria-live="polite" role="status">
-            {currentContent ? <Status>{currentContent.length.toLocaleString()} characters loaded</Status> : <Status tone="private">No file loaded</Status>}
+            {uploadProgress ? (
+              <Status>{uploadProgress.fileName}: {Math.round(uploadProgress.percentage)}% uploaded</Status>
+            ) : currentFile ? (
+              <Status>{formatFileSize(currentFile.size)} loaded</Status>
+            ) : currentContent ? (
+              <Status>{currentContent.length.toLocaleString()} characters loaded</Status>
+            ) : (
+              <Status tone="private">No file loaded</Status>
+            )}
           </span>
         </div>
         {status === "error" ? <p aria-atomic="true" className="form-error" role="alert">{error}</p> : null}
@@ -253,6 +424,7 @@ export function ImportPreviewWorkspace() {
               ))}
             </tbody>
           </table>
+          {result.diff.omittedRecords ? <p className="muted">Showing the first {result.diff.records.length.toLocaleString()} diff records; {result.diff.omittedRecords.toLocaleString()} additional records are included in the totals above.</p> : null}
         </section>
       ) : null}
 
@@ -298,6 +470,24 @@ function readLocalJson<T>(key: string): T | undefined {
   } catch {
     return undefined;
   }
+}
+
+async function responseError(response: Response, fallback: string): Promise<string> {
+  const text = await response.text();
+  if (!text) {
+    return fallback;
+  }
+
+  try {
+    const body = JSON.parse(text) as { error?: unknown };
+    return typeof body.error === "string" && body.error.trim() ? body.error : fallback;
+  } catch {
+    return text;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "GEDCOM request failed.";
 }
 
 function MiniStat({ label, value }: { label: string; value: number }) {

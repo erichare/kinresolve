@@ -16,6 +16,20 @@ jobs:
     if: github.event.release.prerelease == false
     runs-on: ubuntu-latest
     environment: production
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: kinsleuth_test
+          POSTGRES_USER: kinsleuth
+          POSTGRES_PASSWORD: kinsleuth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kinsleuth -d kinsleuth_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       PRODUCTION_URL: https://kinsleuth.vercel.app
       RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -47,6 +61,16 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test Postgres persistence
+        env:
+          TEST_DATABASE_URL: postgres://kinsleuth:kinsleuth@localhost:5432/kinsleuth_test
+        run: npm run test:db
+
+      - name: Test large GEDCOM persistence
+        env:
+          TEST_DATABASE_URL: postgres://kinsleuth:kinsleuth@localhost:5432/kinsleuth_test
+        run: npm run test:db:large
+
       - name: Pull Vercel production settings
         run: npx --yes vercel@55.0.0 pull --yes --environment=production --token="$VERCEL_TOKEN"
 
@@ -55,7 +79,7 @@ jobs:
           npx --yes vercel@55.0.0 env ls production --format json --token="$VERCEL_TOKEN" > "$RUNNER_TEMP/vercel-env.json"
           node -e '
             const { readFileSync } = require("node:fs");
-            const required = ["DATABASE_URL", "AUTH_SECRET", "KINSLEUTH_APP_PASSWORD"];
+            const required = ["DATABASE_URL", "AUTH_SECRET", "KINSLEUTH_APP_PASSWORD", "BLOB_READ_WRITE_TOKEN", "CRON_SECRET"];
             const { envs = [] } = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/vercel-env.json`, "utf8"));
             const project = JSON.parse(readFileSync(".vercel/project.json", "utf8"));
             const configured = new Set(
@@ -91,7 +115,7 @@ jobs:
             const { readFileSync } = require("node:fs");
             const health = JSON.parse(readFileSync("health.json", "utf8"));
             const expectedVersion = process.env.RELEASE_TAG.replace(/^v/, "");
-            if (health.status !== "ok" || health.database?.connected !== true || health.version !== expectedVersion) {
+            if (health.status !== "ok" || health.database?.connected !== true || health.storage?.configured !== true || health.version !== expectedVersion) {
               console.error("Production health response did not match the released, connected application", health);
               process.exit(1);
             }

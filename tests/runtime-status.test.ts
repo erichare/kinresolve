@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getAIStatus, getRuntimeStatus } from "@/lib/runtime-status";
+import { getAIStatus, getRuntimeStatus, getStorageStatus } from "@/lib/runtime-status";
 
 const originalEnv = { ...process.env };
 
@@ -41,5 +41,13 @@ describe("runtime status", () => {
       archiveId: "archive-default",
       error: "DATABASE_URL is not configured"
     });
+  });
+
+  it("reports whether private upload storage is configured", () => {
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    expect(getStorageStatus()).toEqual({ configured: false });
+
+    process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test";
+    expect(getStorageStatus()).toEqual({ configured: true });
   });
 });

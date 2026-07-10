@@ -13,7 +13,7 @@ The V0.1 implementation is intentionally one-family-archive-per-deployment. That
 - Next.js App Router renders public and private routes.
 - Postgres stores normalized workspace data, import snapshots, backups, case tasks, and AI run history.
 - `pgvector` is provisioned for semantic embeddings for source notes, facts, case evidence, and DNA match notes.
-- Object storage stores uploaded source images, PDFs, and transcripts.
+- Private object storage stages large GEDCOM imports outside the Vercel Function request path and will store uploaded source images, PDFs, and transcripts as those workflows mature.
 - A background worker owns GEDCOM imports, re-import diffs, embedding refreshes, and long AI jobs.
 
 ## Privacy

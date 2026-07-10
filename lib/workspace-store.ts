@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import { withTransaction, type DatabaseOptions } from "./db";
 import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoPeople } from "./demo-data";
-import { prepareGedcomImport } from "./gedcom/apply";
+import { prepareGedcomImport, type PreparedGedcomImport } from "./gedcom/apply";
 import { buildFamilyRelationshipMap, parseGedcom } from "./gedcom/parser";
 import type {
   AIAnalysisRun,
@@ -43,6 +43,7 @@ export type WorkspaceStoreOptions = DatabaseOptions & {
 };
 
 const defaultArchiveId = "archive-default";
+const bulkInsertBatchSize = 2_000;
 
 export function getArchiveId(options: WorkspaceStoreOptions = {}): string {
   return options.archiveId ?? process.env.KINSLEUTH_ARCHIVE_ID ?? defaultArchiveId;
@@ -485,8 +486,20 @@ export async function applyGedcomImport(
     throw new Error("sourceName and content are required");
   }
 
+  return applyPreparedGedcomImport(prepareGedcomImport(input.sourceName.trim(), input.content), options);
+}
+
+export async function applyPreparedGedcomImport(
+  prepared: PreparedGedcomImport,
+  options: WorkspaceStoreOptions = {}
+): Promise<{
+  import: AppliedGedcomImport;
+  backup: WorkspaceBackup;
+  peopleImported: number;
+  sourcesImported: number;
+  rawRecordCount: number;
+}> {
   const workspace = await readWorkspace(options);
-  const prepared = prepareGedcomImport(input.sourceName.trim(), input.content);
   const backup = createWorkspaceBackup(workspace, `Before applying ${prepared.snapshot.sourceName}`);
   const importedPeople = mergeImportedPeople(workspace.people, prepared.people);
   const importedSources = mergeById(workspace.sources, prepared.sources);
@@ -742,88 +755,8 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
   await client.query("DELETE FROM person_facts WHERE archive_id = $1", [archiveId]);
   await client.query("DELETE FROM people WHERE archive_id = $1", [archiveId]);
 
-  for (const [index, person] of normalized.people.entries()) {
-    await client.query(
-      `INSERT INTO people (
-        id, archive_id, slug, display_name, given_name, surname, sex, birth_date, birth_place,
-        death_date, death_place, living_status, privacy, published, relatives, notes, confidence, sort_order
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0.5, $17)`,
-      [
-        person.id,
-        archiveId,
-        person.slug,
-        person.displayName,
-        person.givenName,
-        person.surname,
-        person.sex,
-        person.birthDate,
-        person.birthPlace,
-        person.deathDate,
-        person.deathPlace,
-        person.livingStatus,
-        person.privacy,
-        person.published,
-        person.relatives,
-        person.notes,
-        index
-      ]
-    );
-
-    for (const [factIndex, fact] of person.facts.entries()) {
-      await client.query(
-        `INSERT INTO person_facts (
-          id, archive_id, person_id, fact_type, date_text, place_text, value_text, source_text, privacy, confidence, sort_order
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [
-          fact.id,
-          archiveId,
-          person.id,
-          fact.type,
-          fact.date,
-          fact.place,
-          fact.value,
-          fact.source,
-          fact.privacy,
-          normalizeConfidence(fact.confidence),
-          factIndex
-        ]
-      );
-    }
-  }
-
-  for (const [index, source] of normalized.sources.entries()) {
-    await client.query(
-      `INSERT INTO sources (
-        id, archive_id, title, source_type, import_id, raw_record_id, file_name, storage_key,
-        mime_type, size_bytes, repository, url, ancestry_apid, citation_date, linked_person_id,
-        linked_case_id, transcript, notes, privacy, confidence, created_at, sort_order
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
-      [
-        source.id,
-        archiveId,
-        source.title,
-        source.sourceType,
-        source.importId,
-        source.rawRecordId,
-        source.fileName,
-        source.storageKey,
-        source.mimeType,
-        source.size,
-        source.repository,
-        source.url,
-        source.ancestryApid,
-        source.citationDate,
-        source.linkedPersonId,
-        source.linkedCaseId,
-        source.transcript,
-        source.notes,
-        source.privacy,
-        normalizeConfidence(source.confidence),
-        source.createdAt,
-        index
-      ]
-    );
-  }
+  await insertPeopleAndFacts(client, archiveId, normalized.people);
+  await insertSources(client, archiveId, normalized.sources);
 
   for (const [index, researchCase] of normalized.cases.entries()) {
     await client.query(
@@ -975,13 +908,7 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
     );
   }
 
-  for (const [index, record] of normalized.rawRecords.entries()) {
-    await client.query(
-      `INSERT INTO raw_records (id, archive_id, import_id, xref, record_type, raw_text, checksum, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [record.id, archiveId, record.importId, record.xref, record.type, record.raw, record.checksum, index]
-    );
-  }
+  await insertRawRecords(client, archiveId, normalized.rawRecords);
 
   for (const [index, backup] of normalized.backups.entries()) {
     await client.query(
@@ -1004,6 +931,149 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
         index
       ]
     );
+  }
+}
+
+async function insertPeopleAndFacts(client: PoolClient, archiveId: string, people: PersonSummary[]): Promise<void> {
+  const personRows = people.map((person, sortOrder) => ({
+    id: person.id,
+    slug: person.slug,
+    display_name: person.displayName,
+    given_name: person.givenName,
+    surname: person.surname,
+    sex: person.sex,
+    birth_date: person.birthDate,
+    birth_place: person.birthPlace,
+    death_date: person.deathDate,
+    death_place: person.deathPlace,
+    living_status: person.livingStatus,
+    privacy: person.privacy,
+    published: person.published,
+    relatives: person.relatives,
+    notes: person.notes,
+    sort_order: sortOrder
+  }));
+
+  await insertJsonBatches(personRows, async (rows) => {
+    await client.query(
+      `INSERT INTO people (
+        id, archive_id, slug, display_name, given_name, surname, sex, birth_date, birth_place,
+        death_date, death_place, living_status, privacy, published, relatives, notes, confidence, sort_order
+      )
+      SELECT row.id, $1::text, row.slug, row.display_name, row.given_name, row.surname, row.sex,
+        row.birth_date, row.birth_place, row.death_date, row.death_place, row.living_status,
+        row.privacy, row.published, row.relatives, row.notes, 0.5, row.sort_order
+      FROM jsonb_to_recordset($2::jsonb) AS row(
+        id text, slug text, display_name text, given_name text, surname text, sex text,
+        birth_date text, birth_place text, death_date text, death_place text, living_status text,
+        privacy text, published boolean, relatives text[], notes text, sort_order integer
+      )`,
+      [archiveId, JSON.stringify(rows)]
+    );
+  });
+
+  const factRows = people.flatMap((person) => person.facts.map((fact, sortOrder) => ({
+    id: fact.id,
+    person_id: person.id,
+    fact_type: fact.type,
+    date_text: fact.date,
+    place_text: fact.place,
+    value_text: fact.value,
+    source_text: fact.source,
+    privacy: fact.privacy,
+    confidence: normalizeConfidence(fact.confidence),
+    sort_order: sortOrder
+  })));
+
+  await insertJsonBatches(factRows, async (rows) => {
+    await client.query(
+      `INSERT INTO person_facts (
+        id, archive_id, person_id, fact_type, date_text, place_text, value_text, source_text, privacy, confidence, sort_order
+      )
+      SELECT row.id, $1::text, row.person_id, row.fact_type, row.date_text, row.place_text,
+        row.value_text, row.source_text, row.privacy, row.confidence, row.sort_order
+      FROM jsonb_to_recordset($2::jsonb) AS row(
+        id text, person_id text, fact_type text, date_text text, place_text text, value_text text,
+        source_text text, privacy text, confidence numeric, sort_order integer
+      )`,
+      [archiveId, JSON.stringify(rows)]
+    );
+  });
+}
+
+async function insertSources(client: PoolClient, archiveId: string, sources: SourceDocument[]): Promise<void> {
+  const sourceRows = sources.map((source, sortOrder) => ({
+    id: source.id,
+    title: source.title,
+    source_type: source.sourceType,
+    import_id: source.importId,
+    raw_record_id: source.rawRecordId,
+    file_name: source.fileName,
+    storage_key: source.storageKey,
+    mime_type: source.mimeType,
+    size_bytes: source.size,
+    repository: source.repository,
+    url: source.url,
+    ancestry_apid: source.ancestryApid,
+    citation_date: source.citationDate,
+    linked_person_id: source.linkedPersonId,
+    linked_case_id: source.linkedCaseId,
+    transcript: source.transcript,
+    notes: source.notes,
+    privacy: source.privacy,
+    confidence: normalizeConfidence(source.confidence),
+    created_at: source.createdAt,
+    sort_order: sortOrder
+  }));
+
+  await insertJsonBatches(sourceRows, async (rows) => {
+    await client.query(
+      `INSERT INTO sources (
+        id, archive_id, title, source_type, import_id, raw_record_id, file_name, storage_key,
+        mime_type, size_bytes, repository, url, ancestry_apid, citation_date, linked_person_id,
+        linked_case_id, transcript, notes, privacy, confidence, created_at, sort_order
+      )
+      SELECT row.id, $1::text, row.title, row.source_type, row.import_id, row.raw_record_id,
+        row.file_name, row.storage_key, row.mime_type, row.size_bytes, row.repository, row.url,
+        row.ancestry_apid, row.citation_date, row.linked_person_id, row.linked_case_id,
+        row.transcript, row.notes, row.privacy, row.confidence, row.created_at, row.sort_order
+      FROM jsonb_to_recordset($2::jsonb) AS row(
+        id text, title text, source_type text, import_id text, raw_record_id text, file_name text,
+        storage_key text, mime_type text, size_bytes bigint, repository text, url text,
+        ancestry_apid text, citation_date text, linked_person_id text, linked_case_id text,
+        transcript text, notes text, privacy text, confidence numeric, created_at timestamptz, sort_order integer
+      )`,
+      [archiveId, JSON.stringify(rows)]
+    );
+  });
+}
+
+async function insertRawRecords(client: PoolClient, archiveId: string, records: RawGedcomRecord[]): Promise<void> {
+  const recordRows = records.map((record, sortOrder) => ({
+    id: record.id,
+    import_id: record.importId,
+    xref: record.xref,
+    record_type: record.type,
+    raw_text: record.raw,
+    checksum: record.checksum,
+    sort_order: sortOrder
+  }));
+
+  await insertJsonBatches(recordRows, async (rows) => {
+    await client.query(
+      `INSERT INTO raw_records (id, archive_id, import_id, xref, record_type, raw_text, checksum, sort_order)
+      SELECT row.id, $1::text, row.import_id, row.xref, row.record_type, row.raw_text, row.checksum, row.sort_order
+      FROM jsonb_to_recordset($2::jsonb) AS row(
+        id text, import_id text, xref text, record_type text, raw_text text, checksum text, sort_order integer
+      )`,
+      [archiveId, JSON.stringify(rows)]
+    );
+  });
+}
+
+async function insertJsonBatches<T>(rows: T[], insert: (batch: T[]) => Promise<void>): Promise<void> {
+  for (let index = 0; index < rows.length; index += bulkInsertBatchSize) {
+    await insert(rows.slice(index, index + bulkInsertBatchSize));
   }
 }
 

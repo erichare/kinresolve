@@ -1,0 +1,81 @@
+import { after } from "next/server";
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+import { NextResponse } from "next/server";
+import { cleanupStaleGedcomUploads, deleteStagedGedcomUploads } from "@/lib/gedcom/blob-storage";
+import {
+  gedcomUploadTokenLifetimeMs,
+  maximumGedcomFileSizeBytes,
+  validateGedcomUploadPath,
+  validateGedcomUploadRequest
+} from "@/lib/gedcom/upload-policy";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+export async function POST(request: Request) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json({ error: "Private GEDCOM upload storage is not configured." }, { status: 503 });
+  }
+
+  let body: HandleUploadBody;
+  try {
+    body = (await request.json()) as HandleUploadBody;
+  } catch {
+    return NextResponse.json({ error: "GEDCOM upload request is invalid." }, { status: 400 });
+  }
+
+  try {
+    const response = await handleUpload({
+      request,
+      body,
+      onBeforeGenerateToken: async (pathname, clientPayload) => {
+        validateGedcomUploadRequest(pathname, clientPayload);
+
+        return {
+          allowedContentTypes: ["text/plain"],
+          maximumSizeInBytes: maximumGedcomFileSizeBytes,
+          validUntil: Date.now() + gedcomUploadTokenLifetimeMs,
+          addRandomSuffix: false,
+          allowOverwrite: false,
+          cacheControlMaxAge: 60
+        };
+      }
+    });
+
+    if (body.type === "blob.generate-client-token") {
+      after(async () => {
+        try {
+          await cleanupStaleGedcomUploads();
+        } catch (error) {
+          console.error("Unable to clean stale GEDCOM uploads", error);
+        }
+      });
+    }
+
+    return NextResponse.json(response);
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json({ error: "Private GEDCOM upload storage is not configured." }, { status: 503 });
+  }
+
+  try {
+    const body = (await request.json()) as { pathname?: unknown };
+    if (typeof body.pathname !== "string") {
+      throw new Error("GEDCOM upload path is required");
+    }
+    await deleteStagedGedcomUploads([validateGedcomUploadPath(body.pathname)]);
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 400 });
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
