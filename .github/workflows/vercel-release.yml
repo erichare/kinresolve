@@ -97,11 +97,20 @@ jobs:
             }
           '
 
-          app_status="$(curl --max-time 20 --silent --show-error --output /dev/null --write-out '%{http_code}' "$PRODUCTION_URL/app")"
+          app_status="$(curl --max-time 20 --silent --show-error --dump-header app-headers.txt --output /dev/null --write-out '%{http_code}' "$PRODUCTION_URL/app")"
           case "$app_status" in
             302|303|307|308) ;;
             *) echo "Expected /app to redirect to login, got HTTP $app_status" >&2; exit 1 ;;
           esac
+          app_location="$(awk 'tolower($1) == "location:" { print $2 }' app-headers.txt | tr -d '\r')"
+          APP_LOCATION="$app_location" node -e '
+            const expectedOrigin = new URL(process.env.PRODUCTION_URL).origin;
+            const location = new URL(process.env.APP_LOCATION, expectedOrigin);
+            if (location.origin !== expectedOrigin || location.pathname !== "/login" || location.searchParams.get("next") !== "/app") {
+              console.error(`Expected /app to redirect to the KinSleuth login gate, got ${location}`);
+              process.exit(1);
+            }
+          '
 
           echo "Production deployment: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Public application: $PRODUCTION_URL" >> "$GITHUB_STEP_SUMMARY"
