@@ -46,7 +46,7 @@ export default async function ImportsPage() {
         <aside className="app-card">
           <h2>Import policy</h2>
           <p className="muted">
-            KinSleuth previews every GEDCOM before applying it. New imports preserve raw records and later re-imports produce a reviewable diff so curated research is not overwritten silently.
+            Kin Resolve previews every GEDCOM before applying it. New imports preserve raw records and later re-imports produce a reviewable diff so curated research is not overwritten silently.
           </p>
           <div className="evidence-list">
             <div className="evidence-item">
@@ -59,7 +59,7 @@ export default async function ImportsPage() {
             </div>
             <div className="evidence-item">
               <strong>Yours to take anywhere</strong>
-              <p className="muted">Download the whole archive as GEDCOM 5.5.1 at any time. Curation flags travel as custom tags, so another KinSleuth instance restores them on import.</p>
+              <p className="muted">Download the whole archive as GEDCOM 5.5.1 at any time. Compatibility-preserved curation tags let another Kin Resolve instance restore them on import.</p>
               <a className="button-secondary" href="/api/exports/gedcom" download>
                 Export GEDCOM
               </a>

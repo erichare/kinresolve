@@ -1,4 +1,4 @@
-# KinSleuth production-readiness plan
+# Kin Resolve production-readiness plan
 
 _Roadmap from the current codebase to a launchable hosted beta + polished OSS 1.0._
 _Companion to [`docs/auth.md`](auth.md) (identity design) and the locked business
@@ -24,7 +24,8 @@ Phase 1 (persistence + read paths + identity) is essentially complete:
 | Scoped SQL search — sources | #17 |
 | Scoped SQL search — cases + evidence queue | #18 |
 | Scoped SQL search — DNA triage | #19 |
-| **Account-based auth + memberships (better-auth)** | **#20 (open)** |
+| **Account-based auth + memberships (better-auth)** | **#20 (merged)** |
+| **Reviewed next-slice execution blueprint** | **#21 (merged)** |
 
 The app is a working single-archive vertical slice with real accounts. It is **not
 yet** multi-tenant, billable, observable, compliant, or backed by the AI
@@ -36,12 +37,14 @@ differentiator. This document is the path to those.
 
 Two distinct release gates — don't conflate them:
 
-- **OSS 1.0 (self-hosted)** — a self-hoster can run KinSleuth from `docker compose`
-  with no Vercel/Supabase dependency, create an account, import a GEDCOM of any size,
-  use every feature, export their data, and trust that living-person privacy holds.
-- **Hosted beta (kinsleuth.com)** — a stranger can sign up on your domain, pay,
-  collaborate with family, use bundled AI, and you can operate it safely: metered,
-  observable, GDPR/DNA-compliant, backed up, and legally covered.
+- **OSS 1.0 (self-hosted)** — a self-hoster can run Kin Resolve from `docker compose`
+  with no Vercel/Supabase dependency, create an account, import within documented and
+  tested deployment limits, use every supported feature, export their data, and trust
+  that living-person privacy holds.
+- **Hosted beta (`kinresolve.com`)** — invited participants can use the hosted product
+  under explicit beta terms before open signup or billing is introduced. A later
+  public release may add self-service signup, collaboration, and paid plans once those
+  surfaces are implemented and operated safely.
 
 The remaining slices below are tagged with which gate they serve. Some serve both.
 
@@ -53,17 +56,14 @@ These are **yours** and several have long lead times, so kick them off in parall
 with engineering. Nothing here is code.
 
 ### A. Domain + brand (do first — everything public keys off it)
-1. **Confirm the trademark is clear.** A preliminary search found no conflicting
-   "KinSleuth" product; do a 15-minute [USPTO TESS search](https://www.uspto.gov/trademarks/search)
-   and an EUIPO check before you print it anywhere permanent. Consider filing an
-   intent-to-use application (~$250–350/class) once you commit.
-2. **Register the domain.** `kinsleuth.com` is the priority; grab `.app`/`.io` and
-   the obvious misspellings defensively. Use a registrar with free WHOIS privacy
-   (Cloudflare Registrar at cost, or Porkbun). **Decision for you:** apex domain
-   `kinsleuth.com` vs `app.kinsleuth.com` for the product vs `www` for marketing —
-   my recommendation in §7.
-3. **Point DNS at Cloudflare** (free tier) even if hosting is on Vercel — you'll want
-   it for DNS, email routing, and later WAF/analytics.
+1. **Complete formal brand clearance.** Kin Resolve is the working public name and
+   repository name. Domain registration does not replace a professional trademark
+   review; complete that review before a broad launch or permanent print investment.
+2. **Domain registered.** `kinresolve.com` was registered through Cloudflare on
+   2026-07-13. Keep registrar recovery access under founder control.
+3. **Approve the independent marketing preview before DNS cutover.** The intended
+   split is `kinresolve.com` for marketing and `app.kinresolve.com` for the hosted
+   product. Activate beta email routing and confirm rollback ownership first.
 
 ### B. Accounts to create (I'll wire each in once they exist) 🤝
 4. **Vercel** production project + **Supabase** production database (or your chosen
@@ -104,12 +104,12 @@ with engineering. Nothing here is code.
 
 ## 4. 🤖 Finish the identity core (unblocks everything multi-user)
 
-PR #20 lands accounts + memberships. The remaining auth phases from
+PR #20 landed accounts + memberships. The remaining auth phases from
 [`docs/auth.md`](auth.md), in order:
 
 - **4.1 Route-level RBAC sweep** 🤖 — `assertPermission` on every mutating route with
   the session-derived role (only the AI route enforces today). Small, high-value,
-  do right after #20 merges.
+  do next after #20.
 - **4.2 Invitations + multi-member archives** 🤝 — invite flow (needs the email
   provider, item 7), member-management UI, per-member roles. This is the first *paid*
   collaboration feature.
@@ -156,7 +156,8 @@ before you put it in front of paying strangers.
 
 ## 6. 🤖 The differentiator — GPS AI research agent
 
-This is *why* KinSleuth wins, per the market research: no incumbent enforces the
+This is the planned Kin Resolve differentiator. Do not market it as a current
+capability: the product does not yet enforce the
 Genealogical Proof Standard. Architecture principle: **never state what you can't
 cite.** Sequenced roughly:
 
@@ -185,33 +186,31 @@ big product-surface items (originally Phase 2) — high user value, schedule aga
 You specifically want to stand up the public site. Here's the concrete shape.
 
 **Recommended domain layout:**
-- `kinsleuth.com` and `www.kinsleuth.com` → **marketing/landing site** (what KinSleuth
-  is, pricing, "get started", docs, OSS repo link).
-- `app.kinsleuth.com` → the **product** (the hosted Next.js app; private workspaces +
+- `kinresolve.com` and `www.kinresolve.com` → **marketing/landing site** (what Kin Resolve
+  is, private-beta interest, product status, and OSS repository link). Pricing remains
+  absent until it is decided.
+- `app.kinresolve.com` → the **product** (the hosted Next.js app; private workspaces +
   each family's public archive).
-- Later, per-tenant public archives can live at `app.kinsleuth.com/a/<archive>` or, as
+- Later, per-tenant public archives can live at `app.kinresolve.com/a/<archive>` or, as
   a premium feature, custom domains / subdomains you map with Vercel's domains API.
 
 This split keeps marketing SEO/iteration independent from the app and is the standard
 Ghost/Plausible shape.
 
-**The marketing site** — two viable routes:
-- **Fast:** a few static pages inside the existing Next app under the public routes
-  (you already have a public shell, `/stories`, `/places`). Cheapest; ships now. 🤖
-- **Cleaner long-term:** a separate lightweight site (Next static, Astro, or even a
-  framework-free page) so marketing copy/design iterate without touching the product.
-  Recommended once there's real traffic. 🤝
+**The marketing site** is a self-contained static Next app under `site/`, deployed as
+a separate project so public copy and design can ship without coupling to the product
+runtime or release cadence.
 
-**Your steps for the site** 🧑: register the domain (§3.A), add it in Vercel, point
-Cloudflare DNS, decide the apex-vs-subdomain split above, and write/approve the
-landing copy and pricing. **My steps** 🤖: build the pages, wire the domains in config,
-set up the per-tenant public-archive routing when tenancy (4.4) lands, and add
-`robots.txt`/sitemap/OG tags/analytics.
+**Your steps for the site** 🧑: approve the private preview and later authorize the
+Cloudflare DNS change. **Engineering steps** 🤖: build and validate the pages, keep
+claims aligned with current code, publish a preview, then wire the approved domain.
+Pricing is intentionally absent until it is decided. Per-tenant public-archive routing
+still depends on tenancy (4.4).
 
-**Note on the existing public archive:** each family archive already has a public,
-privacy-gated face (`/`, `/people`, `/stories`, `/places`). Multi-tenancy (4.4) turns
-that into per-family public sites — a genuine selling point ("your own shareable,
-privacy-safe family history site"). The marketing site sells *that*.
+**Note on the existing public archive:** each family archive has a person-level,
+privacy-gated preview surface (`/`, `/people`, `/stories`, `/places`). Do not market it
+as a privacy-safe per-family site until Gate C adds public-only projections and explicit
+fact/source publication. Multi-tenancy (4.4) can turn that into a later product surface.
 
 ---
 
@@ -220,7 +219,7 @@ privacy-safe family history site"). The marketing site sells *that*.
 Roughly three arcs; they overlap, and your §3 items run alongside all of them.
 
 **Arc 1 — Merge & make multi-user real (weeks)**
-Merge #20 → RBAC sweep (4.1) → object-storage adapter (5.A, OSS 1.0 unblock) →
+RBAC sweep (4.1) → object-storage adapter (5.A, OSS 1.0 unblock) →
 tenant resolution + RLS (4.4) → invitations + email (4.2/4.3). Ship **OSS 1.0** at the
 end of this arc (self-host works end-to-end; no billing needed).
 
@@ -234,7 +233,7 @@ The GPS AI agent (§6) and tree/media visualization. This is what turns "another
 webtrees" into the thing the market research says is open. Start pgvector + grounding
 early since it's the longest-value item.
 
-**Public launch** = OSS 1.0 announcement + hosted beta on `kinsleuth.com`, once Arc 2's
+**Public launch** = OSS 1.0 announcement + hosted beta on `kinresolve.com`, once Arc 2's
 compliance and billing are real and Arc 3 has at least the grounded-citation AND
 conflict-detection pieces (enough to demonstrate the GPS wedge).
 
@@ -242,9 +241,9 @@ conflict-detection pieces (enough to demonstrate the GPS wedge).
 
 ## 9. Immediate next actions
 
-- 🤖 **Me:** merge #20 (after your review), then start the RBAC sweep (4.1) and the
+- 🤖 **Engineering:** start the RBAC sweep (4.1) and the
   object-storage adapter (5.A) — the two things blocking OSS 1.0.
-- 🧑 **You, this week:** register the domain (§3.A), form the entity + contact privacy
+- 🧑 **You, this week:** approve the marketing preview, form the entity + contact privacy
   counsel (§3.C.9–10), and apply for FamilySearch API access (§3.D.12). Those three
   have the longest lead times and gate later arcs.
 - 🤝 **When ready:** create the Stripe, email, Sentry, and AI-provider accounts (§3.B)

@@ -1,0 +1,81 @@
+# Kin Resolve brand and domain contract
+
+Last updated: 2026-07-13
+
+This document keeps the public name, URLs, claims, and legacy technical identifiers consistent while the product moves from KinSleuth to Kin Resolve.
+
+## Public identity
+
+- **Display name:** Kin Resolve
+- **Compact wordmark:** KinResolve, only where a space is technically or visually impractical
+- **Domain:** `kinresolve.com`
+- **Repository:** `https://github.com/erichare/kinresolve`
+- **Tagline:** Evidence-led genealogy research.
+- **Primary message:** Resolve the questions your family tree cannot answer.
+- **Primary call to action:** Apply for the private beta
+- **Secondary call to action:** View on GitHub
+
+The working visual direction pairs archival warmth with research rigor: warm paper, forest green, restrained rust and brass accents, editorial typography, and evidence-led rather than nostalgic imagery.
+
+## Domain status and intended routing
+
+`kinresolve.com` was registered through Cloudflare on 2026-07-13. Registration and DNS control do not substitute for a formal trademark review; legal clearance remains a separate founder decision.
+
+The intended public routing is:
+
+| Host | Purpose | Status |
+| --- | --- | --- |
+| `kinresolve.com` | Public marketing site | Protected Vercel preview ready; DNS unchanged |
+| `www.kinresolve.com` | Redirect to the apex domain | Configure after preview approval |
+| `app.kinresolve.com` | Hosted product | Later production-readiness slice |
+| `kinsleuth.vercel.app` | Existing product deployment | Retain until a replacement is deployed and verified |
+
+DNS must not be changed until the marketing preview is approved, the beta contact route works, and rollback ownership is clear. The initial preview uses an isolated `kinresolve-marketing` Vercel project and cannot affect the existing product deployment.
+
+## Public claims contract
+
+Safe current claims:
+
+- Private, single-archive genealogy research workspace
+- GEDCOM preview, reviewable re-import, and GEDCOM 5.5.1 export
+- People and source search
+- Research cases, evidence, hypotheses, and tasks
+- DNA CSV import and triage
+- Deterministic quality and privacy checks
+- Optional OpenAI-compatible analysis configured by the operator
+- Person-level publication with living-person and privacy gates
+- Self-hostable source under AGPL-3.0-only
+
+Claims that must be labeled **in development** or **exploring**:
+
+- Multi-archive hosting, invitations, and family collaboration
+- Portable object storage and durable background jobs
+- Route-wide role enforcement, production observability, and restore UX
+- Granular fact, citation, and story publishing controls
+- Semantic retrieval and stronger citation grounding
+- Explicit Genealogical Proof Standard conflict-resolution workflows
+- Agent-assisted record search
+
+Do not claim production readiness, open hosted signup, bundled hosted AI, audit logging, GPS certification, automated conflict resolution, GDPR compliance, unlimited GEDCOM size, guaranteed backups, or production-grade hosted DNA handling.
+
+## Compatibility contract
+
+The rename is a display and repository change, not permission to break stored data or deployments. Preserve these identifiers until an explicit migration provides dual-read compatibility:
+
+- The legacy `/kinsleuth` route, with a redirect if a new canonical product route is added
+- Snapshot keys and the existing `product: "KinSleuth"` discriminator
+- GEDCOM `SOUR KINSLEUTH` parsing and `_KS_*` custom tags
+- Existing `KINSLEUTH_*` environment-variable aliases
+- Serialized health-response fields
+- Postgres database/user defaults, bucket names, storage paths, and Compose volume names
+- The existing production URL until the replacement is live and verified
+
+New display copy should use **Kin Resolve**. New repository links should use `erichare/kinresolve`. New technical identifiers may use `kinresolve` when they do not create a migration burden.
+
+## Ownership before launch
+
+- The founder retains Cloudflare registrar and DNS recovery access.
+- Vercel deploy access and GitHub repository administration must remain available to at least one recovery owner.
+- Secrets stay in the deployment provider or GitHub Actions; never in source or this document.
+- The private-beta mailbox or form destination must be activated and tested before the apex domain is pointed at the site.
+- Any public demo must use synthetic records only.

@@ -17,14 +17,14 @@ const features = [
     label: "Research intelligence"
   },
   {
-    title: "Publish only what you approve",
-    body: "Keep living people, private cases, DNA data, and sensitive facts hidden until curated for public viewing.",
+    title: "Publish profiles deliberately",
+    body: "Profiles must be explicitly published and pass deceased/public privacy gates. Granular fact, source, and story curation is still in progress.",
     icon: Icons.Shield,
     label: "Privacy controls"
   }
 ] as const;
 
-export default function KinSleuthProductPage() {
+export default function KinResolveProductPage() {
   return (
     <PublicShell active="/kinsleuth">
       <div className="page-wrap">
@@ -32,28 +32,28 @@ export default function KinSleuthProductPage() {
           <div className="product-hero-layout">
             <div>
               <span className="eyebrow">Private research workspace</span>
-              <h1>KinSleuth</h1>
+              <h1>Kin Resolve</h1>
               <p>Self-hosted software for genealogists who need more than a tree viewer: private investigations, GEDCOM provenance, DNA match triage, and AI-assisted evidence analysis.</p>
               <div className="hero-actions">
-                <Link className="button" href="/app">
-                  <Icons.FileSearch size={17} aria-hidden />
-                  Open demo workspace
+                <Link className="button" href="/login">
+                  <Icons.Lock size={17} aria-hidden />
+                  Sign in to workspace
                 </Link>
-                <Link className="button-secondary" href="https://github.com/erichare/kinsleuth">
-                  MIT open source
+                <Link className="button-secondary" href="https://github.com/erichare/kinresolve">
+                  AGPL-3.0 open source
                 </Link>
               </div>
             </div>
-            <Link className="product-preview" href="/app">
+            <div className="product-preview">
               <Image
                 src="/assets/kinsleuth-dashboard-preview.webp"
-                alt="KinSleuth private workspace showing investigation metrics, cases, and an action queue"
+                alt="Synthetic Kin Resolve private workspace showing investigation metrics, cases, and an action queue"
                 width={1440}
                 height={900}
                 sizes="(max-width: 960px) calc(100vw - 40px), 620px"
               />
-              <span className="product-preview-caption"><Icons.Lock size={15} aria-hidden />Illustrative demo workspace</span>
-            </Link>
+              <span className="product-preview-caption"><Icons.Lock size={15} aria-hidden />Synthetic product preview</span>
+            </div>
           </div>
         </section>
 
@@ -74,12 +74,12 @@ export default function KinSleuthProductPage() {
         <section className="section grid-2">
           <div className="panel surface-featured">
             <h2>Self-hosted runtime</h2>
-            <p>Docker Compose starts the app, Postgres with pgvector, object storage, and a worker. Each deployment represents one family archive.</p>
+            <p>Development Compose starts the app and Postgres and provisions MinIO. Source uploads still use local disk, and the worker remains a scaffold.</p>
             <pre className="code-block">docker compose up --build</pre>
           </div>
           <div className="panel surface-quiet">
             <h2>AI on your terms</h2>
-            <p>OpenAI-compatible provider settings let an owner/admin connect hosted or local-compatible models. Whole-tree analysis is role-gated and audited.</p>
+            <p>OpenAI-compatible provider settings let an owner/admin connect hosted or local-compatible models. Whole-tree analysis is owner/admin gated, saved in run history, and stages suggestions for review.</p>
           </div>
         </section>
       </div>

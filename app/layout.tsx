@@ -15,8 +15,8 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "KinSleuth",
-  description: "Self-hosted AI genealogy investigation platform"
+  title: "Kin Resolve",
+  description: "Self-hosted genealogy research workspace"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assertPermission, getPermissions, hasPermission } from "@/lib/rbac";
-import { canPublishPerson, inferLivingStatus } from "@/lib/privacy";
+import { canPublishPerson, inferLivingStatus, publicFactFilter } from "@/lib/privacy";
 import type { PersonSummary } from "@/lib/models";
 
 describe("privacy and RBAC", () => {
@@ -27,6 +27,14 @@ describe("privacy and RBAC", () => {
     expect(canPublishPerson({ ...base, livingStatus: "deceased", privacy: "private" })).toBe(false);
   });
 
+  it("fails closed when a fact has no explicit public classification", () => {
+    const fact = { id: "f1", type: "BIRT", confidence: 0.9 };
+
+    expect(publicFactFilter(fact)).toBe(false);
+    expect(publicFactFilter({ ...fact, privacy: "private" })).toBe(false);
+    expect(publicFactFilter({ ...fact, privacy: "public" })).toBe(true);
+  });
+
   it("limits whole-tree AI to owner/admin", () => {
     expect(hasPermission("owner", "ai:whole-tree")).toBe(true);
     expect(hasPermission("admin", "ai:whole-tree")).toBe(true);
@@ -35,4 +43,3 @@ describe("privacy and RBAC", () => {
     expect(getPermissions("contributor")).toContain("evidence:write");
   });
 });
-

@@ -17,7 +17,7 @@ export const demoPeople: PersonSummary[] = [
     privacy: "public",
     published: true,
     relatives: ["p-mary-zajicek", "p-william-fletcher"],
-    notes: "Published synthetic profile used to demonstrate KinSleuth's person workspace.",
+    notes: "Published synthetic profile used to demonstrate Kin Resolve's person workspace.",
     facts: [
       {
         id: "fact-1",
@@ -229,4 +229,3 @@ export const scoredDnaMatches = demoDnaMatches.map((match) => ({
   ...match,
   helpfulnessScore: scoreDnaMatch(match)
 }));
-
