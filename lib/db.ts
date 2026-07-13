@@ -1,6 +1,9 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
+
+import { getDatabaseConnectionString } from "./connection-string";
+import { runPendingMigrations } from "./migrations";
+
+export { getDatabaseConnectionString } from "./connection-string";
 
 export type DatabaseOptions = {
   databaseUrl?: string;
@@ -8,9 +11,6 @@ export type DatabaseOptions = {
 
 const pools = new Map<string, Pool>();
 const schemaPromises = new Map<string, Promise<void>>();
-const supabasePoolerHostnameSuffix = ".pooler.supabase.com";
-const supabaseRootCertificatePath = path.join(process.cwd(), "certs", "supabase-prod-ca-2021.crt");
-const databaseUrlSslParameters = ["ssl", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"];
 
 export function getDatabasePoolMax(): number {
   const configured = Number.parseInt(process.env.DATABASE_POOL_MAX ?? "", 10);
@@ -34,28 +34,6 @@ export function getDatabaseUrl(options: DatabaseOptions = {}): string {
   }
 
   return databaseUrl;
-}
-
-export function getDatabaseConnectionString(databaseUrl: string): string {
-  let parsed: URL;
-
-  try {
-    parsed = new URL(databaseUrl);
-  } catch {
-    return databaseUrl;
-  }
-
-  if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname.endsWith(supabasePoolerHostnameSuffix)) {
-    return databaseUrl;
-  }
-
-  for (const parameter of databaseUrlSslParameters) {
-    parsed.searchParams.delete(parameter);
-  }
-  parsed.searchParams.set("sslmode", "verify-full");
-  parsed.searchParams.set("sslrootcert", supabaseRootCertificatePath);
-
-  return parsed.toString();
 }
 
 export function getPool(options: DatabaseOptions = {}): Pool {
@@ -93,9 +71,7 @@ export async function ensureDatabaseSchema(options: DatabaseOptions = {}): Promi
   }
 
   const promise = (async () => {
-    const migrationPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "db", "migrations", "001_initial.sql");
-    const sql = await readFile(migrationPath, "utf8");
-    await getPool(options).query(sql);
+    await runPendingMigrations(getPool(options));
   })();
 
   // Drop a failed migration from the cache so a transient outage does not
