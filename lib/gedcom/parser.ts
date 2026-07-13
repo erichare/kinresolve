@@ -179,6 +179,7 @@ export function extractPeople(records: GedcomRecord[]): PersonSummary[] {
       const facts = extractFacts(record.root);
       const birth = facts.find((fact) => fact.type === "BIRT");
       const death = facts.find((fact) => fact.type === "DEAT");
+      const curation = extractCurationTags(record.root);
 
       return {
         id: record.xref ?? name,
@@ -191,9 +192,9 @@ export function extractPeople(records: GedcomRecord[]): PersonSummary[] {
         deathDate: death?.date,
         deathPlace: death?.place,
         sex: findChild(record.root, "SEX")?.value as "M" | "F" | "U" | undefined,
-        livingStatus: death ? "deceased" : "unknown",
-        privacy: "private",
-        published: false,
+        livingStatus: curation.livingStatus ?? (death ? "deceased" : "unknown"),
+        privacy: curation.privacy ?? "private",
+        published: curation.published ?? false,
         facts,
         relatives: record.xref ? (relativesByPersonId.get(record.xref) ?? []) : [],
         notes: findChildren(record.root, "NOTE").map(textWithContinuations).filter(Boolean).join("\n\n")
@@ -259,6 +260,25 @@ export function extractFacts(root: GedcomNode): PersonFact[] {
   }
 
   return facts;
+}
+
+// KinSleuth's GEDCOM exporter writes curation flags as custom _KS_ tags so a
+// KinSleuth-to-KinSleuth migration round-trips privacy decisions. Unknown or
+// malformed values fall back to the conservative defaults.
+function extractCurationTags(root: GedcomNode): {
+  privacy?: PersonSummary["privacy"];
+  published?: boolean;
+  livingStatus?: PersonSummary["livingStatus"];
+} {
+  const privacyValue = findChild(root, "_KS_PRIVACY")?.value;
+  const publishedValue = findChild(root, "_KS_PUBLISHED")?.value;
+  const livingValue = findChild(root, "_KS_LIVING")?.value;
+
+  return {
+    privacy: privacyValue === "public" || privacyValue === "private" || privacyValue === "sensitive" ? privacyValue : undefined,
+    published: publishedValue === "Y" ? true : publishedValue === "N" ? false : undefined,
+    livingStatus: livingValue === "living" || livingValue === "deceased" || livingValue === "unknown" ? livingValue : undefined
+  };
 }
 
 export function walk(node: GedcomNode, visitor: (node: GedcomNode) => void): void {

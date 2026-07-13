@@ -49,4 +49,14 @@ describe("private workspace proxy", () => {
 
     expect(response.status).toBe(401);
   });
+
+  it("protects the GEDCOM export API", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("KINSLEUTH_APP_PASSWORD", "private-password");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+
+    const response = await proxy(new NextRequest("https://kinsleuth.example/api/exports/gedcom"));
+
+    expect(response.status).toBe(401);
+  });
 });

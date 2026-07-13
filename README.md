@@ -56,6 +56,8 @@ Every GEDCOM is previewed before it is applied: new, changed, and removed record
 
 Large files (over 3.5 MB) upload directly from the browser to private Blob storage, bypassing serverless request limits — files up to 25 MB each are supported on Vercel.
 
+Your data is never locked in: the whole archive exports back to GEDCOM 5.5.1 from the imports page (or `GET /api/exports/gedcom`), with KinSleuth curation flags carried as custom `_KS_` tags that another KinSleuth instance restores on import.
+
 ### DNA match triage
 
 Import DNA match CSVs, rank matches by a helpfulness score (shared cM, tree status, surnames, places, shared matches), edit match details, link matches to cases as evidence, and generate connection hypotheses with candidate common ancestors.
@@ -110,7 +112,7 @@ Compose provisions Postgres with pgvector and MinIO-compatible object storage al
 | `/app/cases` | Research cases, evidence, hypotheses, and task queues |
 | `/app/dna` | DNA match triage and connection hypotheses |
 | `/app/sources` | Source register and transcript review |
-| `/app/imports` | GEDCOM preview and apply flow |
+| `/app/imports` | GEDCOM preview, apply flow, and full-archive GEDCOM export |
 | `/app/ai` | AI Analyst with saved run history |
 | `/app/reports` | Quality and evidence reports |
 | `/app/publishing` | Public-profile readiness review |
@@ -201,7 +203,6 @@ KinSleuth is a working vertical slice suited to local/self-hosted beta use — n
 - General source-file uploads still target local disk; wire object storage before production use of file attachments.
 - ANSEL-encoded GEDCOM files are decoded on a best-effort basis (UTF-8, UTF-16, and Windows-1252 are handled properly).
 - Importing two *unrelated* GEDCOM files can collide on xref-derived record ids; curation flags are protected from cross-person leaks, but the second import replaces colliding records. Re-imports of the same tree merge as intended.
-- There is no GEDCOM export yet — imports are one-way until the exporter ships.
 - Semantic (pgvector) retrieval is planned but not implemented; the embeddings table is provisioned and unused.
 - Background jobs, per-user accounts, and enforced role management are still evolving.
 
