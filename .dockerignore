@@ -1,0 +1,9 @@
+.git
+.github
+.next
+.vercel
+coverage
+node_modules
+site
+plans
+*.log
