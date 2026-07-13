@@ -125,7 +125,7 @@ Compose provisions Postgres with pgvector and MinIO-compatible object storage al
 | --- | --- |
 | `DATABASE_URL` | **Required.** Postgres connection string for workspace storage |
 | `DATABASE_POOL_MAX` | Max connections per instance; use `2` for serverless |
-| `DATABASE_AUTO_MIGRATE` | Runs the idempotent bootstrap schema; set `false` once production is provisioned |
+| `DATABASE_AUTO_MIGRATE` | Applies pending versioned migrations at boot; set `false` in production and run `npm run db:migrate` at deploy time instead |
 | `AUTH_SECRET` | Signs the private-workspace session cookie |
 | `KINSLEUTH_APP_PASSWORD` | Enables password protection for `/app` and private APIs |
 | `KINSLEUTH_ARCHIVE_ID` | Archive id; defaults to `archive-default` |
@@ -149,8 +149,11 @@ npm run lint          # ESLint
 npm run test          # Vitest unit tests
 npm run test:db       # Postgres integration tests (needs TEST_DATABASE_URL)
 npm run test:db:large # 10.5+ MB / 65k-person GEDCOM load regression
+npm run db:migrate    # Apply pending db/migrations to DATABASE_URL (Node 22.6+)
 npm run build         # Production build
 ```
+
+Schema changes live as ordered SQL files in `db/migrations/` (`NNN_name.sql`). Applied versions are tracked in the `schema_migrations` table, each file runs in its own transaction, and concurrent runners serialize on an advisory lock. In development the app applies pending migrations at boot (`DATABASE_AUTO_MIGRATE`); in production run `npm run db:migrate` against the production `DATABASE_URL` when a release includes new migrations.
 
 Set `TEST_DATABASE_URL` to a **disposable** Postgres database before running the DB suites — never point it at real data. Stable-release CI runs both database suites against an ephemeral pgvector service before deploying.
 
@@ -190,7 +193,7 @@ Required Vercel production environment: `DATABASE_URL` (Supabase transaction poo
 | `app/` | Next.js App Router pages and API routes |
 | `components/` | Shared UI and workspace components |
 | `lib/` | GEDCOM parsing, workspace store, search, DNA, AI, privacy, publishing, reports |
-| `db/migrations/` | Postgres + pgvector schema (idempotent bootstrap and upgrades) |
+| `db/migrations/` | Versioned Postgres + pgvector schema migrations, tracked in `schema_migrations` |
 | `tests/` | Vitest unit and Postgres integration coverage |
 | `docs/` | Architecture notes and README screenshots |
 
