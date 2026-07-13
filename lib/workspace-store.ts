@@ -5,6 +5,32 @@ import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoPeople } from "./demo-data";
 import { prepareGedcomImport, type PreparedGedcomImport } from "./gedcom/apply";
 import { buildFamilyRelationshipMap, parseGedcom } from "./gedcom/parser";
+import {
+  deleteDnaMatchRows,
+  insertBackupRow,
+  insertRawRecordRows,
+  normalizeConfidence,
+  prependCaseTaskSortOrder,
+  prependSortOrder,
+  prependSortOrderRange,
+  pruneAiRunRows,
+  pruneBackupRows,
+  replaceCaseChildren,
+  replacePersonFacts,
+  updatePeopleRelatives,
+  updatePersonCurationRow,
+  updateTaskRow,
+  upsertAiRunRow,
+  upsertBackupRowPreservingSnapshot,
+  upsertCaseRow,
+  upsertDnaHypothesisRow,
+  upsertDnaMatchRow,
+  upsertEvidenceRow,
+  upsertImportSnapshotRow,
+  upsertPeopleRows,
+  upsertSourceRows,
+  upsertTaskRow
+} from "./store/rows";
 import type {
   AIAnalysisRun,
   AIAnalysisStatus,
@@ -44,9 +70,9 @@ export type WorkspaceStoreOptions = DatabaseOptions & {
 };
 
 const defaultArchiveId = "archive-default";
-const bulkInsertBatchSize = 2_000;
 // Full pre-import snapshots are large; retain only the most recent ones.
 const retainedBackupCount = 10;
+const retainedAiRunCount = 25;
 
 export function getArchiveId(options: WorkspaceStoreOptions = {}): string {
   return options.archiveId ?? process.env.KINSLEUTH_ARCHIVE_ID ?? defaultArchiveId;
@@ -89,9 +115,11 @@ export async function readWorkspace(options: WorkspaceStoreOptions = {}): Promis
   return withTransaction(options, async (client) => {
     const archive = await client.query<{ id: string }>("SELECT id FROM archives WHERE id = $1", [archiveId]);
     if (archive.rowCount === 0) {
-      const seed = createSeedWorkspace();
-      await persistWorkspace(client, archiveId, seed);
-      return seed;
+      if (await claimAndSeedArchive(client, archiveId)) {
+        return loadWorkspace(client, archiveId);
+      }
+      // Another transaction is seeding; wait for its commit, then read it.
+      await client.query("SELECT id FROM archives WHERE id = $1 FOR SHARE", [archiveId]);
     }
 
     return loadWorkspace(client, archiveId);
@@ -112,30 +140,97 @@ export async function writeWorkspace(workspace: WorkspaceData, options: Workspac
   return next;
 }
 
-// Runs a read-transform-write cycle inside ONE transaction with the archive
-// row locked, so concurrent mutations serialize instead of losing updates
-// (writeWorkspace persists the whole workspace, so an unlocked read-modify-write
-// would silently drop whichever concurrent write commits first).
-async function mutateWorkspace<T>(
+// Runs a row-level mutation inside ONE transaction. The UPDATE on the archive
+// row both takes the lock that serializes concurrent mutations (the same
+// guarantee the old SELECT ... FOR UPDATE gave the whole-workspace writer) and
+// bumps the workspace timestamp. A missing archive is seeded first, preserving
+// first-touch demo seeding.
+async function withArchiveMutation<T>(
   options: WorkspaceStoreOptions,
-  transform: (workspace: WorkspaceData) => {
-    workspace: WorkspaceData;
-    result: T;
-    afterPersist?: (client: PoolClient) => Promise<void>;
-  }
+  action: (client: PoolClient, archiveId: string) => Promise<T>
 ): Promise<T> {
   const archiveId = getArchiveId(options);
 
   return withTransaction(options, async (client) => {
-    const archive = await client.query<{ id: string }>("SELECT id FROM archives WHERE id = $1 FOR UPDATE", [archiveId]);
-    const workspace = archive.rowCount === 0 ? createSeedWorkspace() : await loadWorkspace(client, archiveId);
-    const { workspace: next, result, afterPersist } = transform(workspace);
-    await persistWorkspace(client, archiveId, normalizeWorkspaceData({ ...next, updatedAt: new Date().toISOString() }));
-    if (afterPersist) {
-      await afterPersist(client);
+    const locked = await client.query("UPDATE archives SET updated_at = now() WHERE id = $1 RETURNING id", [archiveId]);
+    if (locked.rowCount === 0) {
+      const seeded = await claimAndSeedArchive(client, archiveId);
+      if (!seeded) {
+        // Another transaction is seeding this archive right now; block on its
+        // row lock so we mutate the seeded workspace instead of racing it.
+        await client.query("UPDATE archives SET updated_at = now() WHERE id = $1", [archiveId]);
+      }
     }
-    return result;
+    return action(client, archiveId);
   });
+}
+
+// An UPDATE on a missing row takes no lock, so two first-touch mutations could
+// both decide to seed and the later one would wipe the earlier one's committed
+// write. Claiming the id with an insert makes exactly one transaction the
+// seeder; everyone else serializes on the claimed row.
+async function claimAndSeedArchive(client: PoolClient, archiveId: string): Promise<boolean> {
+  const claimed = await client.query(
+    "INSERT INTO archives (id, name, tagline, slug, updated_at) VALUES ($1, '', '', $1, now()) ON CONFLICT (id) DO NOTHING RETURNING id",
+    [archiveId]
+  );
+  if (claimed.rowCount === 0) {
+    return false;
+  }
+  await persistWorkspace(client, archiveId, createSeedWorkspace());
+  return true;
+}
+
+async function loadCaseData(client: PoolClient, archiveId: string, caseId: string): Promise<ResearchCase | undefined> {
+  const caseResult = await client.query("SELECT * FROM research_cases WHERE archive_id = $1 AND id = $2", [archiveId, caseId]);
+  const row = caseResult.rows[0];
+  if (!row) {
+    return undefined;
+  }
+
+  const [hypothesesResult, evidenceResult, tasksResult] = [
+    await client.query("SELECT * FROM hypotheses WHERE archive_id = $1 AND case_id = $2 ORDER BY sort_order ASC, id ASC", [archiveId, caseId]),
+    await client.query("SELECT * FROM evidence_items WHERE archive_id = $1 AND case_id = $2 ORDER BY sort_order ASC, id ASC", [archiveId, caseId]),
+    await client.query("SELECT * FROM tasks WHERE archive_id = $1 AND case_id = $2 ORDER BY sort_order ASC, id ASC", [archiveId, caseId])
+  ];
+
+  return {
+    id: row.id,
+    title: row.title,
+    question: row.question,
+    status: row.status,
+    focus: row.focus ?? "",
+    privacy: row.privacy,
+    hypotheses: hypothesesResult.rows.map(mapHypothesis).map(({ caseId: _caseId, ...hypothesis }) => hypothesis),
+    evidence: evidenceResult.rows.map(mapEvidence).map(({ caseId: _caseId, ...evidence }) => evidence),
+    tasks: tasksResult.rows.map(mapTask).map(({ caseId: _caseId, ...task }) => task)
+  };
+}
+
+// DNA hypothesis generation only reads surname/place/name columns, so the
+// facts arrays stay empty here instead of loading every person_facts row.
+async function loadPeopleForHypotheses(client: PoolClient, archiveId: string): Promise<PersonSummary[]> {
+  const result = await client.query("SELECT * FROM people WHERE archive_id = $1 ORDER BY sort_order ASC, display_name ASC", [archiveId]);
+  return result.rows.map((row) => mapPersonRow(row, []));
+}
+
+async function loadPersonWithFacts(client: PoolClient, archiveId: string, personId: string): Promise<PersonSummary | undefined> {
+  const personResult = await client.query("SELECT * FROM people WHERE archive_id = $1 AND id = $2", [archiveId, personId]);
+  const row = personResult.rows[0];
+  if (!row) {
+    return undefined;
+  }
+
+  const factsResult = await client.query(
+    "SELECT * FROM person_facts WHERE archive_id = $1 AND person_id = $2 ORDER BY sort_order ASC, id ASC",
+    [archiveId, personId]
+  );
+  return mapPersonRow(row, factsResult.rows.map(mapPersonFact).map(({ personId: _personId, ...fact }) => fact));
+}
+
+async function loadDnaMatchById(client: PoolClient, archiveId: string, matchId: string): Promise<DnaMatch | undefined> {
+  const result = await client.query("SELECT * FROM dna_matches WHERE archive_id = $1 AND id = $2", [archiveId, matchId]);
+  return result.rows[0] ? mapDnaMatch(result.rows[0]) : undefined;
 }
 
 export type ArchiveBranding = {
@@ -196,10 +291,12 @@ export async function createCase(input: Partial<ResearchCase>, options: Workspac
     tasks: input.tasks ?? []
   };
 
-  return mutateWorkspace(options, (workspace) => ({
-    workspace: { ...workspace, cases: [created, ...workspace.cases.filter((item) => item.id !== created.id)] },
-    result: created
-  }));
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const sortOrder = await prependSortOrder(client, "research_cases", archiveId);
+    await upsertCaseRow(client, archiveId, created, sortOrder);
+    await replaceCaseChildren(client, archiveId, created);
+    return created;
+  });
 }
 
 export async function addCaseTask(
@@ -217,24 +314,20 @@ export async function addCaseTask(
     status: input.status ?? "todo"
   };
 
-  return mutateWorkspace(options, (workspace) => {
-    const researchCase = workspace.cases.find((item) => item.id === caseId);
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const researchCase = await loadCaseData(client, archiveId, caseId);
     if (!researchCase) {
       throw new Error("case not found");
     }
+
+    const sortOrder = await prependCaseTaskSortOrder(client, archiveId, caseId);
+    await upsertTaskRow(client, archiveId, caseId, task, sortOrder);
 
     const updatedCase: ResearchCase = {
       ...researchCase,
       tasks: [task, ...researchCase.tasks.filter((item) => item.id !== task.id)]
     };
-
-    return {
-      workspace: {
-        ...workspace,
-        cases: workspace.cases.map((item) => (item.id === caseId ? updatedCase : item))
-      },
-      result: { case: updatedCase, task }
-    };
+    return { case: updatedCase, task };
   });
 }
 
@@ -244,8 +337,8 @@ export async function updateCaseTask(
   input: { title?: string; status?: ResearchCase["tasks"][number]["status"] },
   options: WorkspaceStoreOptions = {}
 ): Promise<{ case: ResearchCase; task: ResearchCase["tasks"][number] }> {
-  return mutateWorkspace(options, (workspace) => {
-    const researchCase = workspace.cases.find((item) => item.id === caseId);
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const researchCase = await loadCaseData(client, archiveId, caseId);
     if (!researchCase) {
       throw new Error("case not found");
     }
@@ -260,18 +353,13 @@ export async function updateCaseTask(
       title: input.title?.trim() || currentTask.title,
       status: input.status ?? currentTask.status
     };
+    await updateTaskRow(client, archiveId, caseId, task);
+
     const updatedCase: ResearchCase = {
       ...researchCase,
       tasks: researchCase.tasks.map((item) => (item.id === taskId ? task : item))
     };
-
-    return {
-      workspace: {
-        ...workspace,
-        cases: workspace.cases.map((item) => (item.id === caseId ? updatedCase : item))
-      },
-      result: { case: updatedCase, task }
-    };
+    return { case: updatedCase, task };
   });
 }
 
@@ -295,13 +383,12 @@ export async function saveAIAnalysisRun(
     completedAt: input.completedAt ?? new Date().toISOString()
   });
 
-  return mutateWorkspace(options, (workspace) => ({
-    workspace: {
-      ...workspace,
-      aiRuns: [run, ...workspace.aiRuns.filter((item) => item.id !== run.id)].slice(0, 25)
-    },
-    result: run
-  }));
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const sortOrder = await prependSortOrder(client, "ai_runs", archiveId);
+    await upsertAiRunRow(client, archiveId, run, sortOrder);
+    await pruneAiRunRows(client, archiveId, retainedAiRunCount);
+    return run;
+  });
 }
 
 export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptions = {}): Promise<{
@@ -313,14 +400,19 @@ export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptio
   const helpfulnessScore = scoreDnaMatch(normalized);
   const triaged = autoPrioritizeDnaMatch(normalized, helpfulnessScore);
 
-  return mutateWorkspace(options, (workspace) => ({
-    workspace: { ...workspace, dnaMatches: [triaged, ...workspace.dnaMatches.filter((item) => item.id !== triaged.id)] },
-    result: {
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const people = await loadPeopleForHypotheses(client, archiveId);
+    const sortOrder = await prependSortOrder(client, "dna_matches", archiveId);
+    await upsertDnaMatchRow(client, archiveId, triaged, sortOrder);
+    const hypothesis = createDnaConnectionHypothesis(triaged, people);
+    await upsertDnaHypothesisRow(client, archiveId, triaged.id, hypothesis);
+
+    return {
       helpfulnessScore,
-      hypothesis: createDnaConnectionHypothesis(triaged, workspace.people),
+      hypothesis,
       match: { ...triaged, helpfulnessScore }
-    }
-  }));
+    };
+  });
 }
 
 export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStoreOptions = {}): Promise<Array<{
@@ -328,7 +420,8 @@ export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStor
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }>> {
-  return mutateWorkspace(options, (workspace) => {
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const people = await loadPeopleForHypotheses(client, archiveId);
     const results = matches.map((match) => {
       const normalized = normalizeDnaMatch(match);
       const helpfulnessScore = scoreDnaMatch(normalized);
@@ -336,22 +429,18 @@ export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStor
 
       return {
         helpfulnessScore,
-        hypothesis: createDnaConnectionHypothesis(triaged, workspace.people),
+        hypothesis: createDnaConnectionHypothesis(triaged, people),
         match: { ...triaged, helpfulnessScore }
       };
     });
-    const importedIds = new Set(results.map((result) => result.match.id));
 
-    return {
-      workspace: {
-        ...workspace,
-        dnaMatches: [
-          ...results.map((result) => removeDnaScore(result.match)),
-          ...workspace.dnaMatches.filter((item) => !importedIds.has(item.id))
-        ]
-      },
-      result: results
-    };
+    const startSortOrder = await prependSortOrderRange(client, "dna_matches", archiveId, results.length);
+    for (const [index, result] of results.entries()) {
+      await upsertDnaMatchRow(client, archiveId, removeDnaScore(result.match), startSortOrder + index);
+      await upsertDnaHypothesisRow(client, archiveId, result.match.id, result.hypothesis);
+    }
+
+    return results;
   });
 }
 
@@ -360,8 +449,8 @@ export async function updateDnaMatch(matchId: string, input: Partial<DnaMatch>, 
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }> {
-  return mutateWorkspace(options, (workspace) => {
-    const current = workspace.dnaMatches.find((match) => match.id === matchId);
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const current = await loadDnaMatchById(client, archiveId, matchId);
     if (!current) {
       throw new Error("DNA match not found");
     }
@@ -375,34 +464,27 @@ export async function updateDnaMatch(matchId: string, input: Partial<DnaMatch>, 
     });
     const helpfulnessScore = scoreDnaMatch(updated);
 
+    // No sort order: an in-place edit keeps the match's position in the queue.
+    await upsertDnaMatchRow(client, archiveId, updated);
+    const people = await loadPeopleForHypotheses(client, archiveId);
+    const hypothesis = createDnaConnectionHypothesis(updated, people);
+    await upsertDnaHypothesisRow(client, archiveId, updated.id, hypothesis);
+
     return {
-      workspace: {
-        ...workspace,
-        dnaMatches: workspace.dnaMatches.map((match) => (match.id === matchId ? updated : match))
-      },
-      result: {
-        helpfulnessScore,
-        hypothesis: createDnaConnectionHypothesis(updated, workspace.people),
-        match: { ...updated, helpfulnessScore }
-      }
+      helpfulnessScore,
+      hypothesis,
+      match: { ...updated, helpfulnessScore }
     };
   });
 }
 
 export async function deleteDnaMatch(matchId: string, options: WorkspaceStoreOptions = {}): Promise<{ deleted: string }> {
-  return mutateWorkspace(options, (workspace) => {
-    const exists = workspace.dnaMatches.some((match) => match.id === matchId);
-    if (!exists) {
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const deleted = await deleteDnaMatchRows(client, archiveId, matchId);
+    if (deleted === 0) {
       throw new Error("DNA match not found");
     }
-
-    return {
-      workspace: {
-        ...workspace,
-        dnaMatches: workspace.dnaMatches.filter((match) => match.id !== matchId)
-      },
-      result: { deleted: matchId }
-    };
+    return { deleted: matchId };
   });
 }
 
@@ -417,13 +499,13 @@ export async function linkDnaMatchToCase(
   match: ScoredDnaMatch;
   created: boolean;
 }> {
-  return mutateWorkspace(options, (workspace) => {
-    const researchCase = workspace.cases.find((item) => item.id === caseId);
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const researchCase = await loadCaseData(client, archiveId, caseId);
     if (!researchCase) {
       throw new Error("Case not found");
     }
 
-    const match = workspace.dnaMatches.find((item) => item.id === matchId);
+    const match = await loadDnaMatchById(client, archiveId, matchId);
     if (!match) {
       throw new Error("DNA match not found");
     }
@@ -438,6 +520,12 @@ export async function linkDnaMatchToCase(
       confidence: normalizeConfidence(input.confidence ?? Math.max(0.25, Math.min(0.95, helpfulnessScore / 100))),
       linkedDnaMatchId: match.id
     };
+
+    // On conflict the writer keeps the row's existing sort_order, so the
+    // prepend value only applies when the evidence is genuinely new.
+    const sortOrder = existingEvidence ? 0 : await prependEvidenceSortOrder(client, archiveId, caseId);
+    await upsertEvidenceRow(client, archiveId, caseId, evidence, sortOrder);
+
     const updatedCase: ResearchCase = {
       ...researchCase,
       evidence: existingEvidence
@@ -446,18 +534,20 @@ export async function linkDnaMatchToCase(
     };
 
     return {
-      workspace: {
-        ...workspace,
-        cases: workspace.cases.map((item) => (item.id === caseId ? updatedCase : item))
-      },
-      result: {
-        case: updatedCase,
-        evidence,
-        match: { ...match, helpfulnessScore },
-        created: !existingEvidence
-      }
+      case: updatedCase,
+      evidence,
+      match: { ...match, helpfulnessScore },
+      created: !existingEvidence
     };
   });
+}
+
+async function prependEvidenceSortOrder(client: PoolClient, archiveId: string, caseId: string): Promise<number> {
+  const result = await client.query<{ next: number }>(
+    "SELECT COALESCE(MIN(sort_order), 0) - 1 AS next FROM evidence_items WHERE archive_id = $1 AND case_id = $2",
+    [archiveId, caseId]
+  );
+  return result.rows[0].next;
 }
 
 export async function saveSourceDocument(input: Partial<SourceDocument>, options: WorkspaceStoreOptions = {}): Promise<SourceDocument> {
@@ -488,10 +578,11 @@ export async function saveSourceDocument(input: Partial<SourceDocument>, options
     createdAt: input.createdAt ?? new Date().toISOString()
   };
 
-  return mutateWorkspace(options, (workspace) => ({
-    workspace: { ...workspace, sources: [created, ...workspace.sources.filter((item) => item.id !== created.id)] },
-    result: created
-  }));
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const sortOrder = await prependSortOrder(client, "sources", archiveId);
+    await upsertSourceRows(client, archiveId, [created], sortOrder);
+    return created;
+  });
 }
 
 export async function updatePersonCuration(
@@ -499,8 +590,8 @@ export async function updatePersonCuration(
   input: { published?: boolean; privacy?: PrivacyLevel; livingStatus?: PersonSummary["livingStatus"] },
   options: WorkspaceStoreOptions = {}
 ): Promise<PersonSummary> {
-  return mutateWorkspace(options, (workspace) => {
-    const person = workspace.people.find((item) => item.id === personId);
+  return withArchiveMutation(options, async (client, archiveId) => {
+    const person = await loadPersonWithFacts(client, archiveId, personId);
     if (!person) {
       throw new Error("person not found");
     }
@@ -511,14 +602,13 @@ export async function updatePersonCuration(
       privacy: input.privacy ?? person.privacy,
       livingStatus: input.livingStatus ?? person.livingStatus
     };
+    await updatePersonCurationRow(client, archiveId, personId, {
+      published: updated.published,
+      privacy: updated.privacy,
+      livingStatus: updated.livingStatus
+    });
 
-    return {
-      workspace: {
-        ...workspace,
-        people: workspace.people.map((item) => (item.id === personId ? updated : item))
-      },
-      result: updated
-    };
+    return updated;
   });
 }
 
@@ -549,46 +639,52 @@ export async function applyPreparedGedcomImport(
   sourcesImported: number;
   rawRecordCount: number;
 }> {
-  const archiveId = getArchiveId(options);
-
-  return mutateWorkspace(options, (workspace) => {
+  return withArchiveMutation(options, async (client, archiveId) => {
+    // The full pre-import workspace is still loaded once here: it becomes the
+    // restorable backup snapshot. The writes below stay scoped to the tables
+    // the import actually touches — cases, DNA matches, and AI runs are not
+    // rewritten anymore.
+    const workspace = await loadWorkspace(client, archiveId);
     const backup = createWorkspaceBackup(workspace, `Before applying ${prepared.snapshot.sourceName}`);
-    const importedPeople = mergeImportedPeople(workspace.people, prepared.people);
-    const importedSources = mergeById(workspace.sources, prepared.sources);
-    const rawRecords = [
-      ...prepared.rawRecords,
-      ...workspace.rawRecords.filter((record) => record.importId !== prepared.snapshot.id)
-    ];
     const appliedImport: AppliedGedcomImport = {
       ...prepared.appliedImport,
       backupId: backup.id
     };
 
+    // mergeImportedPeople returns the merged imports first, then untouched
+    // existing people; only the imported slice needs to be written.
+    const mergedPeople = mergeImportedPeople(workspace.people, prepared.people);
+    const mergedImported = mergedPeople.slice(0, prepared.people.length);
+    const peopleStart = await prependSortOrderRange(client, "people", archiveId, mergedImported.length);
+    await upsertPeopleRows(client, archiveId, mergedImported, peopleStart);
+    await replacePersonFacts(client, archiveId, mergedImported);
+
+    const sourcesStart = await prependSortOrderRange(client, "sources", archiveId, prepared.sources.length);
+    await upsertSourceRows(client, archiveId, prepared.sources, sourcesStart);
+
+    // Re-importing a file replaces exactly that import's raw records.
+    const rawStart = await prependSortOrderRange(client, "raw_records", archiveId, prepared.rawRecords.length);
+    await client.query("DELETE FROM raw_records WHERE archive_id = $1 AND import_id = $2", [archiveId, prepared.snapshot.id]);
+    await insertRawRecordRows(client, archiveId, prepared.rawRecords, rawStart);
+
+    const importSort = await prependSortOrder(client, "import_snapshots", archiveId);
+    await upsertImportSnapshotRow(client, archiveId, appliedImport, importSort);
+
+    const backupSort = await prependSortOrder(client, "workspace_backups", archiveId);
+    await insertBackupRow(client, archiveId, backup, JSON.stringify(workspace), backupSort);
+    await pruneBackupRows(client, archiveId, retainedBackupCount);
+
+    // The people list changed, so the derived per-match hypotheses are stale.
+    for (const match of workspace.dnaMatches) {
+      await upsertDnaHypothesisRow(client, archiveId, match.id, createDnaConnectionHypothesis(match, mergedPeople));
+    }
+
     return {
-      workspace: {
-        ...workspace,
-        people: importedPeople,
-        sources: importedSources,
-        rawRecords,
-        imports: [appliedImport, ...workspace.imports.filter((item) => item.id !== appliedImport.id)],
-        backups: [backup, ...workspace.backups.filter((item) => item.id !== backup.id)].slice(0, retainedBackupCount)
-      },
-      result: {
-        import: appliedImport,
-        backup,
-        peopleImported: prepared.people.length,
-        sourcesImported: prepared.sources.length,
-        rawRecordCount: prepared.rawRecords.length
-      },
-      // Store the pre-import workspace as the backup payload after the upsert
-      // above creates the row; persistWorkspace never overwrites snapshots.
-      afterPersist: async (client) => {
-        await client.query("UPDATE workspace_backups SET snapshot = $3::jsonb WHERE archive_id = $1 AND id = $2", [
-          archiveId,
-          backup.id,
-          JSON.stringify(workspace)
-        ]);
-      }
+      import: appliedImport,
+      backup,
+      peopleImported: prepared.people.length,
+      sourcesImported: prepared.sources.length,
+      rawRecordCount: prepared.rawRecords.length
     };
   });
 }
@@ -615,7 +711,16 @@ export async function repairGedcomRelationshipLinks(options: WorkspaceStoreOptio
     const { workspace: repairedWorkspace, result } = repairGedcomRelationshipLinksInWorkspace(workspace);
 
     if (result.updatedPeople > 0) {
-      await persistWorkspace(client, archiveId, normalizeWorkspaceData({ ...repairedWorkspace, updatedAt: new Date().toISOString() }));
+      // repairGedcomRelationshipLinksInWorkspace returns the same object
+      // reference for people it did not change, so reference inequality
+      // identifies exactly the rows that need their relatives rewritten.
+      const changed = repairedWorkspace.people.filter((person, index) => person !== workspace.people[index]);
+      await updatePeopleRelatives(
+        client,
+        archiveId,
+        changed.map((person) => ({ id: person.id, relatives: person.relatives }))
+      );
+      await client.query("UPDATE archives SET updated_at = now() WHERE id = $1", [archiveId]);
     }
 
     return result;
@@ -741,27 +846,15 @@ async function loadWorkspace(client: PoolClient, archiveId: string): Promise<Wor
   return normalizeWorkspaceData({
     archiveName: archive.name,
     archiveTagline: archive.tagline,
-    people: peopleResult.rows.map((row) => ({
-      id: row.id,
-      slug: row.slug,
-      displayName: row.display_name,
-      givenName: row.given_name ?? undefined,
-      surname: row.surname ?? undefined,
-      birthDate: row.birth_date ?? undefined,
-      birthPlace: row.birth_place ?? undefined,
-      deathDate: row.death_date ?? undefined,
-      deathPlace: row.death_place ?? undefined,
-      sex: row.sex ?? undefined,
-      livingStatus: row.living_status,
-      privacy: row.privacy,
-      published: row.published,
-      facts: (factsByPerson.get(row.id) ?? []).map(({ personId: _personId, ...fact }) => {
-        void _personId;
-        return fact;
-      }),
-      relatives: row.relatives ?? [],
-      notes: row.notes ?? undefined
-    })),
+    people: peopleResult.rows.map((row) =>
+      mapPersonRow(
+        row,
+        (factsByPerson.get(row.id) ?? []).map(({ personId: _personId, ...fact }) => {
+          void _personId;
+          return fact;
+        })
+      )
+    ),
     cases: casesResult.rows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -821,336 +914,72 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
   await client.query("DELETE FROM person_facts WHERE archive_id = $1", [archiveId]);
   await client.query("DELETE FROM people WHERE archive_id = $1", [archiveId]);
 
-  await insertPeopleAndFacts(client, archiveId, normalized.people);
-  await insertSources(client, archiveId, normalized.sources);
+  await upsertPeopleRows(client, archiveId, normalized.people, 0);
+  await replacePersonFacts(client, archiveId, normalized.people);
+  await upsertSourceRows(client, archiveId, normalized.sources, 0);
 
   for (const [index, researchCase] of normalized.cases.entries()) {
-    await client.query(
-      `INSERT INTO research_cases (id, archive_id, title, question, status, focus, privacy, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [researchCase.id, archiveId, researchCase.title, researchCase.question, researchCase.status, researchCase.focus, researchCase.privacy, index]
-    );
-
-    for (const [hypothesisIndex, hypothesis] of researchCase.hypotheses.entries()) {
-      await client.query(
-        `INSERT INTO hypotheses (id, archive_id, case_id, statement, confidence, status, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [hypothesis.id, archiveId, researchCase.id, hypothesis.statement, normalizeConfidence(hypothesis.confidence), hypothesis.status, hypothesisIndex]
-      );
-    }
-
-    for (const [evidenceIndex, evidence] of researchCase.evidence.entries()) {
-      await client.query(
-        `INSERT INTO evidence_items (
-          id, archive_id, case_id, title, evidence_type, summary, confidence, linked_person_id, linked_dna_match_id, sort_order
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          evidence.id,
-          archiveId,
-          researchCase.id,
-          evidence.title,
-          evidence.type,
-          evidence.summary,
-          normalizeConfidence(evidence.confidence),
-          evidence.linkedPersonId,
-          evidence.linkedDnaMatchId,
-          evidenceIndex
-        ]
-      );
-    }
-
-    for (const [taskIndex, task] of researchCase.tasks.entries()) {
-      await client.query(
-        "INSERT INTO tasks (id, archive_id, case_id, title, status, sort_order) VALUES ($1, $2, $3, $4, $5, $6)",
-        [task.id, archiveId, researchCase.id, task.title, task.status, taskIndex]
-      );
-    }
+    await upsertCaseRow(client, archiveId, researchCase, index);
+    await replaceCaseChildren(client, archiveId, researchCase);
   }
 
   for (const [index, match] of normalized.dnaMatches.entries()) {
-    await client.query(
-      `INSERT INTO dna_matches (
-        id, archive_id, display_name, total_cm, longest_segment_cm, shared_dna_percent,
-        predicted_relationship, side, tree_status, surnames, places, shared_matches, notes,
-        ancestry_url, triage_status, sort_order
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-      [
-        match.id,
-        archiveId,
-        match.displayName,
-        match.totalCm,
-        match.longestSegmentCm,
-        match.sharedDnaPercent,
-        match.predictedRelationship,
-        match.side,
-        match.treeStatus,
-        match.surnames,
-        match.places,
-        match.sharedMatches,
-        match.notes,
-        match.ancestryUrl,
-        match.triageStatus,
-        index
-      ]
-    );
-
-    const hypothesis = createDnaConnectionHypothesis(match, normalized.people);
-    await client.query(
-      `INSERT INTO dna_hypotheses (
-        id, archive_id, dna_match_id, likely_branch, likely_generation, geography,
-        candidate_common_ancestors, confidence, explanation, evidence, uncertainty
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)`,
-      [
-        `hyp-${match.id}`,
-        archiveId,
-        match.id,
-        hypothesis.likelyBranch,
-        hypothesis.likelyGeneration,
-        hypothesis.geography,
-        hypothesis.candidateCommonAncestors,
-        normalizeConfidence(hypothesis.confidence),
-        hypothesis.explanation,
-        JSON.stringify(hypothesis.evidence),
-        JSON.stringify(hypothesis.uncertainty)
-      ]
-    );
+    await upsertDnaMatchRow(client, archiveId, match, index);
+    await upsertDnaHypothesisRow(client, archiveId, match.id, createDnaConnectionHypothesis(match, normalized.people));
   }
 
   for (const [index, run] of normalized.aiRuns.entries()) {
-    await client.query(
-      `INSERT INTO ai_runs (
-        id, archive_id, run_type, provider, model, question, answer, status, provider_status,
-        evidence, uncertainty, suggestions, context_references, result, anomaly_count, linked_case_id,
-        prompt_redacted, error, created_at, completed_at, sort_order
-      ) VALUES (
-        $1, $2, 'analysis', $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
-        $13::jsonb, $14, $15, $16, $17, $18, $19, $20
-      )`,
-      [
-        run.id,
-        archiveId,
-        run.provider ?? "local",
-        run.model ?? "local",
-        run.question,
-        run.answer,
-        run.status,
-        run.providerStatus ?? (run.status === "ready" ? "completed" : run.status === "provider_error" ? "failed" : "not_configured"),
-        JSON.stringify(run.evidenceUsed),
-        JSON.stringify(run.uncertainty),
-        JSON.stringify(run.suggestions),
-        JSON.stringify(run.contextReferences),
-        JSON.stringify({ answer: run.answer, status: run.status }),
-        run.anomalyCount,
-        run.linkedCaseId,
-        run.promptPreview ?? "",
-        run.error,
-        run.createdAt,
-        run.completedAt,
-        index
-      ]
-    );
+    await upsertAiRunRow(client, archiveId, run, index);
   }
 
   for (const [index, item] of normalized.imports.entries()) {
-    await client.query(
-      `INSERT INTO import_snapshots (
-        id, archive_id, source_name, checksum, summary, record_count, people_imported,
-        sources_imported, raw_record_count, backup_id, applied_at, sort_order
-      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        item.id,
-        archiveId,
-        item.sourceName,
-        item.checksum,
-        JSON.stringify(item.summary),
-        item.recordCount,
-        item.peopleImported,
-        item.sourcesImported,
-        item.rawRecordCount,
-        item.backupId,
-        item.appliedAt,
-        index
-      ]
-    );
+    await upsertImportSnapshotRow(client, archiveId, item, index);
   }
 
-  await insertRawRecords(client, archiveId, normalized.rawRecords);
+  await insertRawRecordRows(client, archiveId, normalized.rawRecords, 0);
 
   for (const [index, backup] of normalized.backups.entries()) {
-    await client.query(
-      `INSERT INTO workspace_backups (
-        id, archive_id, created_at, reason, storage_key, people_count, sources_count,
-        cases_count, dna_match_count, import_count, raw_record_count, snapshot, sort_order
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, '{}'::jsonb, $12)
-      ON CONFLICT (archive_id, id) DO UPDATE SET
-        reason = EXCLUDED.reason,
-        storage_key = EXCLUDED.storage_key,
-        people_count = EXCLUDED.people_count,
-        sources_count = EXCLUDED.sources_count,
-        cases_count = EXCLUDED.cases_count,
-        dna_match_count = EXCLUDED.dna_match_count,
-        import_count = EXCLUDED.import_count,
-        raw_record_count = EXCLUDED.raw_record_count,
-        sort_order = EXCLUDED.sort_order`,
-      [
-        backup.id,
-        archiveId,
-        backup.createdAt,
-        backup.reason,
-        backup.storageKey,
-        backup.peopleCount,
-        backup.sourcesCount,
-        backup.casesCount,
-        backup.dnaMatchCount,
-        backup.importCount,
-        backup.rawRecordCount,
-        index
-      ]
-    );
+    await upsertBackupRowPreservingSnapshot(client, archiveId, backup, index);
   }
 }
 
-async function insertPeopleAndFacts(client: PoolClient, archiveId: string, people: PersonSummary[]): Promise<void> {
-  const personRows = people.map((person, sortOrder) => ({
+function mapPersonRow(row: Record<string, unknown>, facts: PersonFact[]): PersonSummary {
+  const person = row as {
+    id: string;
+    slug: string;
+    display_name: string;
+    given_name: string | null;
+    surname: string | null;
+    sex: PersonSummary["sex"] | null;
+    birth_date: string | null;
+    birth_place: string | null;
+    death_date: string | null;
+    death_place: string | null;
+    living_status: PersonSummary["livingStatus"];
+    privacy: PrivacyLevel;
+    published: boolean;
+    relatives: string[] | null;
+    notes: string | null;
+  };
+
+  return {
     id: person.id,
     slug: person.slug,
-    display_name: person.displayName,
-    given_name: person.givenName,
-    surname: person.surname,
-    sex: person.sex,
-    birth_date: person.birthDate,
-    birth_place: person.birthPlace,
-    death_date: person.deathDate,
-    death_place: person.deathPlace,
-    living_status: person.livingStatus,
+    displayName: person.display_name,
+    givenName: person.given_name ?? undefined,
+    surname: person.surname ?? undefined,
+    birthDate: person.birth_date ?? undefined,
+    birthPlace: person.birth_place ?? undefined,
+    deathDate: person.death_date ?? undefined,
+    deathPlace: person.death_place ?? undefined,
+    sex: person.sex ?? undefined,
+    livingStatus: person.living_status,
     privacy: person.privacy,
     published: person.published,
-    relatives: person.relatives,
-    notes: person.notes,
-    sort_order: sortOrder
-  }));
-
-  await insertJsonBatches(personRows, async (rows) => {
-    await client.query(
-      `INSERT INTO people (
-        id, archive_id, slug, display_name, given_name, surname, sex, birth_date, birth_place,
-        death_date, death_place, living_status, privacy, published, relatives, notes, confidence, sort_order
-      )
-      SELECT row.id, $1::text, row.slug, row.display_name, row.given_name, row.surname, row.sex,
-        row.birth_date, row.birth_place, row.death_date, row.death_place, row.living_status,
-        row.privacy, row.published, row.relatives, row.notes, 0.5, row.sort_order
-      FROM jsonb_to_recordset($2::jsonb) AS row(
-        id text, slug text, display_name text, given_name text, surname text, sex text,
-        birth_date text, birth_place text, death_date text, death_place text, living_status text,
-        privacy text, published boolean, relatives text[], notes text, sort_order integer
-      )`,
-      [archiveId, JSON.stringify(rows)]
-    );
-  });
-
-  const factRows = people.flatMap((person) => person.facts.map((fact, sortOrder) => ({
-    id: fact.id,
-    person_id: person.id,
-    fact_type: fact.type,
-    date_text: fact.date,
-    place_text: fact.place,
-    value_text: fact.value,
-    source_text: fact.source,
-    privacy: fact.privacy,
-    confidence: normalizeConfidence(fact.confidence),
-    sort_order: sortOrder
-  })));
-
-  await insertJsonBatches(factRows, async (rows) => {
-    await client.query(
-      `INSERT INTO person_facts (
-        id, archive_id, person_id, fact_type, date_text, place_text, value_text, source_text, privacy, confidence, sort_order
-      )
-      SELECT row.id, $1::text, row.person_id, row.fact_type, row.date_text, row.place_text,
-        row.value_text, row.source_text, row.privacy, row.confidence, row.sort_order
-      FROM jsonb_to_recordset($2::jsonb) AS row(
-        id text, person_id text, fact_type text, date_text text, place_text text, value_text text,
-        source_text text, privacy text, confidence numeric, sort_order integer
-      )`,
-      [archiveId, JSON.stringify(rows)]
-    );
-  });
-}
-
-async function insertSources(client: PoolClient, archiveId: string, sources: SourceDocument[]): Promise<void> {
-  const sourceRows = sources.map((source, sortOrder) => ({
-    id: source.id,
-    title: source.title,
-    source_type: source.sourceType,
-    import_id: source.importId,
-    raw_record_id: source.rawRecordId,
-    file_name: source.fileName,
-    storage_key: source.storageKey,
-    mime_type: source.mimeType,
-    size_bytes: source.size,
-    repository: source.repository,
-    url: source.url,
-    ancestry_apid: source.ancestryApid,
-    citation_date: source.citationDate,
-    linked_person_id: source.linkedPersonId,
-    linked_case_id: source.linkedCaseId,
-    transcript: source.transcript,
-    notes: source.notes,
-    privacy: source.privacy,
-    confidence: normalizeConfidence(source.confidence),
-    created_at: source.createdAt,
-    sort_order: sortOrder
-  }));
-
-  await insertJsonBatches(sourceRows, async (rows) => {
-    await client.query(
-      `INSERT INTO sources (
-        id, archive_id, title, source_type, import_id, raw_record_id, file_name, storage_key,
-        mime_type, size_bytes, repository, url, ancestry_apid, citation_date, linked_person_id,
-        linked_case_id, transcript, notes, privacy, confidence, created_at, sort_order
-      )
-      SELECT row.id, $1::text, row.title, row.source_type, row.import_id, row.raw_record_id,
-        row.file_name, row.storage_key, row.mime_type, row.size_bytes, row.repository, row.url,
-        row.ancestry_apid, row.citation_date, row.linked_person_id, row.linked_case_id,
-        row.transcript, row.notes, row.privacy, row.confidence, row.created_at, row.sort_order
-      FROM jsonb_to_recordset($2::jsonb) AS row(
-        id text, title text, source_type text, import_id text, raw_record_id text, file_name text,
-        storage_key text, mime_type text, size_bytes bigint, repository text, url text,
-        ancestry_apid text, citation_date text, linked_person_id text, linked_case_id text,
-        transcript text, notes text, privacy text, confidence numeric, created_at timestamptz, sort_order integer
-      )`,
-      [archiveId, JSON.stringify(rows)]
-    );
-  });
-}
-
-async function insertRawRecords(client: PoolClient, archiveId: string, records: RawGedcomRecord[]): Promise<void> {
-  const recordRows = records.map((record, sortOrder) => ({
-    id: record.id,
-    import_id: record.importId,
-    xref: record.xref,
-    record_type: record.type,
-    raw_text: record.raw,
-    checksum: record.checksum,
-    sort_order: sortOrder
-  }));
-
-  await insertJsonBatches(recordRows, async (rows) => {
-    await client.query(
-      `INSERT INTO raw_records (id, archive_id, import_id, xref, record_type, raw_text, checksum, sort_order)
-      SELECT row.id, $1::text, row.import_id, row.xref, row.record_type, row.raw_text, row.checksum, row.sort_order
-      FROM jsonb_to_recordset($2::jsonb) AS row(
-        id text, import_id text, xref text, record_type text, raw_text text, checksum text, sort_order integer
-      )`,
-      [archiveId, JSON.stringify(rows)]
-    );
-  });
-}
-
-async function insertJsonBatches<T>(rows: T[], insert: (batch: T[]) => Promise<void>): Promise<void> {
-  for (let index = 0; index < rows.length; index += bulkInsertBatchSize) {
-    await insert(rows.slice(index, index + bulkInsertBatchSize));
-  }
+    facts,
+    relatives: person.relatives ?? [],
+    notes: person.notes ?? undefined
+  };
 }
 
 function mapPersonFact(row: Record<string, unknown>): PersonFact & { personId: string } {
@@ -1369,14 +1198,6 @@ function createDnaEvidenceSummary(match: DnaMatch, helpfulnessScore: number): st
   return parts.join("; ");
 }
 
-function normalizeConfidence(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 0.5;
-  }
-
-  return Math.max(0, Math.min(1, Number(value.toFixed(2))));
-}
-
 function normalizeDnaMatch(match: DnaMatch): DnaMatch {
   if (!match.displayName?.trim() || !Number.isFinite(match.totalCm)) {
     throw new Error("displayName and numeric totalCm are required");
@@ -1448,11 +1269,6 @@ function isSameImportedPerson(existing: PersonSummary, imported: PersonSummary):
 
 function normalizePersonName(name: string): string {
   return name.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function mergeById<T extends { id: string }>(existing: T[], imported: T[]): T[] {
-  const importedIds = new Set(imported.map((item) => item.id));
-  return [...imported, ...existing.filter((item) => !importedIds.has(item.id))];
 }
 
 function sameStringArray(left: string[], right: string[]): boolean {
