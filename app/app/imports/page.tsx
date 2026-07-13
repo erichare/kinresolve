@@ -57,6 +57,13 @@ export default async function ImportsPage() {
               <strong>Traceable by design</strong>
               <p className="muted">Raw xrefs, Ancestry IDs, URLs, citations, notes, and media pointers remain attached to imported records.</p>
             </div>
+            <div className="evidence-item">
+              <strong>Yours to take anywhere</strong>
+              <p className="muted">Download the whole archive as GEDCOM 5.5.1 at any time. Curation flags travel as custom tags, so another KinSleuth instance restores them on import.</p>
+              <a className="button-secondary" href="/api/exports/gedcom" download>
+                Export GEDCOM
+              </a>
+            </div>
             <ImportMaintenancePanel rawRecordCount={workspace.rawRecords.length} />
           </div>
         </aside>
