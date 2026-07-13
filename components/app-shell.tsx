@@ -86,7 +86,7 @@ export function AppShell({
             <Icons.TreePine size={22} aria-hidden />
           </span>
           <span>
-            KinSleuth
+            Kin Resolve
             <small>Private research</small>
           </span>
         </Link>
@@ -99,7 +99,7 @@ export function AppShell({
       <header className="app-mobile-header">
         <Link className="brand" href="/app">
           <span className="brand-mark"><Icons.TreePine size={20} aria-hidden /></span>
-          <span>KinSleuth<small>Private research</small></span>
+          <span>Kin Resolve<small>Private research</small></span>
         </Link>
         <details className="mobile-menu private-mobile-menu">
           <summary><Icons.Menu size={19} aria-hidden />Menu</summary>

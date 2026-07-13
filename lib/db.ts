@@ -30,7 +30,7 @@ export function getDatabaseUrl(options: DatabaseOptions = {}): string {
   const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
 
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required. Start Postgres or set DATABASE_URL before running KinSleuth.");
+    throw new Error("DATABASE_URL is required. Start Postgres or set DATABASE_URL before running Kin Resolve.");
   }
 
   return databaseUrl;

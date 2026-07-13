@@ -31,7 +31,7 @@ export function PublicShell({ children, active, tagline }: { children: React.Rea
               <Icons.TreePine size={22} aria-hidden />
             </span>
             <span>
-              KinSleuth
+              Kin Resolve
               <small>{tagline || "Family history. Openly shared."}</small>
             </span>
           </Link>
@@ -62,9 +62,9 @@ export function PublicShell({ children, active, tagline }: { children: React.Rea
             <span className="brand-mark">
               <Icons.TreePine size={18} aria-hidden />
             </span>
-            <span>KinSleuth</span>
+            <span>Kin Resolve</span>
           </Link>
-          <span>MIT licensed self-hosted genealogy investigation software.</span>
+          <span>AGPL-3.0-only self-hosted genealogy investigation software.</span>
         </div>
       </footer>
     </div>

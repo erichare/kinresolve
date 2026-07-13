@@ -4,7 +4,7 @@ const eslintConfig = [
   ...nextVitals,
   {
     // .claude holds local git worktrees whose build artifacts must not be linted.
-    ignores: [".next/**", "coverage/**", "node_modules/**", ".claude/**", "**/.next/**"]
+    ignores: [".next/**", "coverage/**", "node_modules/**", ".claude/**", "**/.next/**", "site/**"]
   }
 ];
 

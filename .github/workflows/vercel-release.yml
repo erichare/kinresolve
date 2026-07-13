@@ -131,7 +131,7 @@ jobs:
             const expectedOrigin = new URL(process.env.PRODUCTION_URL).origin;
             const location = new URL(process.env.APP_LOCATION, expectedOrigin);
             if (location.origin !== expectedOrigin || location.pathname !== "/login" || location.searchParams.get("next") !== "/app") {
-              console.error(`Expected /app to redirect to the KinSleuth login gate, got ${location}`);
+              console.error(`Expected /app to redirect to the Kin Resolve login gate, got ${location}`);
               process.exit(1);
             }
           '

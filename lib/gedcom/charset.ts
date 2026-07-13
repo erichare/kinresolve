@@ -6,7 +6,7 @@ export type DecodedGedcom = {
 
 const charsetSniffLimitBytes = 8192;
 const anselWarning =
-  "This GEDCOM declares the ANSEL character set, which KinSleuth only approximately supports. Accented and special characters may be inaccurate; re-export the file as UTF-8 for exact results.";
+  "This GEDCOM declares the ANSEL character set, which Kin Resolve only approximately supports. Accented and special characters may be inaccurate; re-export the file as UTF-8 for exact results.";
 
 /**
  * Decodes raw GEDCOM upload bytes using the file's byte-order mark or declared CHAR value.

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌲 KinSleuth
+# 🌲 Kin Resolve
 
 **Self-hosted genealogy research workspace — a private investigation lab paired with a curated public family archive.**
 
@@ -10,23 +10,23 @@
 [![Postgres + pgvector](https://img.shields.io/badge/Postgres-pgvector-336791?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 [![Tests: Vitest](https://img.shields.io/badge/Tests-Vitest-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev)
 
-*Import GEDCOM files, triage DNA matches, build research cases, run AI-assisted analysis — then publish only the ancestors you choose, with living-person privacy enforced by default.*
+*Import GEDCOM files, triage DNA matches, build research cases, run AI-assisted analysis — then publish selected deceased profiles through person-level privacy gates.*
 
-<img src="docs/screenshots/dashboard.webp" alt="KinSleuth investigation dashboard" width="90%" />
+<img src="docs/screenshots/dashboard.webp" alt="Kin Resolve investigation dashboard" width="90%" />
 
 </div>
 
 ---
 
-## Why KinSleuth?
+## Why Kin Resolve?
 
-Most genealogy tools make you choose between *sharing everything* and *sharing nothing*. KinSleuth splits the difference with two faces on one database:
+Most genealogy tools make you choose between *sharing everything* and *sharing nothing*. Kin Resolve splits the difference with two faces on one database:
 
 | 🔒 Private workspace (`/app`) | 🌍 Public archive (`/`) |
 | --- | --- |
 | Every imported person, source, DNA match, and research note | Only profiles you explicitly curate and publish |
 | Account-gated pages and APIs (owner-created accounts) | Living, private, and sensitive records withheld automatically |
-| Research cases, task queues, AI analysis runs | Published people, stories, places, and selected citations |
+| Research cases, task queues, AI analysis runs | Published deceased profiles and facts already marked public |
 
 The repository ships with **synthetic fixtures only**. Real GEDCOM exports, DNA match files, and uploads belong in ignored local storage (`data/`, `uploads/`).
 
@@ -34,7 +34,7 @@ The repository ships with **synthetic fixtures only**. Real GEDCOM exports, DNA 
 
 ### Public family archive
 
-A curated, privacy-gated site for the ancestors you choose to share — published profiles pass both a manual publish flag *and* automated living/privacy gates before anonymous visitors ever see them.
+A curated, privacy-gated site for the ancestors you choose to share — published profiles pass both a manual publish flag *and* automated living/privacy gates before anonymous visitors see them. Current controls are person-level; granular fact/source curation and persisted stories are still in progress.
 
 <img src="docs/screenshots/public-home.webp" alt="Public archive landing page" width="90%" />
 
@@ -56,7 +56,7 @@ Every GEDCOM is previewed before it is applied: new, changed, and removed record
 
 Large files (over 3.5 MB) upload directly from the browser to private Blob storage, bypassing serverless request limits — files up to 25 MB each are supported on Vercel.
 
-Your data is never locked in: the whole archive exports back to GEDCOM 5.5.1 from the imports page (or `GET /api/exports/gedcom`), with KinSleuth curation flags carried as custom `_KS_` tags that another KinSleuth instance restores on import.
+Your data is never locked in: the whole archive exports back to GEDCOM 5.5.1 from the imports page (or `GET /api/exports/gedcom`), with curation flags carried as compatibility-preserved custom `_KS_` tags that another Kin Resolve instance restores on import.
 
 ### DNA match triage
 
@@ -79,8 +79,8 @@ Per-profile readiness scoring, publication blockers, source-coverage gaps, and l
 ## Quick start
 
 ```bash
-git clone https://github.com/erichare/kinsleuth.git
-cd kinsleuth
+git clone https://github.com/erichare/kinresolve.git
+cd kinresolve
 npm install
 cp .env.example .env
 docker compose up -d postgres
@@ -98,7 +98,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Compose provisions Postgres with pgvector and MinIO-compatible object storage alongside the app.
+Compose provisions Postgres with pgvector and a MinIO service alongside the app. General source-file uploads still use local disk, and the optional worker service is currently a scaffold rather than a durable job processor.
 
 ## Route map
 
@@ -106,7 +106,7 @@ Compose provisions Postgres with pgvector and MinIO-compatible object storage al
 | --- | --- |
 | `/` | Public archive landing page |
 | `/people`, `/people/[slug]` | Published people and profiles |
-| `/stories`, `/places` | Public stories and place index |
+| `/stories`, `/places` | Synthetic demo stories and the public place index |
 | `/app` | Investigation dashboard |
 | `/app/people` | Search, filter, and curate people |
 | `/app/cases` | Research cases, evidence, hypotheses, and task queues |
@@ -185,7 +185,7 @@ Deployments are release-driven: publishing a stable GitHub Release runs `.github
 
 Required GitHub Actions secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
 
-Required Vercel production environment: `DATABASE_URL` (Supabase transaction pooler on port `6543` with `sslmode=require` — KinSleuth upgrades known Supabase pooler connections to `verify-full` with the bundled root CA), `DATABASE_POOL_MAX=2`, `DATABASE_AUTO_MIGRATE=false`, `AUTH_SECRET`, `BLOB_READ_WRITE_TOKEN`, and `CRON_SECRET`.
+Required Vercel production environment: `DATABASE_URL` (Supabase transaction pooler on port `6543` with `sslmode=require` — the app upgrades known Supabase pooler connections to `verify-full` with the bundled root CA), `DATABASE_POOL_MAX=2`, `DATABASE_AUTO_MIGRATE=false`, `AUTH_SECRET`, `BLOB_READ_WRITE_TOKEN`, and `CRON_SECRET`.
 
 ## Project map
 
@@ -200,14 +200,14 @@ Required Vercel production environment: `DATABASE_URL` (Supabase transaction poo
 
 ## Status & known limitations
 
-KinSleuth is a working vertical slice suited to local/self-hosted beta use — not yet a production genealogy platform.
+Kin Resolve is a working vertical slice suited to local/self-hosted beta use — not yet a production genealogy platform.
 
 - General source-file uploads still target local disk; wire object storage before production use of file attachments.
 - ANSEL-encoded GEDCOM files are decoded on a best-effort basis (UTF-8, UTF-16, and Windows-1252 are handled properly).
 - Importing two *unrelated* GEDCOM files can collide on xref-derived record ids; curation flags are protected from cross-person leaks, but the second import replaces colliding records. Re-imports of the same tree merge as intended.
 - Semantic (pgvector) retrieval is planned but not implemented; the embeddings table is provisioned and unused.
-- Background jobs, per-user accounts, and enforced role management are still evolving.
+- The worker is a scaffold; durable background jobs are not implemented. Invitations, member management, and route-wide role enforcement are also still evolving.
 
 ## License
 
-KinSleuth is free software licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You may self-host, modify, and redistribute it under the AGPL's terms; if you run a modified version as a network service, the AGPL requires you to offer its source to users of that service. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution terms.
+Kin Resolve is free software licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You may self-host, modify, and redistribute it under the AGPL's terms; if you run a modified version as a network service, the AGPL requires you to offer its source to users of that service. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution terms.

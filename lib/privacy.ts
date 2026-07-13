@@ -35,7 +35,7 @@ export function canPublishPerson(person: PersonSummary): boolean {
 }
 
 export function publicFactFilter(fact: PersonFact): boolean {
-  return fact.privacy === "public" || fact.privacy === undefined;
+  return fact.privacy === "public";
 }
 
 export function privacyLabel(level: PrivacyLevel): string {
@@ -47,4 +47,3 @@ export function privacyLabel(level: PrivacyLevel): string {
   }
   return "Private";
 }
-

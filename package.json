@@ -14,7 +14,11 @@
     "db:migrate": "node --experimental-strip-types scripts/migrate.mjs",
     "test:db:large": "RUN_LARGE_GEDCOM_TEST=true vitest run tests/gedcom-apply.test.ts -t \"larger than 10.5 MB\"",
     "test:watch": "vitest",
-    "worker": "node scripts/worker.mjs"
+    "worker": "node scripts/worker.mjs",
+    "site:dev": "npm --prefix site run dev",
+    "site:build": "npm --prefix site run build",
+    "site:check": "npm --prefix site run check",
+    "site:verify": "npm --prefix site run verify"
   },
   "dependencies": {
     "@next/env": "^16.0.0",

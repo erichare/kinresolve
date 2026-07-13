@@ -187,7 +187,7 @@ export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnaly
       error: message,
       uncertainty: [
         `Provider call failed: ${message}`,
-        "KinSleuth saved a local deterministic fallback so the research thread is not lost."
+        "Kin Resolve saved a local deterministic fallback so the research thread is not lost."
       ]
     };
   }
@@ -201,7 +201,7 @@ export function buildPromptPack(request: AIAnalysisRequest, anomalies: Structure
   const selectedCase = request.selectedCaseId ? request.cases.find((researchCase) => researchCase.id === request.selectedCaseId) : undefined;
   const references: AIContextReference[] = [];
   const sections: string[] = [
-    "You are the KinSleuth AI Analyst for a private family-history workspace.",
+    "You are the Kin Resolve AI Analyst for a private family-history workspace.",
     "Use the full private context below. Do not treat hypotheses as facts. Separate evidence from inference.",
     "Return JSON only with this shape: {\"answer\":\"...\",\"uncertainty\":[\"...\"],\"evidenceUsed\":[\"...\"],\"contextReferences\":[{\"id\":\"...\",\"type\":\"person|case|source|dna_match|hypothesis|anomaly|task|evidence\",\"label\":\"...\",\"summary\":\"...\"}],\"suggestions\":[{\"type\":\"task|evidence_check|source_gap|privacy_review\",\"title\":\"...\",\"summary\":\"...\",\"linkedCaseId\":\"optional\",\"contextRefs\":[\"id\"],\"confidence\":0.0}]}",
     `Research question: ${request.question}`,
@@ -366,7 +366,7 @@ async function callAIProvider(provider: AIProviderConfig, prompt: string): Promi
     "authorization": `Bearer ${provider.apiKey}`,
     "content-type": "application/json"
   };
-  const developerInstructions = "Return only valid JSON for KinSleuth. Keep claims cautious, cite context IDs, and stage suggestions for review instead of saying work was changed.";
+  const developerInstructions = "Return only valid JSON for Kin Resolve. Keep claims cautious, cite context IDs, and stage suggestions for review instead of saying work was changed.";
   const body =
     mode === "chat"
       ? {
@@ -571,7 +571,7 @@ function buildLocalAnalysis(request: Omit<AIAnalysisRequest, "provider"> & { ano
 
   const recommendation = topHypothesis
     ? `Start with ${topHypothesis.likelyBranch}. ${topHypothesis.explanation}`
-    : "Start by creating or importing DNA matches with known surnames, places, and shared matches so KinSleuth can rank connection hypotheses.";
+    : "Start by creating or importing DNA matches with known surnames, places, and shared matches so Kin Resolve can rank connection hypotheses.";
 
   const corroboration = activeCase
     ? `Tie that work back to "${activeCase.title}" and test whether the next evidence item supports or weakens the current case question: ${activeCase.question}`

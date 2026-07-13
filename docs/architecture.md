@@ -1,10 +1,10 @@
-# KinSleuth architecture
+# Kin Resolve architecture
 
-KinSleuth separates three layers of genealogy data:
+Kin Resolve separates three layers of genealogy data:
 
 1. **Raw imports** preserve every GEDCOM record, custom tag, source reference, URL, media pointer, and import snapshot.
 2. **Normalized research data** powers search, profiles, relationships, facts, sources, places, cases, DNA matches, and AI retrieval.
-3. **Curated public content** is manually published and can safely omit living people, sensitive facts, private cases, and unreviewed evidence.
+3. **Curated public content** currently uses person-level publish, living-status, and privacy gates. Granular fact/source curation and persisted public stories remain planned.
 
 The V0.1 implementation is intentionally one-family-archive-per-deployment. That keeps privacy, branding, and permission decisions simple while leaving room for multi-archive hosting later.
 
@@ -13,12 +13,12 @@ The V0.1 implementation is intentionally one-family-archive-per-deployment. That
 - Next.js App Router renders public and private routes.
 - Postgres stores normalized workspace data, import snapshots, backups, case tasks, and AI run history.
 - `pgvector` is provisioned for semantic embeddings for source notes, facts, case evidence, and DNA match notes.
-- Private object storage stages large GEDCOM imports outside the Vercel Function request path and will store uploaded source images, PDFs, and transcripts as those workflows mature.
-- A background worker owns GEDCOM imports, re-import diffs, embedding refreshes, and long AI jobs.
+- Private Vercel Blob storage stages large GEDCOM imports outside the request path. General source-file uploads still use local disk; the S3-compatible configuration is not yet a working source-storage abstraction.
+- The worker entry point is currently a scaffold. Durable GEDCOM, embedding, and long-running AI jobs remain planned.
 
 ## Privacy
 
-Anonymous visitors can only see manually published content. Private routes require authentication and role checks. Living people are conservatively inferred when no death fact exists and the birth date is within the last 100 years, or when dates are missing but recent relatives imply the person may be living.
+Data-backed anonymous profile routes apply manual publication plus living/privacy gates. Private routes require authentication; whole-tree AI has an explicit role check, while route-wide permission enforcement remains in progress. Living people are conservatively inferred when no death fact exists and the birth date is within the last 100 years, or when dates are missing but recent relatives imply the person may be living.
 
 ## AI
 

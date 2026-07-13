@@ -47,7 +47,7 @@ export default async function SetupPage() {
       <div className="page-wrap">
         <section className="page-title section">
           <h1>First-run setup</h1>
-          <p>KinSleuth is configured through environment variables and the private workspace — this checklist walks through a fresh installation.</p>
+          <p>Kin Resolve is configured through environment variables and the private workspace — this checklist walks through a fresh installation.</p>
         </section>
         {existingUsers === 0 ? (
           <section className="section" style={{ maxWidth: 520 }}>
