@@ -27,7 +27,9 @@ const searchHaystackSql = `extensions.unaccent(lower(concat_ws(' ',
 // Boolean(linkedDnaMatchId) in the in-memory countDnaEvidence treats empty
 // strings as unlinked, so NULLIF keeps parity if an empty id ever reaches the
 // column.
-const dnaLinkedSql = "NULLIF(linked_dna_match_id, '') IS NOT NULL";
+function dnaLinkedSql(prefix: string): string {
+  return `NULLIF(${prefix}linked_dna_match_id, '') IS NOT NULL`;
+}
 
 // Two variants per child table: the haystack text is only paid for when
 // search terms actually reference it; plain browsing aggregates counts only.
@@ -45,7 +47,7 @@ const hypothesesCountLateralSql = `LEFT JOIN LATERAL (
 ) h ON true`;
 
 const evidenceCountsSql = `count(*)::int AS evidence_count,
-    count(*) FILTER (WHERE ${dnaLinkedSql})::int AS dna_evidence_count,
+    count(*) FILTER (WHERE ${dnaLinkedSql("ce.")})::int AS dna_evidence_count,
     min(ce.confidence) AS weakest_confidence`;
 const evidenceSearchLateralSql = `LEFT JOIN LATERAL (
   SELECT ${evidenceCountsSql},
@@ -202,12 +204,12 @@ export async function caseEvidenceQueueFromDb(options: WorkspaceStoreOptions = {
      FROM evidence_items ce
      JOIN research_cases rc ON rc.archive_id = ce.archive_id AND rc.id = ce.case_id
      WHERE ce.archive_id = $1
-     ORDER BY (NULLIF(ce.linked_dna_match_id, '') IS NOT NULL) DESC,
+     ORDER BY (${dnaLinkedSql("ce.")}) DESC,
        ce.confidence ASC,
        extensions.unaccent(lower(rc.title)) ASC,
        rc.sort_order ASC, rc.title ASC, ce.sort_order ASC, ce.id ASC
      LIMIT $2`,
-    [archiveId, limit],
+    [archiveId, clampInteger(limit, 0, maximumPageSize)],
     options
   );
 
@@ -238,7 +240,7 @@ async function loadCaseStats(archiveId: string, options: WorkspaceStoreOptions):
     ),
     query<{ evidence_items: number; dna_evidence: number; low_confidence_evidence: number }>(
       `SELECT count(*)::int AS evidence_items,
-         count(*) FILTER (WHERE ${dnaLinkedSql})::int AS dna_evidence,
+         count(*) FILTER (WHERE ${dnaLinkedSql("")})::int AS dna_evidence,
          count(*) FILTER (WHERE confidence < 0.5)::int AS low_confidence_evidence
        FROM evidence_items WHERE archive_id = $1`,
       [archiveId],
