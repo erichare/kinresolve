@@ -1,7 +1,72 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import packageJson from "../package.json";
 import { describe, expect, it } from "vitest";
 
-import { validateReleaseUpgradeDatabase } from "@/lib/test-database-contract";
+import { validateReleaseUpgradeDatabase, validateTestDatabase } from "@/lib/test-database-contract";
+
+describe("complete database test contract", () => {
+  it("requires an explicit TEST_DATABASE_URL", () => {
+    expect(() => validateTestDatabase({})).toThrow(/TEST_DATABASE_URL is required/i);
+  });
+
+  it("rejects invalid URLs and the application database", () => {
+    expect(() => validateTestDatabase({ testDatabaseUrl: "not a URL" })).toThrow(/valid PostgreSQL URL/i);
+    expect(() =>
+      validateTestDatabase({
+        testDatabaseUrl: "postgres://tester@localhost/shared",
+        databaseUrl: "postgresql://app@127.0.0.1:5432/shared?sslmode=disable"
+      })
+    ).toThrow(/same database as DATABASE_URL/i);
+    expect(() =>
+      validateTestDatabase({
+        testDatabaseUrl: "postgres://tester@localhost/%73hared",
+        databaseUrl: "postgres://app@127.0.0.1:5432/shared"
+      })
+    ).toThrow(/same database as DATABASE_URL/i);
+  });
+
+  it("loads the normal local .env before checking database separation", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kinresolve-test-database-"));
+    const script = path.join(process.cwd(), "scripts", "require-test-database.mjs");
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      TEST_DATABASE_URL: "postgres://tester@localhost/shared"
+    };
+    delete environment.DATABASE_URL;
+
+    try {
+      writeFileSync(path.join(root, ".env"), "DATABASE_URL=postgres://app@127.0.0.1:5432/shared\n", "utf8");
+      const result = spawnSync(process.execPath, ["--experimental-strip-types", script], {
+        cwd: root,
+        encoding: "utf8",
+        env: environment
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/same database as DATABASE_URL/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a distinct PostgreSQL test database", () => {
+    expect(() =>
+      validateTestDatabase({
+        testDatabaseUrl: "postgres://tester@localhost/test_database",
+        databaseUrl: "postgres://app@localhost/application"
+      })
+    ).not.toThrow();
+  });
+
+  it("makes test:db fail closed and run the complete Vitest suite", () => {
+    expect(packageJson.scripts["test:db"]).toBe(
+      "node --experimental-strip-types scripts/require-test-database.mjs && vitest run --no-file-parallelism"
+    );
+  });
+});
 
 describe("release upgrade database contract", () => {
   it("requires an explicit release-upgrade database URL", () => {

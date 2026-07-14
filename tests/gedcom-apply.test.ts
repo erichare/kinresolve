@@ -11,9 +11,15 @@ const itLarge = process.env.RUN_LARGE_GEDCOM_TEST === "true" ? it : it.skip;
 
 let storeOptions: { databaseUrl: string; archiveId: string };
 
+async function deleteTestArchives(archivePredicate: string, values: string[]): Promise<void> {
+  if (!databaseUrl) return;
+  await query(`DELETE FROM person_facts WHERE archive_id ${archivePredicate}`, values, { databaseUrl });
+  await query(`DELETE FROM archives WHERE id ${archivePredicate}`, values, { databaseUrl });
+}
+
 beforeAll(async () => {
   if (!databaseUrl) return;
-  await query("DELETE FROM archives WHERE id LIKE 'test-%'", [], { databaseUrl });
+  await deleteTestArchives("LIKE 'test-%'", []);
 });
 
 beforeEach(() => {
@@ -23,7 +29,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   if (!databaseUrl) return;
-  await query("DELETE FROM archives WHERE id = $1", [storeOptions.archiveId], { databaseUrl });
+  await deleteTestArchives("= $1", [storeOptions.archiveId]);
 }, 120_000);
 
 afterAll(async () => {

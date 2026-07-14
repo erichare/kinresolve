@@ -1,9 +1,10 @@
 import { query } from "./db";
 import { getArchiveId } from "./workspace-store";
+import { APP_VERSION } from "./app-version";
 
 export type RuntimeStatus = {
   product: "KinSleuth";
-  version: "0.17.4";
+  version: string;
   database: {
     configured: boolean;
     connected: boolean;
@@ -37,7 +38,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   if (!databaseUrl) {
     return {
       product: "KinSleuth",
-      version: "0.17.4",
+      version: APP_VERSION,
       ai,
       storage,
       database: {
@@ -78,7 +79,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
 
     return {
       product: "KinSleuth",
-      version: "0.17.4",
+      version: APP_VERSION,
       ai,
       storage,
       database: {
@@ -96,7 +97,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   } catch (error) {
     return {
       product: "KinSleuth",
-      version: "0.17.4",
+      version: APP_VERSION,
       ai,
       storage,
       database: {

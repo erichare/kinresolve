@@ -7,6 +7,11 @@ type ReleaseUpgradeDatabaseOptions = {
   databaseUrl?: string;
 };
 
+type TestDatabaseOptions = {
+  testDatabaseUrl?: string;
+  databaseUrl?: string;
+};
+
 function canonicalHostname(hostname: string): string {
   const normalized = hostname.toLowerCase();
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "[::1]" ? "loopback" : normalized;
@@ -33,7 +38,24 @@ function parsePostgresUrl(value: string, variableName: string): URL {
 function databaseIdentity(value: string, variableName: string): string {
   const url = parsePostgresUrl(value, variableName);
   const hostname = canonicalHostname(url.hostname);
-  return `${hostname}:${url.port || "5432"}${url.pathname}`;
+  let databasePath: string;
+  try {
+    databasePath = decodeURIComponent(url.pathname);
+  } catch (error) {
+    throw new Error(`${variableName} must contain a valid encoded database name.`, { cause: error });
+  }
+  return `${hostname}:${url.port || "5432"}${databasePath}`;
+}
+
+export function validateTestDatabase(options: TestDatabaseOptions): void {
+  if (!options.testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL is required for the complete database test command.");
+  }
+
+  const testIdentity = databaseIdentity(options.testDatabaseUrl, "TEST_DATABASE_URL");
+  if (options.databaseUrl && databaseIdentity(options.databaseUrl, "DATABASE_URL") === testIdentity) {
+    throw new Error("TEST_DATABASE_URL must not identify the same database as DATABASE_URL.");
+  }
 }
 
 export function validateReleaseUpgradeDatabase(options: ReleaseUpgradeDatabaseOptions): void {
