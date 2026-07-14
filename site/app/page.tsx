@@ -63,7 +63,7 @@ export default function HomePage() {
         <div>
           <span className="eyebrow">An archive mystery</span>
           <h2 id="challenge-invite-title">Think like a researcher.</h2>
-          <p>Examine six fictional records at an investigator’s desk, build a clue notebook, then test your judgment across four more Hartwell–Mercer cases.</p>
+          <p>Examine thirty synthetic records across five immersive Hartwell–Mercer cases, build a cited clue notebook, and test conclusions against conflicting evidence.</p>
         </div>
         <Link className="button" href="/challenge">Test your research instincts</Link>
       </section>

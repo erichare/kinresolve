@@ -131,7 +131,24 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
         question.pickCount
       )
     );
+    const firstIncompleteQuestion = activeCase.questions.find(
+      (question) => !isResearchInstinctsSelectionComplete(
+        selections[question.id] ?? [],
+        question.pickCount
+      )
+    );
     const readyToSubmit = questionsComplete && allCaseRecordsReviewed && notebookReady;
+
+    const questionCompletionHint = firstIncompleteQuestion
+      ? (() => {
+          const selectedCount = (selections[firstIncompleteQuestion.id] ?? []).length;
+          if (firstIncompleteQuestion.pickCount === 1) {
+            return `Choose an answer for “${firstIncompleteQuestion.prompt}”`;
+          }
+          const remaining = Math.max(1, firstIncompleteQuestion.pickCount - selectedCount);
+          return `Choose ${remaining} more clue${remaining === 1 ? "" : "s"} for “${firstIncompleteQuestion.prompt}” (${selectedCount} of ${firstIncompleteQuestion.pickCount} selected), or choose “I’m not sure.”`;
+        })()
+      : "Answer all three prompts to submit.";
 
     useEffect(() => {
       if (focusResult && submitted) {
@@ -173,7 +190,15 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
           }
         })
       );
-      setAnnouncement("");
+      const question = activeCase.questions.find((candidate) => candidate.id === questionId);
+      const selectionStatus = nextSelection.includes("not-sure")
+        ? "Uncertainty selected."
+        : `${nextSelection.length} of ${pickCount} selected.${
+            nextSelection.length < pickCount
+              ? ` Choose ${pickCount - nextSelection.length} more.`
+              : ""
+          }`;
+      setAnnouncement(`${question?.prompt ?? "Question"} ${selectionStatus}`);
     }
 
     function openRecord(recordId: string) {
@@ -310,6 +335,7 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
             <span className="challenge-case-count">Case {activeCaseIndex + 1} of {researchInstinctsCases.length} · {activeCase.kicker}</span>
             <h2 ref={caseTitleRef} tabIndex={-1}>{activeCase.title}</h2>
             <p>{activeCase.brief}</p>
+            <p className="challenge-case-skill"><strong>Research skill</strong><span>{activeCase.skill}</span></p>
           </header>
 
           {hasRecordDesk && activeRecord ? (
@@ -318,7 +344,7 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
                 <div>
                   <span className="challenge-record-kicker">Immersive case file</span>
                   <h3 id={`record-desk-${activeCase.id}`}>Investigate the source trail</h3>
-                  <p>Open every record, compare the image with its transcript, and save the clues you would carry into a research log.</p>
+                  <p>Open every record, compare the image with its transcript, and save the clues you would carry into a research log. Everything needed is inside the case file; some reference exhibits only become useful when compared with another source.</p>
                 </div>
                 <p className="challenge-record-review-count">
                   <strong>{reviewedRecordCount} of {caseRecords.length}</strong>
@@ -569,7 +595,7 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
                 >
                   <legend>{question.prompt}</legend>
                   <p className="challenge-question-instruction" id={instructionId}>
-                    {question.pickCount === 2 ? "Choose exactly two clues, or choose I’m not sure" : "Choose one answer"} · {question.points} points
+                    {question.pickCount === 2 ? "Choose exactly two clues, or choose I’m not sure" : "Choose one answer"} · {question.points} points · {selected.includes("not-sure") ? "Uncertainty selected" : `${selected.length} of ${question.pickCount} selected`}
                   </p>
                   <div className="challenge-options">
                     {question.options.map((option) => {
@@ -612,8 +638,8 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
                     ? `Review all ${caseRecords.length} records before submitting.`
                     : !notebookReady
                       ? "Save at least two clues to your notebook before submitting."
-                      : !questionsComplete
-                        ? "Answer all three prompts to submit."
+                    : !questionsComplete
+                        ? questionCompletionHint
                         : "Ready for review. Submitting locks this case."}
                 </p>
               </div>

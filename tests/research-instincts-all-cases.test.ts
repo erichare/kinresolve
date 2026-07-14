@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
 import { researchInstinctsCases } from "@/lib/research-instincts";
@@ -86,13 +87,30 @@ describe("all-case immersive archive contract", () => {
     }
   });
 
-  it("ships every synthetic record as a byte-identical, bounded WebP in both public trees", () => {
+  it("keeps the DNA case self-contained with documented tester pedigree anchors", () => {
+    const dnaCase = researchInstinctsCases.find(({ id }) => id === "dna-clusters");
+    const matchExport = dnaCase?.records?.find(({ catalogId }) => catalogId === "KR-DEMO-C11-R1");
+    const anchorText = [
+      dnaCase?.brief,
+      ...(dnaCase?.clues ?? []),
+      ...(matchExport?.metadata.map(({ value }) => value) ?? [])
+    ].join(" ");
+
+    expect(anchorText).toMatch(/tester.*Samuel Mercer.*Maeve Rowan/i);
+    expect(anchorText).toMatch(/Nora Hartwell.*Amalia Bellandi/i);
+    expect(anchorText).toMatch(/living generations.*withheld/i);
+  });
+
+  it("ships every synthetic record as a byte-identical, bounded WebP with accurate layout dimensions", async () => {
     expect(EXPECTED_ALL_IMMERSIVE_RECORDS).toHaveLength(30);
 
     for (const expectedCase of EXPECTED_IMMERSIVE_CASES) {
       let caseBytes = 0;
 
       for (const record of expectedCase.records) {
+        const challengeRecord = researchInstinctsCases
+          .find(({ id }) => id === expectedCase.caseId)
+          ?.records?.find(({ catalogId }) => catalogId === record.catalogId);
         const assets = ASSET_ROOTS.map((root) =>
           path.join(process.cwd(), root, record.assetPath.replace(/^\//, ""))
         );
@@ -107,6 +125,9 @@ describe("all-case immersive archive contract", () => {
           MIN_ASSET_BYTES
         );
         expect(statSync(assets[0]).size, `${record.catalogId} size`).toBeLessThanOrEqual(MAX_ASSET_BYTES);
+        const metadata = await sharp(assets[0]).metadata();
+        expect(challengeRecord?.image.width, `${record.catalogId} width`).toBe(metadata.width);
+        expect(challengeRecord?.image.height, `${record.catalogId} height`).toBe(metadata.height);
         caseBytes += statSync(assets[0]).size;
       }
 

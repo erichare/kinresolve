@@ -55,7 +55,7 @@ export default function StoriesPage() {
           <div>
             <span className="card-kicker">Ready to investigate?</span>
             <h2 id="challenge-story-title">Test your genealogical skills</h2>
-            <p>Read six fictional record images and transcripts, build a clue notebook, then work four compact cases for a score out of 500.</p>
+            <p>Examine thirty synthetic records across five immersive cases, build a cited clue notebook, and test each conclusion against conflicting evidence.</p>
           </div>
           <Link className="button" href="/challenge">
             Start the challenge
