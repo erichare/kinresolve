@@ -353,18 +353,29 @@ describe("research instincts scoring", () => {
 });
 
 describe("research instincts local progress", () => {
-  it("uses the isolated, versioned v1 browser storage key", () => {
-    expect(RESEARCH_INSTINCTS_PROGRESS_VERSION).toBe(1);
-    expect(RESEARCH_INSTINCTS_STORAGE_KEY).toBe("kinresolve:research-instincts:v1");
+  it("uses the isolated, versioned v2 browser storage key", () => {
+    const firstCase = researchInstinctsCases[0];
+    const firstRecord = firstCase.records?.[0];
+    expect(firstRecord).toBeDefined();
+
+    expect(RESEARCH_INSTINCTS_PROGRESS_VERSION).toBe(2);
+    expect(RESEARCH_INSTINCTS_STORAGE_KEY).toBe("kinresolve:research-instincts:v2");
     expect(createEmptyResearchInstinctsProgress()).toEqual({
-      version: 1,
+      version: 2,
       activeCaseId: expectedCaseIds[0],
       answers: {},
-      completedCaseIds: []
+      completedCaseIds: [],
+      recordDesk: {
+        [firstCase.id]: {
+          activeRecordId: firstRecord?.id,
+          reviewedRecordIds: [firstRecord?.id],
+          notebookClueIds: []
+        }
+      }
     });
   });
 
-  it.each([null, undefined, 17, "progress", [], {}, { version: 1, answers: null }])(
+  it.each([null, undefined, 17, "progress", [], {}, { version: 2, answers: null }])(
     "fails closed for malformed stored progress %#",
     (rawProgress) => {
       expect(sanitizeResearchInstinctsProgress(rawProgress)).toEqual(createEmptyResearchInstinctsProgress());
@@ -376,7 +387,7 @@ describe("research instincts local progress", () => {
 
     expect(
       sanitizeResearchInstinctsProgress({
-        version: 2,
+        version: 1,
         activeCaseId: validCase.id,
         answers: { [validCase.id]: correctSelections(validCase) },
         completedCaseIds: [validCase.id]
@@ -389,10 +400,12 @@ describe("research instincts local progress", () => {
     const secondCase = researchInstinctsCases[1];
     const firstCorrect = correctSelections(firstCase);
     const secondCorrect = correctSelections(secondCase);
+    const records = firstCase.records ?? [];
+    const clues = firstCase.notebookClues ?? [];
 
     expect(
       sanitizeResearchInstinctsProgress({
-        version: 1,
+        version: 2,
         activeCaseId: "invented-case",
         answers: {
           [firstCase.id]: {
@@ -405,11 +418,23 @@ describe("research instincts local progress", () => {
           "invented-case": secondCorrect
         },
         completedCaseIds: [firstCase.id, secondCase.id, secondCase.id, "invented-case"],
+        recordDesk: {
+          [firstCase.id]: {
+            activeRecordId: records[2].id,
+            reviewedRecordIds: [records[0].id, records[2].id, records[2].id, "invented-record"],
+            notebookClueIds: [clues[0].id, clues[0].id, "invented-clue"]
+          },
+          [secondCase.id]: {
+            activeRecordId: "invented-record",
+            reviewedRecordIds: ["invented-record"],
+            notebookClueIds: ["invented-clue"]
+          }
+        },
         score: 500,
         answerKey: "must not survive"
       })
     ).toEqual({
-      version: 1,
+      version: 2,
       activeCaseId: expectedCaseIds[0],
       answers: {
         [firstCase.id]: {
@@ -418,8 +443,53 @@ describe("research instincts local progress", () => {
         },
         [secondCase.id]: secondCorrect
       },
-      completedCaseIds: [secondCase.id]
+      completedCaseIds: [secondCase.id],
+      recordDesk: {
+        [firstCase.id]: {
+          activeRecordId: records[2].id,
+          reviewedRecordIds: [records[0].id, records[2].id],
+          notebookClueIds: [clues[0].id]
+        }
+      }
     });
+  });
+
+  it("persists the immersive desk and requires its gate before restoring completion", () => {
+    const firstCase = researchInstinctsCases[0];
+    const records = firstCase.records ?? [];
+    const clues = firstCase.notebookClues ?? [];
+    const completeAnswers = correctSelections(firstCase);
+    const incompleteDesk = {
+      activeRecordId: records[1].id,
+      reviewedRecordIds: [records[0].id, records[1].id],
+      notebookClueIds: [clues[0].id]
+    };
+
+    expect(
+      sanitizeResearchInstinctsProgress({
+        version: 2,
+        activeCaseId: firstCase.id,
+        answers: { [firstCase.id]: completeAnswers },
+        completedCaseIds: [firstCase.id],
+        recordDesk: { [firstCase.id]: incompleteDesk }
+      }).completedCaseIds
+    ).toEqual([]);
+
+    const completeDesk = {
+      activeRecordId: records.at(-1)?.id,
+      reviewedRecordIds: records.map((record) => record.id),
+      notebookClueIds: clues.slice(0, 2).map((clue) => clue.id)
+    };
+    const restored = sanitizeResearchInstinctsProgress({
+      version: 2,
+      activeCaseId: firstCase.id,
+      answers: { [firstCase.id]: completeAnswers },
+      completedCaseIds: [firstCase.id],
+      recordDesk: { [firstCase.id]: completeDesk }
+    });
+
+    expect(restored.completedCaseIds).toEqual([firstCase.id]);
+    expect(restored.recordDesk[firstCase.id]).toEqual(completeDesk);
   });
 
   it("resets only the challenge key and leaves neighboring local data untouched", () => {
@@ -431,6 +501,6 @@ describe("research instincts local progress", () => {
     expect(removeItem).toHaveBeenCalledOnce();
     expect(removeItem).toHaveBeenCalledWith(RESEARCH_INSTINCTS_STORAGE_KEY);
     expect(removeItem).not.toHaveBeenCalledWith("kinresolve:workspace");
-    expect(removeItem).not.toHaveBeenCalledWith("kinresolve:research-instincts:v2");
+    expect(removeItem).not.toHaveBeenCalledWith("kinresolve:research-instincts:v1");
   });
 });

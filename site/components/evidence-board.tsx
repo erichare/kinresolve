@@ -12,13 +12,13 @@ export function EvidenceBoard() {
       </div>
       <div className="evidence-row">
         <article className="record-card record-conflict">
-          <span className="record-type">1907 passenger list</span>
+          <span className="record-type">1907 passenger declaration · R4</span>
           <strong>Samuel March</strong>
           <small>Northstar Cove → Lantern Bay · age 21</small>
         </article>
         <span className="versus" aria-hidden="true">?</span>
         <article className="record-card">
-          <span className="record-type">1909 marriage record</span>
+          <span className="record-type">1909 marriage ledger · R6</span>
           <strong>Samuel Mercer</strong>
           <small>Lantern Bay, WI · signed record</small>
         </article>

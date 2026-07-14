@@ -61,9 +61,9 @@ export default function HomePage() {
 
       <section className="shell challenge-invite" aria-labelledby="challenge-invite-title">
         <div>
-          <span className="eyebrow">A small archive mystery</span>
+          <span className="eyebrow">An archive mystery</span>
           <h2 id="challenge-invite-title">Think like a researcher.</h2>
-          <p>Follow five fictional Hartwell–Mercer cases, choose the evidence that matters, and see where certainty outruns the record.</p>
+          <p>Examine six fictional records at an investigator’s desk, build a clue notebook, then test your judgment across four more Hartwell–Mercer cases.</p>
         </div>
         <Link className="button" href="/challenge">Test your research instincts</Link>
       </section>
@@ -124,7 +124,7 @@ export default function HomePage() {
         <div className="editorial-copy">
           <span className="eyebrow">Follow the trail</span>
           <h2>Keep the question, the clue, and the conclusion together.</h2>
-          <p>Nora Hartwell’s 1922 journal calls the box “Amalia’s tin,” while an older family story credits Samuel. Inside are the passenger notice and harbor photograph he brought from Northstar Cove in 1907. Elsewhere in the archive, the 1907 passenger-list and 1909 marriage signatures can be tested against Maeve Mercer’s independent 1906 letter. Which claim survives the evidence?</p>
+          <p>Nora Hartwell’s 1922 journal calls the box “Amalia’s tin,” while an older family story credits Samuel. Inside are the passenger notice and harbor photograph he brought from Northstar Cove in 1907. Elsewhere in the archive, the 1907 passenger-declaration and 1909 marriage-ledger signatures can be tested against Maeve Mercer’s independent 1906 letter. Which claim survives the evidence?</p>
           <ul className="check-list">
             <li>Separate what a source says from what you infer.</li>
             <li>Record the conflict instead of quietly choosing a favorite.</li>
@@ -170,9 +170,9 @@ export default function HomePage() {
           <p className="analyst-question">“Were Samuel Mercer and Samuel March the same person?”</p>
           <div className="analyst-answer">
             <strong>The sources narrow the question, but do not decide it for you.</strong>
-            <p>The fictional 1907 passenger-list and 1909 marriage signatures share an unusual final stroke. Maeve’s independent 1906 letter mentions both surnames without explaining why. Matching age and route alone would not be enough.</p>
+            <p>The fictional 1907 passenger-declaration and 1909 marriage-ledger signatures share an unusual final stroke. Maeve’s independent 1906 letter mentions both surnames without explaining why. Matching age and route alone would not be enough.</p>
           </div>
-          <div className="reference-row"><span>[R1] Passenger list</span><span>[R2] Marriage record</span><span>[R3] Maeve’s letter</span></div>
+          <div className="reference-row"><span>[R4] Passenger declaration</span><span>[R6] Marriage ledger</span><span>[R2] Maeve’s letter</span></div>
           <div className="analyst-caution"><i aria-hidden="true">!</i> Working analysis. Review source images before changing the tree.</div>
         </div>
       </section>

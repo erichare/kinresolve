@@ -55,7 +55,7 @@ export default function StoriesPage() {
           <div>
             <span className="card-kicker">Ready to investigate?</span>
             <h2 id="challenge-story-title">Test your genealogical skills</h2>
-            <p>Put the Hartwell–Mercer clues together across five fictional mini-cases and earn a score out of 500.</p>
+            <p>Read six fictional record images and transcripts, build a clue notebook, then work four compact cases for a score out of 500.</p>
           </div>
           <Link className="button" href="/challenge">
             Start the challenge
