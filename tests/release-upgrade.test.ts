@@ -471,6 +471,19 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
     await expectMigration004Unrecorded(pool);
   });
 
+  it("rejects a legacy global-id unique index even when it has included columns", async () => {
+    await installV0174(pool, { recordInitialMigration: true });
+    await seedLegacyRows(pool);
+    await pool.query("CREATE UNIQUE INDEX sources_global_id_unique ON sources (id) INCLUDE (archive_id)");
+
+    await expect(runPendingMigrations(pool)).rejects.toThrow(/004_archive_scoped_keys.*unexpected archive-key uniqueness/i);
+
+    await expectMigration004Unrecorded(pool);
+    await expect(pool.query("SELECT to_regclass('sources_global_id_unique') AS name")).resolves.toMatchObject({
+      rows: [{ name: "sources_global_id_unique" }]
+    });
+  });
+
   it("rejects cross-archive legacy references and rolls the migration back", async () => {
     await installV0174(pool, { recordInitialMigration: true });
     await seedLegacyRows(pool);
