@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { type PeopleLivingFilter, type PeoplePrivacyFilter, type PeoplePublicationFilter, type PeopleSortKey } from "@/lib/people-search";
 import { parsePositiveInteger } from "@/lib/pagination";
 import { searchPeoplePageFromDb } from "@/lib/store/people-queries";
@@ -10,7 +11,7 @@ const privacyValues = new Set<PeoplePrivacyFilter>(["all", "public", "private", 
 const livingValues = new Set<PeopleLivingFilter>(["all", "living", "deceased", "unknown"]);
 const sortValues = new Set<PeopleSortKey>(["name", "birth", "death", "facts"]);
 
-export async function GET(request: Request) {
+export const GET = withPermission("archive:read-private", async (request) => {
   const url = new URL(request.url);
 
   return NextResponse.json(
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
       }
     )
   );
-}
+});
 
 function parseEnum<T extends string>(value: string | null, allowed: Set<T>, fallback: T): T {
   return value && allowed.has(value as T) ? (value as T) : fallback;

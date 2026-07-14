@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { createImportSnapshot, diffImportSnapshots } from "@/lib/gedcom/importer";
 import { prepareGedcomImport } from "@/lib/gedcom/apply";
 import { decodeGedcomBuffer } from "@/lib/gedcom/charset";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-export async function POST(request: Request) {
+export const POST = withPermission("imports:manage", async (request) => {
   let body: ResolvedImportRequest;
   try {
     body = await readImportRequest(request);
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return importErrorResponse(error);
   }
-}
+});
 
 type ImportRequestBody = {
   sourceName?: string;

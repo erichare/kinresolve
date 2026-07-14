@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import type { PersonSummary, PrivacyLevel } from "@/lib/models";
 import { updatePersonCuration } from "@/lib/workspace-store";
 
@@ -7,7 +8,9 @@ export const dynamic = "force-dynamic";
 const privacyLevels = new Set<PrivacyLevel>(["public", "private", "sensitive"]);
 const livingStatuses = new Set<PersonSummary["livingStatus"]>(["living", "deceased", "unknown"]);
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+type RouteContext = { params: Promise<{ id: string }> };
+
+export const PATCH = withPermission("archive:publish", async (request, _authorization, { params }: RouteContext) => {
   const { id } = await params;
   const personId = decodeURIComponent(id);
   const body = (await request.json()) as { published?: boolean; privacy?: PrivacyLevel; livingStatus?: PersonSummary["livingStatus"] };
@@ -24,4 +27,4 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   } catch {
     return NextResponse.json({ error: "Person not found" }, { status: 404 });
   }
-}
+});

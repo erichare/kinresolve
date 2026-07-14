@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { parsePositiveInteger } from "@/lib/pagination";
 import { buildPublicationReview } from "@/lib/publishing";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export const GET = withPermission("archive:read-private", async (request) => {
   const workspace = await readWorkspace();
   const url = new URL(request.url);
   const pageSize = parsePositiveInteger(url.searchParams.get("pageSize"), 50);
@@ -17,4 +18,4 @@ export async function GET(request: Request) {
       pageSize
     })
   );
-}
+});

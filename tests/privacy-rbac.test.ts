@@ -42,4 +42,17 @@ describe("privacy and RBAC", () => {
     expect(() => assertPermission("viewer", "ai:whole-tree")).toThrow(/cannot perform/);
     expect(getPermissions("contributor")).toContain("evidence:write");
   });
+
+  it("limits full archive export to owner/admin", () => {
+    expect(hasPermission("owner", "archive:export")).toBe(true);
+    expect(hasPermission("admin", "archive:export")).toBe(true);
+    expect(hasPermission("editor", "archive:export")).toBe(false);
+    expect(hasPermission("viewer", "archive:export")).toBe(false);
+  });
+
+  it("lets contributors link evidence without creating source records", () => {
+    expect(hasPermission("contributor", "evidence:write")).toBe(true);
+    expect(hasPermission("contributor", "sources:write")).toBe(false);
+    expect(hasPermission("editor", "sources:write")).toBe(true);
+  });
 });

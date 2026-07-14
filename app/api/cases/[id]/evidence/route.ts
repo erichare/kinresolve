@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { linkDnaMatchToCase } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
+export const POST = withPermission("evidence:write", async (request, _authorization, { params }: RouteContext) => {
   const { id } = await params;
   const body = (await request.json()) as {
     linkedDnaMatchId?: string;
@@ -26,4 +31,4 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Evidence link failed" }, { status: 404 });
   }
-}
+});

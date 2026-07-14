@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { allowedApiMethods, resolveApiAccess, resolveApiRoute } from "@/lib/api-access";
+import { apiErrorResponse } from "@/lib/api-response";
 import { getSessionContext } from "@/lib/auth-session";
 import { ensureDatabaseSchema } from "@/lib/db";
 
 const protectedPagePrefixes = ["/app"];
-const protectedApiPrefixes = ["/api/ai", "/api/cases", "/api/dna", "/api/exports", "/api/imports", "/api/people", "/api/publishing", "/api/reports", "/api/settings", "/api/sources", "/api/uploads"];
 
 // Next 16's proxy runs on the Node runtime, so full database-backed session
 // validation stays centralized here. Refresh Set-Cookie headers from session
@@ -11,14 +12,32 @@ const protectedApiPrefixes = ["/api/ai", "/api/cases", "/api/dna", "/api/exports
 // route-handler traffic instead (see lib/auth.ts).
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const protectsApi = protectedApiPrefixes.some((prefix) => pathname.startsWith(prefix));
+  const isApi = pathname === "/api" || pathname.startsWith("/api/");
+  const apiRoute = isApi ? resolveApiRoute(pathname) : null;
+  const apiAccess = isApi ? resolveApiAccess(pathname, request.method) : null;
+  const protectsApi = apiAccess?.kind === "permission";
   const protectsPage = protectedPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
+  if (isApi && !apiRoute) {
+    return apiErrorResponse(404, "Not found");
+  }
+
+  if (isApi && apiRoute && !apiAccess) {
+    return apiErrorResponse(405, "Method not allowed", {
+      headers: { allow: allowedApiMethods(apiRoute).join(", ") }
+    });
+  }
 
   if (!process.env.AUTH_SECRET) {
     if (process.env.NODE_ENV === "production") {
+      const requiresAuthConfiguration = apiRoute?.requiresAuthSecret === true;
+      if (!requiresAuthConfiguration && !protectsApi && !protectsPage) {
+        return NextResponse.next();
+      }
+
       const message = "Private workspace authentication is not configured";
-      return protectsApi
-        ? NextResponse.json({ error: message }, { status: 503 })
+      return isApi
+        ? apiErrorResponse(503, message)
         : new NextResponse(message, { status: 503 });
     }
 
@@ -43,7 +62,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (protectsApi) {
-    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    return apiErrorResponse(401, "Authentication required");
   }
 
   const loginUrl = process.env.APP_BASE_URL
@@ -56,5 +75,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/api/ai/:path*", "/api/cases/:path*", "/api/dna/:path*", "/api/exports/:path*", "/api/imports/:path*", "/api/people/:path*", "/api/publishing/:path*", "/api/reports/:path*", "/api/settings/:path*", "/api/sources/:path*", "/api/uploads/:path*"]
+  matcher: ["/app/:path*", "/api/:path*"]
 };

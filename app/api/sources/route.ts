@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { parsePositiveInteger } from "@/lib/pagination";
 import { type SourceLinkFilter, type SourcePrivacyFilter, type SourceSortKey } from "@/lib/source-search";
 import { searchSourcesPageFromDb } from "@/lib/store/source-queries";
@@ -9,7 +10,7 @@ const privacyValues = new Set<SourcePrivacyFilter>(["all", "public", "private", 
 const linkValues = new Set<SourceLinkFilter>(["all", "linked", "unlinked", "person", "case"]);
 const sortValues = new Set<SourceSortKey>(["created", "title", "confidence"]);
 
-export async function GET(request: Request) {
+export const GET = withPermission("archive:read-private", async (request) => {
   const url = new URL(request.url);
 
   return NextResponse.json(
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
       }
     )
   );
-}
+});
 
 function parseEnum<T extends string>(value: string | null, allowed: Set<T>, fallback: T): T {
   return value && allowed.has(value as T) ? (value as T) : fallback;

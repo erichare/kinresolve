@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { cleanupStaleGedcomUploads, deleteStagedGedcomUploads } from "@/lib/gedcom/blob-storage";
 import {
   gedcomUploadTokenLifetimeMs,
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function POST(request: Request) {
+export const POST = withPermission("imports:manage", async (request) => {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json({ error: "Private GEDCOM upload storage is not configured." }, { status: 503 });
   }
@@ -57,9 +58,9 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error) }, { status: 400 });
   }
-}
+});
 
-export async function DELETE(request: Request) {
+export const DELETE = withPermission("imports:manage", async (request) => {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json({ error: "Private GEDCOM upload storage is not configured." }, { status: 503 });
   }
@@ -74,7 +75,7 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error) }, { status: 400 });
   }
-}
+});
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

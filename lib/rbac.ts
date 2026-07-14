@@ -3,10 +3,12 @@ import type { Role } from "./models";
 export type Permission =
   | "archive:read-private"
   | "archive:publish"
+  | "archive:export"
   | "imports:manage"
   | "cases:read"
   | "cases:write"
   | "evidence:write"
+  | "sources:write"
   | "dna:read"
   | "dna:write"
   | "ai:whole-tree"
@@ -17,10 +19,12 @@ const rolePermissions: Record<Role, Permission[]> = {
   owner: [
     "archive:read-private",
     "archive:publish",
+    "archive:export",
     "imports:manage",
     "cases:read",
     "cases:write",
     "evidence:write",
+    "sources:write",
     "dna:read",
     "dna:write",
     "ai:whole-tree",
@@ -30,10 +34,12 @@ const rolePermissions: Record<Role, Permission[]> = {
   admin: [
     "archive:read-private",
     "archive:publish",
+    "archive:export",
     "imports:manage",
     "cases:read",
     "cases:write",
     "evidence:write",
+    "sources:write",
     "dna:read",
     "dna:write",
     "ai:whole-tree",
@@ -46,6 +52,7 @@ const rolePermissions: Record<Role, Permission[]> = {
     "cases:read",
     "cases:write",
     "evidence:write",
+    "sources:write",
     "dna:read",
     "dna:write"
   ],
@@ -66,4 +73,3 @@ export function assertPermission(role: Role, permission: Permission): void {
 export function getPermissions(role: Role): Permission[] {
   return [...rolePermissions[role]];
 }
-

@@ -63,6 +63,7 @@ describe("private workspace proxy", () => {
     const response = await proxy(new NextRequest("https://kinsleuth.example/api/people"));
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
     await expect(response.json()).resolves.toEqual({ error: "Authentication required" });
   });
 
@@ -93,7 +94,7 @@ describe("private workspace proxy", () => {
     vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
     authMocks.getSessionContext.mockResolvedValue(null);
 
-    const response = await proxy(new NextRequest("https://kinsleuth.example/api/settings/archive"));
+    const response = await proxy(new NextRequest("https://kinsleuth.example/api/settings/archive", { method: "PATCH" }));
 
     expect(response.status).toBe(401);
   });
@@ -106,6 +107,89 @@ describe("private workspace proxy", () => {
     const response = await proxy(new NextRequest("https://kinsleuth.example/api/exports/gedcom"));
 
     expect(response.status).toBe(401);
+  });
+
+  it("fails closed for unregistered future API routes, even for members", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    authMocks.getSessionContext.mockResolvedValue(memberContext);
+
+    const response = await proxy(new NextRequest("https://kinsleuth.example/api/future-private-feature"));
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(response.json()).resolves.toEqual({ error: "Not found" });
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it("returns 405 for unsupported methods on registered routes without membership checks", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+
+    for (const [url, method, allow] of [
+      ["https://kinsleuth.example/api/health", "POST", "GET, HEAD"],
+      ["https://kinsleuth.example/api/auth/logout", "GET", "POST"]
+    ]) {
+      const response = await proxy(new NextRequest(url, { method }));
+      expect(response.status, `${method} ${url}`).toBe(405);
+      expect(response.headers.get("allow"), `${method} ${url}`).toBe(allow);
+      expect(response.headers.get("x-request-id"), `${method} ${url}`).toMatch(/^[0-9a-f-]{36}$/);
+    }
+
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit 503 for auth and bootstrap APIs when production auth is unconfigured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "");
+
+    for (const [url, method] of [
+      ["https://kinsleuth.example/api/auth/session", "GET"],
+      ["https://kinsleuth.example/api/setup/claim", "POST"]
+    ]) {
+      const response = await proxy(new NextRequest(url, { method }));
+      expect(response.status, `${method} ${url}`).toBe(503);
+      expect(response.headers.get("x-request-id"), `${method} ${url}`).toMatch(/^[0-9a-f-]{36}$/);
+      await expect(response.json()).resolves.toEqual({
+        error: "Private workspace authentication is not configured"
+      });
+    }
+
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it("keeps health, service-authenticated cron, and logout reachable without production auth configuration", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "");
+
+    for (const [url, method] of [
+      ["https://kinsleuth.example/api/health", "GET"],
+      ["https://kinsleuth.example/api/cron/import-uploads", "GET"],
+      ["https://kinsleuth.example/api/auth/logout", "POST"]
+    ]) {
+      const response = await proxy(new NextRequest(url, { method }));
+      expect(response.status, `${method} ${url}`).toBe(200);
+    }
+
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it("does not membership-gate public, bootstrap, or service-authenticated APIs", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    authMocks.getSessionContext.mockResolvedValue(null);
+
+    for (const [url, method] of [
+      ["https://kinsleuth.example/api/health", "GET"],
+      ["https://kinsleuth.example/api/auth/session", "GET"],
+      ["https://kinsleuth.example/api/setup/claim", "POST"],
+      ["https://kinsleuth.example/api/cron/import-uploads", "GET"]
+    ]) {
+      const response = await proxy(new NextRequest(url, { method }));
+      expect(response.status, `${method} ${url}`).toBe(200);
+    }
+
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
   });
 
   it("stays open in development when auth is not configured", async () => {

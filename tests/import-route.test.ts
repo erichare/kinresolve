@@ -12,6 +12,15 @@ const workspaceMocks = vi.hoisted(() => ({
 
 vi.mock("@vercel/blob", () => blobMocks);
 vi.mock("@/lib/workspace-store", () => workspaceMocks);
+vi.mock("@/lib/auth-session", () => ({
+  getSessionContext: vi.fn(async () => ({
+    userId: "owner-1",
+    email: "owner@example.com",
+    name: "Owner",
+    role: "owner",
+    archiveId: "archive-default"
+  }))
+}));
 
 import { POST } from "@/app/api/imports/route";
 

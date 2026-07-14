@@ -5,8 +5,19 @@ const workspaceMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/workspace-store", () => workspaceMocks);
+vi.mock("@/lib/auth-session", () => ({
+  getSessionContext: vi.fn(async () => ({
+    userId: "owner-1",
+    email: "owner@example.com",
+    name: "Owner",
+    role: "owner",
+    archiveId: "archive-default"
+  }))
+}));
 
 import { GET } from "@/app/api/exports/gedcom/route";
+
+const request = () => new Request("https://app.kinresolve.com/api/exports/gedcom");
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -21,7 +32,7 @@ describe("GEDCOM export route", () => {
       imports: []
     });
 
-    const response = await GET();
+    const response = await GET(request());
     const body = await response.text();
 
     expect(response.status).toBe(200);
@@ -36,7 +47,7 @@ describe("GEDCOM export route", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     workspaceMocks.readWorkspace.mockRejectedValue(new Error("database unreachable"));
 
-    const response = await GET();
+    const response = await GET(request());
     const body = await response.json();
 
     expect(response.status).toBe(500);

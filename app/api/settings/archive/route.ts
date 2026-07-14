@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { withPermission } from "@/lib/api-authorization";
 import { updateArchiveBranding } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +10,7 @@ const brandingSchema = z.object({
   tagline: z.string().trim().max(200, "Tagline must be 200 characters or fewer").default("")
 });
 
-export async function PATCH(request: Request) {
+export const PATCH = withPermission("settings:manage", async (request) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -28,4 +29,4 @@ export async function PATCH(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update archive branding" }, { status: 500 });
   }
-}
+});
