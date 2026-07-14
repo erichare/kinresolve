@@ -4,6 +4,8 @@ import {
   RESEARCH_INSTINCTS_PROGRESS_VERSION,
   RESEARCH_INSTINCTS_STORAGE_KEY,
   createEmptyResearchInstinctsProgress,
+  isResearchInstinctsSelectionComplete,
+  nextResearchInstinctsSelection,
   researchInstinctsCases,
   resetResearchInstinctsProgress,
   sanitizeResearchInstinctsProgress,
@@ -174,7 +176,7 @@ describe("research instincts scoring", () => {
       const wrong = wrongSelections(challengeCase);
       const unknown: Selections = {
         conclusion: ["not-sure"],
-        evidence: ["not-sure", wrong.evidence.find((optionId) => optionId !== "not-sure")!],
+        evidence: ["not-sure"],
         caution: ["not-sure"]
       };
 
@@ -185,6 +187,17 @@ describe("research instincts scoring", () => {
         maximum: 100
       });
     }
+  });
+
+  it("allows explicit uncertainty to stand alone without an arbitrary second clue", () => {
+    expect(isResearchInstinctsSelectionComplete(["not-sure"], 2)).toBe(true);
+    expect(isResearchInstinctsSelectionComplete(["one-clue"], 2)).toBe(false);
+    expect(nextResearchInstinctsSelection([], "not-sure", 2)).toEqual(["not-sure"]);
+    expect(nextResearchInstinctsSelection(["not-sure"], "lead-clue", 2)).toEqual(["lead-clue"]);
+    expect(nextResearchInstinctsSelection(["lead-clue"], "not-sure", 2)).toEqual(["not-sure"]);
+    expect(nextResearchInstinctsSelection(["lead-clue", "second-clue"], "not-sure", 2)).toEqual([
+      "not-sure"
+    ]);
   });
 
   it("scores all five cases deterministically out of 500 in canonical order", () => {
@@ -212,6 +225,9 @@ describe("research instincts scoring", () => {
     expect(() =>
       scoreResearchInstinctsCase(challengeCase.id, { ...valid, evidence: [valid.evidence[0], valid.evidence[0]] })
     ).toThrow(/evidence.*unique|unique.*evidence/i);
+    expect(() =>
+      scoreResearchInstinctsCase(challengeCase.id, { ...valid, evidence: ["not-sure", valid.evidence[0]] })
+    ).toThrow(/not-sure.*alone|alone.*not-sure/i);
     expect(() =>
       scoreResearchInstinctsCase(challengeCase.id, { ...valid, caution: ["invented-option"] })
     ).toThrow(/caution.*option|option.*caution/i);

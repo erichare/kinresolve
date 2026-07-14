@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -47,5 +49,15 @@ describe("research instincts accessible interaction contract", () => {
     expect(html).toMatch(/aria-valuemax="5"/);
     expect(html).toMatch(/aria-valuenow="[0-5]"/);
     expect(html).toMatch(/aria-live="polite"/);
+  });
+
+  it("moves keyboard focus into reset confirmation and restores it on cancel", async () => {
+    const source = await readFile(
+      path.join(process.cwd(), "components/research-instincts-challenge.tsx"),
+      "utf8"
+    );
+
+    expect(source).toContain("resetConfirmRef.current?.focus()");
+    expect(source).toContain("resetTriggerRef.current?.focus()");
   });
 });
