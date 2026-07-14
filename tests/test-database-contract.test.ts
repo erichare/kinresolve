@@ -29,7 +29,7 @@ describe("complete database test contract", () => {
 
   it("makes test:db fail closed and run the complete Vitest suite", () => {
     expect(packageJson.scripts["test:db"]).toBe(
-      "node --experimental-strip-types scripts/require-test-database.mjs && vitest run"
+      "node --experimental-strip-types scripts/require-test-database.mjs && vitest run --no-file-parallelism"
     );
   });
 });

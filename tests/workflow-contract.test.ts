@@ -35,6 +35,7 @@ describe("product CI workflow contract", () => {
     expect(packageJson.scripts["test:db"]).not.toMatch(/tests\//);
     expect(packageJson.scripts["test:db"]).toContain("vitest run");
     expect(packageJson.scripts["test:release-upgrade"]).toContain("require-release-upgrade-database.mjs");
+    expect(packageJson.scripts["test:db:large"]).toContain("require-test-database.mjs");
     expect(packageJson.scripts["test:db:large"]).toContain("RUN_LARGE_GEDCOM_TEST=true");
   });
 });
