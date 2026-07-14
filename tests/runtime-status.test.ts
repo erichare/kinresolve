@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import packageJson from "../package.json";
+import { APP_VERSION } from "@/lib/app-version";
 import { getAIStatus, getRuntimeStatus, getStorageStatus } from "@/lib/runtime-status";
 
 const originalEnv = { ...process.env };
@@ -8,6 +10,10 @@ afterEach(() => {
 });
 
 describe("runtime status", () => {
+  it("uses package.json as the single application version source", () => {
+    expect(APP_VERSION).toBe(packageJson.version);
+  });
+
   it("reports AI provider defaults and API key presence", () => {
     delete process.env.AI_API_KEY;
     delete process.env.OPENAI_API_KEY;
@@ -41,6 +47,7 @@ describe("runtime status", () => {
       archiveId: "archive-default",
       error: "DATABASE_URL is not configured"
     });
+    expect(status.version).toBe(packageJson.version);
   });
 
   it("reports whether private upload storage is configured", () => {

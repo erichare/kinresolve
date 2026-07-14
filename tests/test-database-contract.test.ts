@@ -1,7 +1,38 @@
 import packageJson from "../package.json";
 import { describe, expect, it } from "vitest";
 
-import { validateReleaseUpgradeDatabase } from "@/lib/test-database-contract";
+import { validateReleaseUpgradeDatabase, validateTestDatabase } from "@/lib/test-database-contract";
+
+describe("complete database test contract", () => {
+  it("requires an explicit TEST_DATABASE_URL", () => {
+    expect(() => validateTestDatabase({})).toThrow(/TEST_DATABASE_URL is required/i);
+  });
+
+  it("rejects invalid URLs and the application database", () => {
+    expect(() => validateTestDatabase({ testDatabaseUrl: "not a URL" })).toThrow(/valid PostgreSQL URL/i);
+    expect(() =>
+      validateTestDatabase({
+        testDatabaseUrl: "postgres://tester@localhost/shared",
+        databaseUrl: "postgresql://app@127.0.0.1:5432/shared?sslmode=disable"
+      })
+    ).toThrow(/same database as DATABASE_URL/i);
+  });
+
+  it("accepts a distinct PostgreSQL test database", () => {
+    expect(() =>
+      validateTestDatabase({
+        testDatabaseUrl: "postgres://tester@localhost/test_database",
+        databaseUrl: "postgres://app@localhost/application"
+      })
+    ).not.toThrow();
+  });
+
+  it("makes test:db fail closed and run the complete Vitest suite", () => {
+    expect(packageJson.scripts["test:db"]).toBe(
+      "node --experimental-strip-types scripts/require-test-database.mjs && vitest run"
+    );
+  });
+});
 
 describe("release upgrade database contract", () => {
   it("requires an explicit release-upgrade database URL", () => {
