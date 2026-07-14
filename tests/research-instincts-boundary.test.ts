@@ -3,9 +3,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const implementationPaths = [
+  "shared/research-instincts.ts",
+  "shared/research-instincts-challenge.tsx",
   "lib/research-instincts.ts",
   "components/research-instincts-challenge.tsx",
-  "app/challenge/page.tsx"
+  "app/challenge/page.tsx",
+  "site/app/challenge/page.tsx"
 ] as const;
 
 function importSpecifiers(source: string): string[] {
@@ -50,5 +53,19 @@ describe("research instincts static public boundary", () => {
     expect(home).toMatch(/href=["']\/challenge["']/);
     expect(stories).toMatch(/href=["']\/challenge["']/);
     expect(`${home}\n${stories}`).toMatch(/test your genealogical skills/i);
+  });
+
+  it("makes the same challenge discoverable from the static marketing site", async () => {
+    const [home, product, challenge] = await Promise.all([
+      readFile(path.join(process.cwd(), "site/app/page.tsx"), "utf8"),
+      readFile(path.join(process.cwd(), "site/app/product/page.tsx"), "utf8"),
+      readFile(path.join(process.cwd(), "site/app/challenge/page.tsx"), "utf8")
+    ]);
+
+    expect(home).toMatch(/href=["']\/challenge["']/);
+    expect(product).toMatch(/primaryHref=["']\/challenge["']/);
+    expect(challenge).toMatch(/ResearchInstinctsChallenge/);
+    expect(challenge).toMatch(/robots[\s\S]*index:\s*false/);
+    expect(challenge).toMatch(/fictional/i);
   });
 });

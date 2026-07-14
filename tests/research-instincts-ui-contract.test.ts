@@ -53,7 +53,7 @@ describe("research instincts accessible interaction contract", () => {
 
   it("moves keyboard focus into reset confirmation and restores it on cancel", async () => {
     const source = await readFile(
-      path.join(process.cwd(), "components/research-instincts-challenge.tsx"),
+      path.join(process.cwd(), "shared/research-instincts-challenge.tsx"),
       "utf8"
     );
 
