@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { runAIAnalysis } from "@/lib/ai";
-import { getSessionContext } from "@/lib/auth-session";
+import { withPermission } from "@/lib/api-authorization";
 import { createWorkspaceDnaHypotheses, readWorkspace, saveAIAnalysisRun } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ const analyzeSchema = z.object({
   caseId: z.string().trim().optional()
 });
 
-export async function POST(request: Request) {
+export const POST = withPermission("ai:whole-tree", async (request, authorization) => {
   const parsed = analyzeSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "A research question is required." }, { status: 400 });
@@ -19,19 +19,11 @@ export async function POST(request: Request) {
 
   const body = parsed.data;
 
-  // Whole-tree analysis ships private workspace context to an external
-  // provider; the caller's role comes from their session membership, never
-  // from the request body.
-  const sessionContext = await getSessionContext(request.headers);
-  if (!sessionContext) {
-    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  }
-
   try {
     const workspace = await readWorkspace();
     const linkedCaseId = body.caseId && workspace.cases.some((researchCase) => researchCase.id === body.caseId) ? body.caseId : undefined;
     const result = await runAIAnalysis({
-      role: sessionContext.role,
+      role: authorization.role,
       question: body.question,
       selectedCaseId: linkedCaseId,
       people: workspace.people,
@@ -68,10 +60,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI analysis failed";
 
-    if (message.startsWith("Role ") && message.includes("cannot perform")) {
-      return NextResponse.json({ error: message }, { status: 403 });
-    }
-
     if (message.startsWith("Provider returned ")) {
       return NextResponse.json({ error: message }, { status: 502 });
     }
@@ -79,4 +67,4 @@ export async function POST(request: Request) {
     console.error("AI analysis failed", error);
     return NextResponse.json({ error: "AI analysis failed. Check the server logs for details." }, { status: 500 });
   }
-}
+});

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSessionContext } from "@/lib/auth-session";
+import { withPermission } from "@/lib/api-authorization";
 import { isGuidedResearchEnabled } from "@/lib/guided-research-config";
-import { hasPermission } from "@/lib/rbac";
 import { acceptGuideAssignment } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -16,20 +15,12 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-export async function POST(request: Request, { params }: RouteContext) {
+export const POST = withPermission("cases:write", async (request, authorization, { params }: RouteContext) => {
   if (!isGuidedResearchEnabled()) {
     return NextResponse.json({ error: "Guided research is disabled" }, { status: 404 });
   }
 
   try {
-    const session = await getSessionContext(request.headers);
-    if (!session) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (!hasPermission(session.role, "cases:write")) {
-      return NextResponse.json({ error: "Permission denied" }, { status: 403 });
-    }
-
     const body = await readJson(request);
     if (!body.ok) {
       return body.response;
@@ -43,7 +34,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
 
     const { id } = await params;
-    const result = await acceptGuideAssignment(id, parsed.data.guideKey, { archiveId: session.archiveId });
+    const result = await acceptGuideAssignment(id, parsed.data.guideKey, { archiveId: authorization.archiveId });
     const created = isRecord(result) && result.created === false ? false : true;
     return NextResponse.json(result, { status: created ? 201 : 200 });
   } catch (error) {
@@ -55,7 +46,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     console.error("Guide assignment failed", error);
     return NextResponse.json({ error: "Unable to accept the guide assignment" }, { status: 500 });
   }
-}
+});
 
 async function readJson(
   request: Request

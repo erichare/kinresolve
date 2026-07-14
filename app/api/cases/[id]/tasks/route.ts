@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSessionContext } from "@/lib/auth-session";
-import { hasPermission } from "@/lib/rbac";
+import { withPermission } from "@/lib/api-authorization";
 import { addCaseTask } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -18,16 +17,8 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-export async function POST(request: Request, { params }: RouteContext) {
+export const POST = withPermission("cases:write", async (request, authorization, { params }: RouteContext) => {
   try {
-    const session = await getSessionContext(request.headers);
-    if (!session) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (!hasPermission(session.role, "cases:write")) {
-      return NextResponse.json({ error: "Permission denied" }, { status: 403 });
-    }
-
     const body = await readJson(request);
     if (!body.ok) {
       return body.response;
@@ -41,7 +32,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
 
     const { id } = await params;
-    const result = await addCaseTask(id, parsed.data, { archiveId: session.archiveId });
+    const result = await addCaseTask(id, parsed.data, { archiveId: authorization.archiveId });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     const knownResponse = mapTaskError(error);
@@ -52,7 +43,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     console.error("Task creation failed", error);
     return NextResponse.json({ error: "Unable to create the task" }, { status: 500 });
   }
-}
+});
 
 async function readJson(
   request: Request

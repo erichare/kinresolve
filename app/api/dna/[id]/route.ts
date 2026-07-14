@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import type { DnaMatch, DnaSide, DnaTreeStatus } from "@/lib/models";
 import { deleteDnaMatch, updateDnaMatch } from "@/lib/workspace-store";
 
@@ -8,7 +9,7 @@ const sides = new Set<DnaSide>(["maternal", "paternal", "both", "unknown"]);
 const treeStatuses = new Set<DnaTreeStatus>(["none", "private", "partial", "public", "unknown"]);
 const triageStatuses = new Set<DnaMatch["triageStatus"]>(["needs_review", "triaged", "ignored", "high_priority"]);
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withPermission("dna:write", async (request: Request, _authorization, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const input = (await request.json()) as Partial<DnaMatch>;
 
@@ -28,9 +29,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "DNA match update failed" }, { status: 400 });
   }
-}
+});
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withPermission("dna:write", async (_request: Request, _authorization, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
 
   try {
@@ -39,4 +40,4 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "DNA match delete failed" }, { status: 404 });
   }
-}
+});

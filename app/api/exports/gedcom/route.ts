@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { exportGedcom } from "@/lib/gedcom/exporter";
 import { readWorkspace } from "@/lib/workspace-store";
 
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-export async function GET() {
+export const GET = withPermission("archive:export", async () => {
   try {
     const workspace = await readWorkspace();
     const result = exportGedcom({
@@ -28,4 +29,4 @@ export async function GET() {
     console.error("GEDCOM export failed", error);
     return NextResponse.json({ error: "GEDCOM export failed. Please retry or check the server logs." }, { status: 500 });
   }
-}
+});

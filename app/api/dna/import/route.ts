@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { parseCsvRows } from "@/lib/csv";
 import { mapDnaCsvRows } from "@/lib/dna-import";
 import { saveDnaMatches } from "@/lib/workspace-store";
@@ -6,7 +7,7 @@ import { saveDnaMatches } from "@/lib/workspace-store";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+export const POST = withPermission("dna:write", async (request: Request) => {
   const csv = await readCsvRequest(request);
 
   if (!csv.trim()) {
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     },
     { status: 201 }
   );
-}
+});
 
 async function readCsvRequest(request: Request): Promise<string> {
   const contentType = request.headers.get("content-type") ?? "";

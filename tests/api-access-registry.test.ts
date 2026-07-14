@@ -3,8 +3,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  allowedApiMethods,
   apiRouteAccessRegistry,
   resolveApiAccess,
+  resolveApiRoute,
   type ApiMethod
 } from "@/lib/api-access";
 
@@ -35,7 +37,7 @@ function exportedMethods(source: string): ApiMethod[] {
 describe("API access registry", () => {
   it("classifies every exported route method exactly once", async () => {
     const files = await routeFiles();
-    const discoveredTemplates = files.map(routeTemplate);
+    const discoveredTemplates = files.map(routeTemplate).sort();
     const registeredTemplates = apiRouteAccessRegistry.map((entry) => entry.path).sort();
 
     expect(new Set(registeredTemplates).size).toBe(registeredTemplates.length);
@@ -81,7 +83,18 @@ describe("API access registry", () => {
       kind: "permission",
       permission: "dna:write"
     });
+    expect(resolveApiAccess("/api/dna/matches", "GET")).toEqual({
+      kind: "permission",
+      permission: "dna:read"
+    });
+    expect(resolveApiAccess("/api/dna/matches", "PATCH")).toBeNull();
+    expect(resolveApiAccess("/api/auth/logout", "GET")).toBeNull();
     expect(resolveApiAccess("/api/not-registered", "GET")).toBeNull();
     expect(resolveApiAccess("/api/health", "POST")).toBeNull();
+
+    const healthRoute = resolveApiRoute("/api/health");
+    expect(healthRoute?.path).toBe("/api/health");
+    expect(allowedApiMethods(healthRoute!)).toEqual(["GET", "HEAD"]);
+    expect(resolveApiRoute("/api/not-registered")).toBeNull();
   });
 });

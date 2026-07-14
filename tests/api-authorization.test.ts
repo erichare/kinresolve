@@ -8,7 +8,7 @@ vi.mock("@/lib/auth-session", () => ({
   getSessionContext: authMocks.getSessionContext
 }));
 
-import { requirePermission, withPermission } from "@/lib/api-authorization";
+import { requirePermission, withPermission, type AuthorizedRequestContext } from "@/lib/api-authorization";
 
 const viewerSession = {
   userId: "viewer-1",
@@ -83,7 +83,7 @@ describe("API permission enforcement", () => {
 
   it("passes the authorized context to a wrapped handler", async () => {
     authMocks.getSessionContext.mockResolvedValue(viewerSession);
-    const handler = vi.fn(async (_request: Request, context: typeof viewerSession & { requestId: string }) =>
+    const handler = vi.fn(async (_request: Request, context: AuthorizedRequestContext) =>
       Response.json({ role: context.role, archiveId: context.archiveId })
     );
     const wrapped = withPermission("archive:read-private", handler);
@@ -91,6 +91,7 @@ describe("API permission enforcement", () => {
     const response = await wrapped(new Request("https://app.kinresolve.com/api/people"));
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
     await expect(response.json()).resolves.toEqual({ role: "viewer", archiveId: "archive-default" });
     expect(handler).toHaveBeenCalledOnce();
   });

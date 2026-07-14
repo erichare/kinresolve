@@ -2,17 +2,18 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import { readWorkspace, saveSourceDocument } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export const GET = withPermission("archive:read-private", async () => {
   const workspace = await readWorkspace();
   return NextResponse.json(workspace.sources);
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withPermission("sources:write", async (request) => {
   const formData = await request.formData();
   const file = formData.get("file");
   const title = getFormText(formData, "title") || (file instanceof File ? file.name : "");
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json({ ...source, status: "accepted" }, { status: 201 });
-}
+});
 
 async function persistUpload(file: File): Promise<{ storageKey: string; fileName: string; mimeType: string; size: number }> {
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "upload.bin";

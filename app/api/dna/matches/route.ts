@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withPermission } from "@/lib/api-authorization";
 import {
   type DnaHelpfulnessFilter,
   type DnaSideFilter,
@@ -17,7 +18,7 @@ const treeValues = new Set<DnaTreeFilter>(["all", "public", "partial", "private"
 const helpfulnessValues = new Set<DnaHelpfulnessFilter>(["all", "high", "medium", "low"]);
 const sortValues = new Set<DnaSortKey>(["helpfulness", "cm", "name"]);
 
-export async function GET(request: Request) {
+export const GET = withPermission("dna:read", async (request: Request) => {
   const url = new URL(request.url);
 
   const result = await searchDnaMatchesPageFromDb(
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
   const hypotheses = await createDnaHypothesesForMatches(result.items);
 
   return NextResponse.json({ ...result, hypotheses });
-}
+});
 
 function parseEnum<T extends string>(value: string | null, allowed: Set<T>, fallback: T): T {
   return value && allowed.has(value as T) ? (value as T) : fallback;

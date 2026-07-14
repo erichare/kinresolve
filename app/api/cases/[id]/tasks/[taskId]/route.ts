@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSessionContext } from "@/lib/auth-session";
+import { withPermission } from "@/lib/api-authorization";
 import { isGuidedResearchEnabled } from "@/lib/guided-research-config";
-import { hasPermission } from "@/lib/rbac";
 import { updateCaseTask } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -31,16 +30,8 @@ type RouteContext = {
   params: Promise<{ id: string; taskId: string }>;
 };
 
-export async function PATCH(request: Request, { params }: RouteContext) {
+export const PATCH = withPermission("cases:write", async (request, authorization, { params }: RouteContext) => {
   try {
-    const session = await getSessionContext(request.headers);
-    if (!session) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (!hasPermission(session.role, "cases:write")) {
-      return NextResponse.json({ error: "Permission denied" }, { status: 403 });
-    }
-
     const body = await readJson(request);
     if (!body.ok) {
       return body.response;
@@ -60,7 +51,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
     const { id, taskId } = await params;
     const result = await updateCaseTask(id, taskId, parsed.data, {
-      archiveId: session.archiveId,
+      archiveId: authorization.archiveId,
       ...(!guidedResearchEnabled ? { allowManualCompletionWithoutOutcome: true } : {})
     });
     return NextResponse.json(result);
@@ -73,7 +64,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     console.error("Task update failed", error);
     return NextResponse.json({ error: "Unable to update the task" }, { status: 500 });
   }
-}
+});
 
 async function readJson(
   request: Request

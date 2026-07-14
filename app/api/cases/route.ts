@@ -6,9 +6,8 @@ import {
   type CaseSortKey,
   type CaseStatusFilter
 } from "@/lib/case-search";
-import { getSessionContext } from "@/lib/auth-session";
+import { withPermission } from "@/lib/api-authorization";
 import { parsePositiveInteger } from "@/lib/pagination";
-import { hasPermission } from "@/lib/rbac";
 import { caseEvidenceQueueFromDb, searchCasesPageFromDb } from "@/lib/store/case-queries";
 import { createNewCase } from "@/lib/workspace-store";
 
@@ -44,7 +43,7 @@ const newCaseSchema = z
   })
   .strict();
 
-export async function GET(request: Request) {
+export const GET = withPermission("cases:read", async (request) => {
   const url = new URL(request.url);
 
   if (url.searchParams.get("view") === "evidence-queue") {
@@ -66,18 +65,10 @@ export async function GET(request: Request) {
       }
     )
   );
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withPermission("cases:write", async (request, authorization) => {
   try {
-    const session = await getSessionContext(request.headers);
-    if (!session) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    if (!hasPermission(session.role, "cases:write")) {
-      return NextResponse.json({ error: "Permission denied" }, { status: 403 });
-    }
-
     const body = await readJson(request);
     if (!body.ok) {
       return body.response;
@@ -90,7 +81,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const created = await createNewCase(parsed.data, { archiveId: session.archiveId });
+    const created = await createNewCase(parsed.data, { archiveId: authorization.archiveId });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
     if (isUniqueConflict(error)) {
@@ -103,7 +94,7 @@ export async function POST(request: Request) {
     console.error("Case creation failed", error);
     return NextResponse.json({ error: "Unable to create the case" }, { status: 500 });
   }
-}
+});
 
 async function readJson(
   request: Request
