@@ -165,7 +165,7 @@ async function seedLegacyRows(pool: Pool): Promise<void> {
       `task-${suffix}`,
       archiveId,
       `case-${suffix}`,
-      `Task ${suffix}`
+      suffix === "a" ? "Éric's Groß Ærø Łódź search" : `Task ${suffix}`
     ]);
     await pool.query("INSERT INTO dna_matches (id, archive_id, display_name, total_cm) VALUES ($1, $2, $3, 42)", [
       `match-${suffix}`,
@@ -424,7 +424,7 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
         "SELECT status, outcomes, completed_at, work_fingerprint FROM tasks WHERE archive_id = 'archive-a' AND id = 'task-a'"
       )
     ).resolves.toMatchObject({
-      rows: [{ status: "done", outcomes: [], completed_at: null, work_fingerprint: "task a" }]
+      rows: [{ status: "done", outcomes: [], completed_at: null, work_fingerprint: "eric s gro r odz search" }]
     });
     await pool.query(
       "INSERT INTO tasks (id, archive_id, case_id, title, status, sort_order) VALUES ('old-writer-task', 'archive-a', 'case-a', 'Old writer task', 'todo', 99)"

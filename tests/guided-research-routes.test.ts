@@ -6,7 +6,9 @@ const authMocks = vi.hoisted(() => ({
 
 const workspaceMocks = vi.hoisted(() => ({
   acceptGuideAssignment: vi.fn(),
-  recordCaseTaskOutcome: vi.fn()
+  addCaseTask: vi.fn(),
+  recordCaseTaskOutcome: vi.fn(),
+  updateCaseTask: vi.fn()
 }));
 
 vi.mock("@/lib/auth-session", () => authMocks);
@@ -14,6 +16,8 @@ vi.mock("@/lib/workspace-store", () => workspaceMocks);
 
 import { POST as postGuideAssignment } from "@/app/api/cases/[id]/guide/assignments/route";
 import { POST as postTaskOutcome } from "@/app/api/cases/[id]/tasks/[taskId]/outcome/route";
+import { PATCH as patchTask } from "@/app/api/cases/[id]/tasks/[taskId]/route";
+import { POST as postTask } from "@/app/api/cases/[id]/tasks/route";
 
 const editorSession = {
   userId: "editor-1",
@@ -32,9 +36,13 @@ beforeEach(() => {
     created: true,
     task: { id: "task-guide-1", title: "Review the passenger list" }
   });
+  workspaceMocks.addCaseTask.mockResolvedValue({ task: { id: "task-manual-1", status: "doing" } });
   workspaceMocks.recordCaseTaskOutcome.mockResolvedValue({
     task: { id: "task-guide-1", status: "done" },
     hypothesis: { id: "hyp-1", status: "weakened" }
+  });
+  workspaceMocks.updateCaseTask.mockResolvedValue({
+    task: { id: "task-guide-1", status: "doing" }
   });
 });
 
@@ -183,6 +191,24 @@ describe("POST /api/cases/[id]/tasks/[taskId]/outcome", () => {
     expect(workspaceMocks.recordCaseTaskOutcome).not.toHaveBeenCalled();
   });
 
+  it.each(["not_found", "already_tried"])(
+    "returns 400 when %s omits its required search scope",
+    async (outcome) => {
+      const response = await postTaskOutcome(
+        outcomeRequest({
+          requestId: `request-${outcome}`,
+          expectedTaskUpdatedAt: "2026-07-13T18:00:00.000Z",
+          outcome,
+          note: "The search did not locate the expected record."
+        }),
+        taskContext()
+      );
+
+      expect(response.status).toBe(400);
+      expect(workspaceMocks.recordCaseTaskOutcome).not.toHaveBeenCalled();
+    }
+  );
+
   it("does not expose store or private case details in an unexpected error", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     workspaceMocks.recordCaseTaskOutcome.mockRejectedValue(
@@ -200,6 +226,154 @@ describe("POST /api/cases/[id]/tasks/[taskId]/outcome", () => {
   });
 });
 
+describe("PATCH /api/cases/[id]/tasks/[taskId]", () => {
+  it("requires the optimistic-lock timestamp", async () => {
+    const response = await patchTask(
+      jsonRequest("https://kinresolve.example/api/cases/case-1/tasks/task-guide-1", {
+        status: "doing"
+      }, "PATCH"),
+      taskContext()
+    );
+
+    expect(response.status).toBe(400);
+    expect(workspaceMocks.updateCaseTask).not.toHaveBeenCalled();
+  });
+
+  it("passes the required timestamp and session archive to the scoped store mutation", async () => {
+    const response = await patchTask(
+      jsonRequest("https://kinresolve.example/api/cases/case-1/tasks/task-guide-1", {
+        status: "doing",
+        expectedUpdatedAt: "2026-07-13T18:00:00.000Z"
+      }, "PATCH"),
+      taskContext()
+    );
+
+    expect(response.ok).toBe(true);
+    expect(workspaceMocks.updateCaseTask).toHaveBeenCalledWith(
+      "case-1",
+      "task-guide-1",
+      { status: "doing", expectedUpdatedAt: "2026-07-13T18:00:00.000Z" },
+      { archiveId: "archive-from-session" }
+    );
+  });
+
+  it("maps an active-assignment conflict to 409", async () => {
+    workspaceMocks.updateCaseTask.mockRejectedValue(
+      Object.assign(new Error("another assignment is already in progress"), { code: "ACTIVE_ASSIGNMENT_CONFLICT" })
+    );
+
+    const response = await patchTask(
+      jsonRequest("https://kinresolve.example/api/cases/case-1/tasks/task-guide-1", {
+        status: "doing",
+        expectedUpdatedAt: "2026-07-13T18:00:00.000Z"
+      }, "PATCH"),
+      taskContext()
+    );
+
+    expect(response.status).toBe(409);
+  });
+});
+
+describe("POST /api/cases/[id]/tasks", () => {
+  it("keeps manual task creation available while the guide is disabled", async () => {
+    const previousFlag = process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED;
+    process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED = "false";
+
+    try {
+      const response = await postTask(
+        jsonRequest("https://kinresolve.example/api/cases/case-1/tasks", {
+          title: "A manual assignment"
+        }),
+        caseContext()
+      );
+
+      expect(response.status).toBe(201);
+      expect(workspaceMocks.addCaseTask).toHaveBeenCalledWith(
+        "case-1",
+        { title: "A manual assignment" },
+        { archiveId: "archive-from-session" }
+      );
+    } finally {
+      restoreGuidedResearchFlag(previousFlag);
+    }
+  });
+
+  it("maps a second active assignment to 409", async () => {
+    workspaceMocks.addCaseTask.mockRejectedValue(
+      Object.assign(new Error("another assignment is already in progress"), { code: "ACTIVE_ASSIGNMENT_CONFLICT" })
+    );
+
+    const response = await postTask(
+      jsonRequest("https://kinresolve.example/api/cases/case-1/tasks", {
+        title: "Start another assignment",
+        status: "doing"
+      }),
+      caseContext()
+    );
+
+    expect(response.status).toBe(409);
+  });
+});
+
+describe("manual task PATCH with the guide disabled", () => {
+  it("keeps manual task completion available through the scoped store policy", async () => {
+    const previousFlag = process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED;
+    process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED = "false";
+
+    try {
+      const response = await patchTask(
+        jsonRequest(
+          "https://kinresolve.example/api/cases/case-1/tasks/task-guide-1",
+          {
+            status: "done",
+            expectedUpdatedAt: "2026-07-13T18:00:00.000Z"
+          },
+          "PATCH"
+        ),
+        taskContext()
+      );
+
+      expect(response.ok).toBe(true);
+      expect(workspaceMocks.updateCaseTask).toHaveBeenCalledWith(
+        "case-1",
+        "task-guide-1",
+        { status: "done", expectedUpdatedAt: "2026-07-13T18:00:00.000Z" },
+        {
+          archiveId: "archive-from-session",
+          allowManualCompletionWithoutOutcome: true
+        }
+      );
+    } finally {
+      restoreGuidedResearchFlag(previousFlag);
+    }
+  });
+
+  it("still requires an outcome to complete a task while the guide is enabled", async () => {
+    const previousFlag = process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED;
+    process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED = "true";
+
+    try {
+      const response = await patchTask(
+        jsonRequest(
+          "https://kinresolve.example/api/cases/case-1/tasks/task-guide-1",
+          {
+            status: "done",
+            expectedUpdatedAt: "2026-07-13T18:00:00.000Z"
+          },
+          "PATCH"
+        ),
+        taskContext()
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "Record an outcome to complete a task" });
+      expect(workspaceMocks.updateCaseTask).not.toHaveBeenCalled();
+    } finally {
+      restoreGuidedResearchFlag(previousFlag);
+    }
+  });
+});
+
 function assignmentRequest(body: unknown): Request {
   return jsonRequest("https://kinresolve.example/api/cases/case-1/guide/assignments", body);
 }
@@ -208,9 +382,9 @@ function outcomeRequest(body: unknown): Request {
   return jsonRequest("https://kinresolve.example/api/cases/case-1/tasks/task-guide-1/outcome", body);
 }
 
-function jsonRequest(url: string, body: unknown): Request {
+function jsonRequest(url: string, body: unknown, method: "POST" | "PATCH" = "POST"): Request {
   return new Request(url, {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body)
   });
@@ -229,13 +403,13 @@ function validOutcomeBody() {
     requestId: "request-outcome-1",
     expectedTaskUpdatedAt: "2026-07-13T18:00:00.000Z",
     outcome: "not_found",
-    note: "Searched the Cook County probate index for 1890-1910 using both surname spellings.",
+    note: "Searched the fictional Lantern Bay probate index for 1890-1910 using both surname spellings.",
     searchScope: {
-      repository: "Cook County Clerk",
+      repository: "Synthetic Lantern Bay Archive",
       collection: "Probate index",
-      place: "Chicago, Illinois",
+      place: "Lantern Bay, Wisconsin",
       dateRange: "1890-1910",
-      query: "Riemer and Reimer"
+      query: "Hartwell and Hartwel"
     },
     hypothesisDecision: {
       hypothesisId: "hyp-1",
@@ -244,4 +418,12 @@ function validOutcomeBody() {
       expectedHypothesisUpdatedAt: "2026-07-13T17:30:00.000Z"
     }
   };
+}
+
+function restoreGuidedResearchFlag(previousFlag: string | undefined): void {
+  if (previousFlag === undefined) {
+    delete process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED;
+    return;
+  }
+  process.env.KINRESOLVE_GUIDED_RESEARCH_ENABLED = previousFlag;
 }

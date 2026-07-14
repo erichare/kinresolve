@@ -16,7 +16,7 @@ const updatedAt = "2026-07-13T16:30:00.000Z";
 function makeHypothesis(overrides: Partial<ResearchHypothesis> = {}): ResearchHypothesis {
   return {
     id: "hyp-alpha",
-    statement: "The Fletcher connection runs through the maternal Riemer branch.",
+    statement: "The March connection runs through the maternal Hartwell branch.",
     confidence: 0.5,
     status: "open",
     decisions: [],
@@ -28,9 +28,9 @@ function makeHypothesis(overrides: Partial<ResearchHypothesis> = {}): ResearchHy
 function makeEvidence(overrides: Partial<ResearchEvidence> = {}): ResearchEvidence {
   return {
     id: "ev-alpha",
-    title: "1900 Chicago directory note",
-    type: "Directory",
-    summary: "A Fletcher household appears in the same ward as the Riemer household.",
+    title: "1911 Lantern Bay harbor signal log",
+    type: "Harbor log",
+    summary: "A March signal code appears beside the Hartwell dock assignment in Lantern Bay.",
     confidence: 0.45,
     ...overrides
   };
@@ -52,12 +52,12 @@ function makeOutcome(overrides: Partial<ResearchTaskOutcome> = {}): ResearchTask
 function makeTask(overrides: Partial<ResearchTask> = {}): ResearchTask {
   return {
     id: "task-alpha",
-    title: "Review the Chicago directory",
+    title: "Review the 1911 Lantern Bay harbor signal log",
     status: "todo",
     origin: "manual",
     priority: "normal",
-    workFingerprint: "work:v1:review-chicago-directory",
-    guidance: "Compare the directory entry with the case question.",
+    workFingerprint: "work:v1:review-1911-lantern-bay-harbor-signal-log",
+    guidance: "Compare the signal-log entry with the case question.",
     contextRefs: [],
     outcomes: [],
     createdAt,
@@ -69,10 +69,10 @@ function makeTask(overrides: Partial<ResearchTask> = {}): ResearchTask {
 function makeCase(overrides: Partial<ResearchCase> = {}): ResearchCase {
   return {
     id: "case-alpha",
-    title: "Fletcher connection",
-    question: "How does the Fletcher household connect to the Riemer family?",
+    title: "March connection",
+    question: "How does the March household connect to the Hartwell family?",
     status: "active",
-    focus: "Chicago before 1900",
+    focus: "Lantern Bay before 1912",
     privacy: "private",
     hypotheses: [makeHypothesis()],
     evidence: [],
@@ -158,7 +158,7 @@ describe("private deterministic research guide", () => {
   });
 
   it("describes weak evidence as case evidence without claiming it supports a hypothesis", () => {
-    const weakEvidence = makeEvidence({ id: "ev-weak", title: "Unverified directory transcription", confidence: 0.2 });
+    const weakEvidence = makeEvidence({ id: "ev-weak", title: "Unverified harbor-log transcription", confidence: 0.2 });
     const strongEvidence = makeEvidence({ id: "ev-strong", title: "Certified birth register", confidence: 0.9 });
     const weakEvidenceRef: ResearchReference = { type: "evidence", id: "ev-weak" };
     const { assignment } = requireAssignment(makeCase({ evidence: [strongEvidence, weakEvidence] }));
@@ -169,8 +169,8 @@ describe("private deterministic research guide", () => {
       contextRefs: expect.arrayContaining([weakEvidenceRef])
     });
     expect(`${assignment.title} ${assignment.guidance}`).toMatch(/review|assess|determine/i);
-    expect(`${assignment.title} ${assignment.guidance}`).toContain("Unverified directory transcription");
-    expect(`${assignment.title} ${assignment.guidance}`).not.toContain("supports the Fletcher connection runs through the maternal Riemer branch");
+    expect(`${assignment.title} ${assignment.guidance}`).toContain("Unverified harbor-log transcription");
+    expect(`${assignment.title} ${assignment.guidance}`).not.toContain("supports the March connection runs through the maternal Hartwell branch");
   });
 
   it("suppresses a completed generated guide key", () => {
@@ -248,11 +248,11 @@ describe("private deterministic research guide", () => {
       type: "not_found",
       note: "No matching baptism was found in the indexed register pages.",
       searchScope: {
-        repository: "Cook County archive",
-        collection: "Catholic baptisms",
-        place: "Chicago",
-        dateRange: "1880-1900",
-        query: "Fletcher"
+        repository: "Lantern Bay archive",
+        collection: "Harbor baptisms",
+        place: "Lantern Bay",
+        dateRange: "1906-1912",
+        query: "March"
       }
     });
     const completed = makeTask({
@@ -286,7 +286,7 @@ describe("private deterministic research guide", () => {
       requestId: "request-decision-rejected",
       fromStatus: "open",
       toStatus: "rejected",
-      statement: "The Fletcher connection runs through the maternal Riemer branch.",
+      statement: "The March connection runs through the maternal Hartwell branch.",
       reason: "The named parents in the certified register identify a different family.",
       contextRefs: [{ type: "evidence", id: evidence.id }],
       actorId: "user-owner",
