@@ -3,8 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const implementationPaths = [
-  "shared/research-instincts.ts",
-  "shared/research-instincts-challenge.tsx",
+  "site/shared/research-instincts.ts",
+  "site/shared/research-instincts-challenge.tsx",
+  "site/components/research-instincts-challenge.tsx",
   "lib/research-instincts.ts",
   "components/research-instincts-challenge.tsx",
   "app/challenge/page.tsx",
@@ -34,7 +35,7 @@ describe("research instincts static public boundary", () => {
 
   it("uses browser-local progress without API or network mutation", async () => {
     const source = await readFile(
-      path.join(process.cwd(), "components/research-instincts-challenge.tsx"),
+      path.join(process.cwd(), "site/shared/research-instincts-challenge.tsx"),
       "utf8"
     );
 
@@ -65,6 +66,7 @@ describe("research instincts static public boundary", () => {
     expect(home).toMatch(/href=["']\/challenge["']/);
     expect(product).toMatch(/primaryHref=["']\/challenge["']/);
     expect(challenge).toMatch(/ResearchInstinctsChallenge/);
+    expect(challenge).toMatch(/@\/components\/research-instincts-challenge/);
     expect(challenge).toMatch(/robots[\s\S]*index:\s*false/);
     expect(challenge).toMatch(/fictional/i);
   });
