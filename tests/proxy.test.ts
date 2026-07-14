@@ -108,6 +108,34 @@ describe("private workspace proxy", () => {
     expect(response.status).toBe(401);
   });
 
+  it("protects unregistered future API routes by default", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    authMocks.getSessionContext.mockResolvedValue(null);
+
+    const response = await proxy(new NextRequest("https://kinsleuth.example/api/future-private-feature"));
+
+    expect(response.status).toBe(401);
+  });
+
+  it("does not membership-gate public, bootstrap, or service-authenticated APIs", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    authMocks.getSessionContext.mockResolvedValue(null);
+
+    for (const [url, method] of [
+      ["https://kinsleuth.example/api/health", "GET"],
+      ["https://kinsleuth.example/api/auth/session", "GET"],
+      ["https://kinsleuth.example/api/setup/claim", "POST"],
+      ["https://kinsleuth.example/api/cron/import-uploads", "GET"]
+    ]) {
+      const response = await proxy(new NextRequest(url, { method }));
+      expect(response.status, `${method} ${url}`).toBe(200);
+    }
+
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
   it("stays open in development when auth is not configured", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("AUTH_SECRET", "");
