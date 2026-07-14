@@ -1123,7 +1123,7 @@ export const demoCases: ResearchCase[] = [
     hypotheses: [
       {
         id: "hyp-dna-maeve-sibling",
-        statement: "Both invented matches descend from an unidentified sibling of Maeve Rowan Mercer.",
+        statement: "Both invented matches may descend through separate child lines of Maeve Rowan Mercer’s younger sister, Elowen Rowan.",
         confidence: 0.61,
         status: "supported"
       },

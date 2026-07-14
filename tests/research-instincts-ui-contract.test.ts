@@ -78,6 +78,14 @@ describe("research instincts accessible interaction contract", () => {
     expect(html).toContain('type="checkbox"');
   });
 
+  it("makes the case skill and multi-pick progress explicit", () => {
+    const html = renderToStaticMarkup(createElement(ResearchInstinctsChallenge));
+
+    expect(html).toMatch(/Research skill/i);
+    expect(html).toContain("0 of 1 selected");
+    expect(html).toContain("0 of 2 selected");
+  });
+
   it("announces progress and results without relying on color", () => {
     const html = renderToStaticMarkup(createElement(ResearchInstinctsChallenge));
 
@@ -86,6 +94,16 @@ describe("research instincts accessible interaction contract", () => {
     expect(html).toMatch(/aria-valuemax="5"/);
     expect(html).toMatch(/aria-valuenow="[0-5]"/);
     expect(html).toMatch(/aria-live="polite"/);
+  });
+
+  it("announces the updated pick count after every answer change", async () => {
+    const source = await readFile(
+      path.join(process.cwd(), "site/shared/research-instincts-challenge.tsx"),
+      "utf8"
+    );
+
+    expect(source).toContain('`${nextSelection.length} of ${pickCount} selected.');
+    expect(source).toContain("setAnnouncement(`${question?.prompt ?? \"Question\"} ${selectionStatus}`)");
   });
 
   it("moves keyboard focus into reset confirmation and restores it on cancel", async () => {
@@ -114,5 +132,12 @@ describe("research instincts accessible interaction contract", () => {
     expect(css).toMatch(
       /\.challenge-option:has\(input:disabled:not\(:checked\)\):has\(\.challenge-option-feedback\)\s*\{[^}]*opacity:\s*1;/s
     );
+  });
+
+  it("keeps notebook and reset controls at a 44px touch target", async () => {
+    const css = await readFile(path.join(process.cwd(), "site/app/globals.css"), "utf8");
+
+    expect(css).toMatch(/\.challenge-saved-clues li button\s*\{[^}]*min-height:\s*44px;/s);
+    expect(css).toMatch(/\.challenge-reset \.button-ghost,[\s\S]*?min-height:\s*44px;/);
   });
 });

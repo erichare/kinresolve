@@ -5,7 +5,7 @@ import { pageMetadata } from "@/lib/metadata";
 const challengeMetadata = pageMetadata({
   title: "Immersive research challenge",
   description:
-    "Investigate six synthetic Hartwell–Mercer records in an immersive first case, then test your judgment across four compact fictional desk cases.",
+    "Work five immersive Hartwell–Mercer investigations across thirty synthetic records, from handwritten ledgers to DNA research worksheets.",
   path: "/challenge/"
 });
 
@@ -22,7 +22,7 @@ export default function ChallengePage() {
     <>
       <PageHero
         eyebrow="Research instincts"
-        lead="Begin with an immersive six-record investigation: a synthetic census-style household schedule, family letter, departure ledger, passenger declaration, city directory, and marriage ledger. Then test your judgment across four compact desk cases."
+        lead="Work five immersive cases across thirty synthetic records: handwritten schedules and letters, travel papers, object-provenance notes, photographs, name indexes, and DNA research worksheets. Every mystery rewards correlation, chronology, and careful limits—not a lucky guess."
         primary="Return to Kin Resolve"
         primaryHref="/"
         title="Test your genealogical skills—inside the records."

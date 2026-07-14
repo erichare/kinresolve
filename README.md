@@ -42,7 +42,7 @@ A curated, privacy-gated site for the ancestors you choose to share — publishe
 
 ### Immersive synthetic research challenge
 
-Open six period-inspired record images, compare accessible transcripts, save cited observations to a clue notebook, and state a conclusion without erasing unresolved conflicts. The flagship case and four shorter follow-ups run entirely in the browser with fictional data.
+Open thirty period-inspired record images across five immersive investigations, compare accessible transcripts, save cited observations to a clue notebook, and state conclusions without erasing unresolved conflicts. The cases span identity, provenance, photograph dating, same-name reconstruction, and DNA clustering, and run entirely in the browser with fictional data.
 
 <img src="docs/screenshots/research-challenge.webp" alt="Fictional Hartwell–Mercer immersive record desk with a synthetic household schedule and transcript" width="90%" />
 
@@ -115,7 +115,7 @@ Compose provisions Postgres with pgvector and a MinIO service alongside the app.
 | `/` | Public archive landing page |
 | `/people`, `/people/[slug]` | Published people and profiles |
 | `/stories`, `/places` | Synthetic demo stories and the public place index |
-| `/challenge` | Fictional six-record investigation and four compact research cases with browser-local progress |
+| `/challenge` | Five immersive investigations across thirty fictional records with browser-local progress |
 | `/app` | Investigation dashboard |
 | `/app/people` | Search, filter, and curate people |
 | `/app/cases` | Research cases, evidence, hypotheses, and task queues |

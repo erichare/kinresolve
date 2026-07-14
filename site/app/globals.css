@@ -2695,6 +2695,22 @@ a {
   line-height: 1.65;
 }
 
+.challenge-case-header .challenge-case-skill {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+  align-items: baseline;
+  margin-top: 16px;
+  font-size: 0.82rem;
+}
+
+.challenge-case-skill strong {
+  color: var(--forest);
+  font-size: 0.68rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
 .challenge-clue-board {
   margin: 24px 32px 0;
   border: 1px solid rgba(180, 132, 53, 0.35);
@@ -3198,10 +3214,15 @@ a {
 
 .challenge-saved-clues li button {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 4px;
+  right: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
-  padding: 4px;
+  padding: 0 6px;
   color: #7b4d3d;
   background: transparent;
   font: inherit;
@@ -3445,7 +3466,7 @@ a {
 
 .challenge-reset .button-ghost,
 .challenge-reset .button-secondary {
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid var(--line-dark);
   border-radius: 999px;
   padding: 0 16px;

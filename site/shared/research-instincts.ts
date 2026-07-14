@@ -1,5 +1,8 @@
-export const RESEARCH_INSTINCTS_PROGRESS_VERSION = 2 as const;
-export const RESEARCH_INSTINCTS_STORAGE_KEY = "kinresolve:research-instincts:v2";
+import { blueTinTimelineCase, harborPhotoCase } from "./research-instincts-archive-cases-08-09";
+import { dnaClustersCase, twoMaliasCase } from "./research-instincts-archive-cases-10-11";
+
+export const RESEARCH_INSTINCTS_PROGRESS_VERSION = 3 as const;
+export const RESEARCH_INSTINCTS_STORAGE_KEY = "kinresolve:research-instincts:v3";
 
 export type ResearchInstinctsQuestionId = "conclusion" | "evidence" | "caution";
 
@@ -59,6 +62,7 @@ export type ResearchInstinctsCase = {
   id: string;
   title: string;
   kicker: string;
+  skill: string;
   brief: string;
   clues: readonly string[];
   records?: readonly ResearchInstinctsRecord[];
@@ -354,11 +358,12 @@ const mercerMarchNotebookClues: readonly ResearchInstinctsNotebookClue[] = [
   }
 ];
 
-export const researchInstinctsCases: readonly ResearchInstinctsCase[] = [
+const mercerMarchCase: ResearchInstinctsCase =
   {
     id: "mercer-march-identity",
     title: "Mercer or March? The man who signed twice",
     kicker: "Identity",
+    skill: "Identity correlation across independent records",
     brief: "Six fictional records follow a lamp worker from Northstar Cove to Lantern Bay. One names Samuel March; another names Samuel Mercer. Work the documents, preserve the conflict, and decide whether they follow one man or two.",
     clues: [
       "The passenger declaration records Samuel March, age 21, traveling from Northstar Cove to Lantern Bay on 4 May 1907.",
@@ -411,235 +416,14 @@ export const researchInstinctsCases: readonly ResearchInstinctsCase[] = [
         explanation: "Identity work should preserve discrepancies and state the remaining uncertainty. A matching signature is powerful, but the alias conclusion still benefits from explicit corroboration."
       }
     ]
-  },
-  {
-    id: "blue-tin-timeline",
-    title: "Who assembled the blue tin?",
-    kicker: "Provenance",
-    brief: "Family lore credits Samuel, while Nora Hartwell’s journal calls it Amalia’s tin. Reconstruct the object’s timeline instead of voting on the stories.",
-    clues: [
-      "Samuel Mercer brought a folded 1907 passenger notice and the harbor photograph to Lantern Bay.",
-      "A fictional 1984 inventory lists a brass key, the 1907 notice, a 1921 repair receipt, violet thread, and the photograph inside the blue tin.",
-      "A 1922 margin note in Amalia Bellandi’s recipe notebook says, ‘Put Samuel’s papers in the blue tin with Nora’s photograph.’",
-      "Nora Hartwell’s 1922 journal calls it ‘Amalia’s tin’ and separates the two items Samuel carried in 1907 from later keepsakes Amalia added."
-    ],
-    questions: [
-      {
-        id: "conclusion",
-        prompt: "Which provenance statement best fits the evidence?",
-        points: 40,
-        pickCount: 1,
-        options: [
-          { id: "amalia-assembled", label: "Amalia assembled the collection in 1922 from items that included Samuel’s 1907 papers." },
-          { id: "samuel-assembled", label: "Samuel assembled the finished tin in 1907." },
-          { id: "nora-assembled", label: "Nora assembled the tin after inheriting it." },
-          { id: "not-sure", label: "I’m not sure yet." }
-        ],
-        answerOptionIds: ["amalia-assembled"],
-        explanation: "Samuel supplied two early items, but Amalia’s notebook and Nora’s journal place their assembly with later keepsakes in 1922. Contribution and assembly are different claims."
-      },
-      {
-        id: "evidence",
-        prompt: "Which two clues establish the assembly timeline?",
-        points: 40,
-        pickCount: 2,
-        options: [
-          { id: "inventory-grouping", label: "Amalia’s 1922 notebook says to put Samuel’s papers in the blue tin." },
-          { id: "nora-labeling", label: "Nora’s 1922 journal distinguishes Samuel’s two older items from Amalia’s later keepsakes." },
-          { id: "ferry-notice-date", label: "The passenger notice itself is dated 1907." },
-          { id: "tin-color", label: "The 1984 inventory describes the container as a blue tin." },
-          { id: "not-sure", label: "I’m not sure which clues matter most." }
-        ],
-        answerOptionIds: ["inventory-grouping", "nora-labeling"],
-        explanation: "Amalia’s note describes putting the papers into the tin, while Nora independently separates Samuel’s older contributions from Amalia’s 1922 assembly. The 1907 notice dates one ingredient, not the finished collection."
-      },
-      {
-        id: "caution",
-        prompt: "What should a careful caption avoid?",
-        points: 20,
-        pickCount: 1,
-        options: [
-          { id: "separate-claims", label: "Do not confuse an item’s date with the date it entered the tin, or a contributor with the person who assembled the collection." },
-          { id: "pick-favorite", label: "Choose the most repeated family version and omit the competing account." },
-          { id: "not-sure", label: "I’m not sure what to flag." }
-        ],
-        answerOptionIds: ["separate-claims"],
-        explanation: "Object provenance often contains several roles: creator, owner, contributor, organizer, and donor. A safe timeline records both the date of each item and the evidence for when it entered the container."
-      }
-    ]
-  },
-  {
-    id: "harbor-photo",
-    title: "Where and when was the harbor photograph taken?",
-    kicker: "Photograph",
-    brief: "Three figures stand at a harbor beneath a cropped ‘AR.’ A violet note appears on the back, but it is not contemporary with the image.",
-    clues: [
-      "The image shows three people, a striped awning, a lantern rack, and a partly obscured sign ending in ‘AR.’",
-      "The autumn 1906 North Star Chandlery catalog from Northstar Cove shows the same stripe order, lantern rack, and surviving ‘STAR’ letters.",
-      "The rack’s diamond inspection seal was issued only from September through November 1906 in Northstar Cove.",
-      "Independent portrait comparisons are consistent with Maeve, Samuel, and Jonah, but image quality prevents a conclusive identification.",
-      "The violet pencil stock dates after 1928 and the handwriting resembles Clara’s labels from the 1930s, making the note a later interpretation."
-    ],
-    questions: [
-      {
-        id: "conclusion",
-        prompt: "What is the strongest current identification?",
-        points: 40,
-        pickCount: 1,
-        options: [
-          { id: "northstar-1906", label: "Probably Samuel, Maeve, and Jonah at Northstar Cove in autumn 1906." },
-          { id: "lantern-bay-1930s", label: "Clara took the photograph in Lantern Bay during the 1930s." },
-          { id: "ceraluna-1907", label: "The “AR” proves the photograph was taken in Ceraluna Alta in 1907." },
-          { id: "not-sure", label: "I’m not sure yet." }
-        ],
-        answerOptionIds: ["northstar-1906"],
-        explanation: "The chandlery details and inspection seal support Northstar Cove in autumn 1906. Portrait comparisons make Maeve, Samuel, and Jonah reasonable identifications, but the image cannot establish them conclusively."
-      },
-      {
-        id: "evidence",
-        prompt: "Which two clues best locate and date the image?",
-        points: 40,
-        pickCount: 2,
-        options: [
-          { id: "awning-directory", label: "The striped awning, lantern rack, and surviving ‘STAR’ letters match the North Star Chandlery catalog." },
-          { id: "inspection-seal", label: "The diamond inspection seal was used in Northstar Cove only from September through November 1906." },
-          { id: "violet-ink", label: "The later note is written in violet pencil." },
-          { id: "portrait-comparison", label: "The figures resemble independently dated portraits of Maeve, Samuel, and Jonah." },
-          { id: "not-sure", label: "I’m not sure which clues matter most." }
-        ],
-        answerOptionIds: ["awning-directory", "inspection-seal"],
-        explanation: "The chandlery match supplies the place, and the bounded inspection-seal issue dates supply the season. Portrait resemblance informs identity, while the violet pencil dates the note rather than the photograph."
-      },
-      {
-        id: "caution",
-        prompt: "Which limitation must remain attached to the identification?",
-        points: 20,
-        pickCount: 1,
-        options: [
-          { id: "later-annotation", label: "The three people remain probable, not proven, and Clara’s later note cannot independently date or locate the photograph." },
-          { id: "crop-is-complete", label: "The cropped letters should be treated as a complete place name." },
-          { id: "not-sure", label: "I’m not sure what to flag." }
-        ],
-        answerOptionIds: ["later-annotation"],
-        explanation: "Low-resolution resemblance remains uncertain. A later annotation is also a separate source with its own date, author, and access to family knowledge; it cannot be treated as a contemporary caption."
-      }
-    ]
-  },
-  {
-    id: "two-malias",
-    title: "Which Malia belongs to this branch?",
-    kicker: "Family reconstruction",
-    brief: "Two Ceraluna Alta index entries use the name Malia Bellandi. Rebuild their sibling groups before attaching either record.",
-    clues: [
-      "The fictional parish register records Rosa in 1859, Amalia Rose on 7 July 1861, and Ettore in 1864 to Luca Bellandi and Mira Solari.",
-      "One 1868 household lists Rosa, 9; seven-year-old Malia; and Ettore, 4, preserving that sibling order.",
-      "A second Malia, age 3, appears with different parents on another household page.",
-      "An 1883 departure entry names Amalia Rose Bellandi, born 7 July 1861, and Rosa Bellandi as her local contact.",
-      "The name index contains both girls but names neither set of parents."
-    ],
-    questions: [
-      {
-        id: "conclusion",
-        prompt: "Who is the seven-year-old Malia in the 1868 household?",
-        points: 40,
-        pickCount: 1,
-        options: [
-          { id: "amalia-rose", label: "Amalia Rose Bellandi, daughter of Luca Bellandi and Mira Solari." },
-          { id: "giacomo-daughter", label: "The three-year-old Malia in the other Bellandi household." },
-          { id: "merge-both", label: "Both entries should be merged because Malia is a form of Amalia." },
-          { id: "not-sure", label: "I’m not sure yet." }
-        ],
-        answerOptionIds: ["amalia-rose"],
-        explanation: "Rosa, Malia, and Ettore match the independently reconstructed children of Luca Bellandi and Mira Solari in both age and sibling order. The other Malia belongs to different parents."
-      },
-      {
-        id: "evidence",
-        prompt: "Which two clues distinguish the girls?",
-        points: 40,
-        pickCount: 2,
-        options: [
-          { id: "school-siblings", label: "The 1868 household preserves the Rosa–Malia–Ettore sibling order and expected ages." },
-          { id: "baptism-siblings", label: "The 1883 departure entry independently joins Amalia Rose’s full birth date to Rosa Bellandi." },
-          { id: "same-surname", label: "Both girls use the Bellandi surname." },
-          { id: "malia-variant", label: "Malia can be a familiar form of Amalia." },
-          { id: "not-sure", label: "I’m not sure which clues matter most." }
-        ],
-        answerOptionIds: ["school-siblings", "baptism-siblings"],
-        explanation: "The reconstructed sibling cluster is more discriminating than a shared surname or name variant. The departure entry independently links Amalia Rose’s full birth date to the older sister in that household."
-      },
-      {
-        id: "caution",
-        prompt: "What is the safest research practice here?",
-        points: 20,
-        pickCount: 1,
-        options: [
-          { id: "keep-separate", label: "Keep the two Malias separate; the name index alone cannot identify either child without household evidence." },
-          { id: "merge-name", label: "Merge same-name people first and split them only if a contradiction appears." },
-          { id: "not-sure", label: "I’m not sure what to flag." }
-        ],
-        answerOptionIds: ["keep-separate"],
-        explanation: "Same-name records should not be merged on name and approximate age alone. Build each family group first and preserve unresolved identities."
-      }
-    ]
-  },
-  {
-    id: "dna-clusters",
-    title: "What do the DNA clusters actually support?",
-    kicker: "DNA reasoning",
-    brief: "Three wholly fictional DNA matches share useful amounts of DNA with the tester, but their trees and shared-match groups point toward different ancestral lines.",
-    clues: [
-      "M. Alder shares 86 cM and T. Pike shares 54 cM; they share each other and both carry Northstar Cove–Rowan clues.",
-      "Northstar Cove records place Maeve Rowan Mercer and younger sister Elowen Rowan in the same parental household.",
-      "Two documentary paths run from Elowen’s children toward the Alder and Pike trees, with one provisional parent-child link in each path.",
-      "R. Solari shares 37 cM, does not join the Alder–Pike shared-match group, and supplies Bellandi and Ceraluna Alta clues but no usable tree.",
-      "A separate documentary path traces the Solari profile toward Rosa Bellandi, Amalia’s sister.",
-      "The 86 cM, 54 cM, and 37 cM totals each fit several relationships and cannot identify a branch by themselves."
-    ],
-    questions: [
-      {
-        id: "conclusion",
-        prompt: "Which hypothesis should guide the next round of research?",
-        points: 40,
-        pickCount: 1,
-        options: [
-          { id: "two-clusters", label: "Treat M. Alder and T. Pike as an Elowen Rowan cluster, and investigate R. Solari separately through Bellandi records." },
-          { id: "one-cluster", label: "Combine every match into one cluster because all share DNA with the tester." },
-          { id: "highest-cm", label: "Assign every match to the ancestor suggested by the highest cM value." },
-          { id: "not-sure", label: "I’m not sure yet." }
-        ],
-        answerOptionIds: ["two-clusters"],
-        explanation: "Shared-match structure and provisional documentary paths support two lines of inquiry: M. Alder and T. Pike through Elowen Rowan, and R. Solari through Rosa Bellandi’s line. That is a research hypothesis, not proof of exact relationships."
-      },
-      {
-        id: "evidence",
-        prompt: "Which two clues justify separating the clusters?",
-        points: 40,
-        pickCount: 2,
-        options: [
-          { id: "alder-pike-shared", label: "M. Alder and T. Pike share each other, while the descendant chart points both paths toward Elowen Rowan." },
-          { id: "solari-bellandi", label: "R. Solari sits outside that shared-match group, while separate records point toward Rosa Bellandi." },
-          { id: "cm-rank", label: "One match has the largest cM total." },
-          { id: "surname-hints", label: "The three cM totals all fall within overlapping cousin ranges." },
-          { id: "not-sure", label: "I’m not sure which clues matter most." }
-        ],
-        answerOptionIds: ["alder-pike-shared", "solari-bellandi"],
-        explanation: "The best cluster evidence combines genetic grouping with documentary paths. The remaining provisional links must stay labeled, and cM rank cannot supply a missing ancestor."
-      },
-      {
-        id: "caution",
-        prompt: "Which limitation belongs in every DNA hypothesis?",
-        points: 20,
-        pickCount: 1,
-        options: [
-          { id: "cm-not-identity", label: "A cM total cannot identify a branch on its own, and the provisional parent-child links still require independent confirmation." },
-          { id: "tree-is-proof", label: "A match’s public tree can be treated as proof once its names fit the family." },
-          { id: "not-sure", label: "I’m not sure what to flag." }
-        ],
-        answerOptionIds: ["cm-not-identity"],
-        explanation: "DNA amounts are compatible with ranges of relationships. Shared matches and records narrow hypotheses, but each claimed path still needs documentary and genetic corroboration."
-      }
-    ]
-  }
+  };
+
+export const researchInstinctsCases: readonly ResearchInstinctsCase[] = [
+  mercerMarchCase,
+  blueTinTimelineCase,
+  harborPhotoCase,
+  twoMaliasCase,
+  dnaClustersCase
 ];
 
 const questionIds: readonly ResearchInstinctsQuestionId[] = ["conclusion", "evidence", "caution"];
@@ -728,22 +512,25 @@ export function scoreResearchInstinctsChallenge(answers: Record<string, Research
 
 export function createEmptyResearchInstinctsProgress(): ResearchInstinctsProgress {
   const firstCase = researchInstinctsCases[0];
-  const firstRecord = firstCase.records?.[0];
+  const recordDesk = Object.fromEntries(
+    researchInstinctsCases.flatMap((challengeCase) => {
+      const firstRecord = challengeCase.records?.[0];
+      return firstRecord
+        ? [[challengeCase.id, {
+            activeRecordId: firstRecord.id,
+            reviewedRecordIds: [firstRecord.id],
+            notebookClueIds: []
+          }]]
+        : [];
+    })
+  );
 
   return {
     version: RESEARCH_INSTINCTS_PROGRESS_VERSION,
     activeCaseId: firstCase.id,
     answers: {},
     completedCaseIds: [],
-    recordDesk: firstRecord
-      ? {
-          [firstCase.id]: {
-            activeRecordId: firstRecord.id,
-            reviewedRecordIds: [firstRecord.id],
-            notebookClueIds: []
-          }
-        }
-      : {}
+    recordDesk
   };
 }
 
