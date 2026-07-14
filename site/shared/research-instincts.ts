@@ -1,5 +1,5 @@
-export const RESEARCH_INSTINCTS_PROGRESS_VERSION = 1 as const;
-export const RESEARCH_INSTINCTS_STORAGE_KEY = "kinresolve:research-instincts:v1";
+export const RESEARCH_INSTINCTS_PROGRESS_VERSION = 2 as const;
+export const RESEARCH_INSTINCTS_STORAGE_KEY = "kinresolve:research-instincts:v2";
 
 export type ResearchInstinctsQuestionId = "conclusion" | "evidence" | "caution";
 
@@ -18,23 +18,69 @@ export type ResearchInstinctsQuestion = {
   explanation: string;
 };
 
+export type ResearchInstinctsTableTranscript = {
+  kind: "table";
+  columns: readonly string[];
+  rows: readonly (readonly string[])[];
+};
+
+export type ResearchInstinctsLetterTranscript = {
+  kind: "letter";
+  paragraphs: readonly string[];
+};
+
+export type ResearchInstinctsRecord = {
+  id: string;
+  catalogId: string;
+  title: string;
+  kind: string;
+  date: string;
+  image: {
+    src: string;
+    alt: string;
+    width: number;
+    height: number;
+  };
+  metadata: readonly {
+    label: string;
+    value: string;
+  }[];
+  transcript: ResearchInstinctsTableTranscript | ResearchInstinctsLetterTranscript;
+  clueIds: readonly string[];
+};
+
+export type ResearchInstinctsNotebookClue = {
+  id: string;
+  label: string;
+  recordIds: readonly string[];
+};
+
 export type ResearchInstinctsCase = {
   id: string;
   title: string;
   kicker: string;
   brief: string;
   clues: readonly string[];
+  records?: readonly ResearchInstinctsRecord[];
+  notebookClues?: readonly ResearchInstinctsNotebookClue[];
   questions: readonly ResearchInstinctsQuestion[];
 };
 
 export type ResearchInstinctsSelections = Record<ResearchInstinctsQuestionId, string[]>;
 export type ResearchInstinctsDraftSelections = Partial<ResearchInstinctsSelections>;
 
+export type ResearchInstinctsRecordDeskProgress = {
+  activeRecordId: string;
+  reviewedRecordIds: string[];
+  notebookClueIds: string[];
+};
+
 export type ResearchInstinctsProgress = {
   version: typeof RESEARCH_INSTINCTS_PROGRESS_VERSION;
   activeCaseId: string;
   answers: Record<string, ResearchInstinctsDraftSelections>;
   completedCaseIds: string[];
+  recordDesk: Record<string, ResearchInstinctsRecordDeskProgress>;
 };
 
 export function isResearchInstinctsSelectionComplete(
@@ -66,18 +112,262 @@ export function nextResearchInstinctsSelection(
   return [...current, optionId];
 }
 
+const mercerMarchRecords: readonly ResearchInstinctsRecord[] = [
+  {
+    id: "northstar-household-1901",
+    catalogId: "KR-DEMO-C07-R1",
+    title: "1901 Northstar Cove household schedule",
+    kind: "Household schedule",
+    date: "1901",
+    image: {
+      src: "/assets/challenge/kr-demo-c07-r1-household-schedule.webp",
+      alt: "Fictional 1901 household schedule listing Jonah, Maeve, and Samuel Mercer",
+      width: 1536,
+      height: 1024
+    },
+    metadata: [
+      { label: "Creator", value: "Northstar Cove enumerator" },
+      { label: "Informant", value: "Not recorded" },
+      { label: "Record type", value: "Clerk-created household schedule" },
+      { label: "Research limit", value: "Establishes the Mercer household, but does not mention March." }
+    ],
+    transcript: {
+      kind: "table",
+      columns: ["Name", "Relation", "Born", "Age", "Occupation"],
+      rows: [
+        ["Jonah S. Mercer", "Head", "9 Jan 1859", "42", "Harbor signal keeper"],
+        ["Maeve L. Mercer", "Wife", "6 May 1863", "37", "—"],
+        ["Samuel R. Mercer", "Son", "18 Feb 1886", "15", "Apprentice, lantern works"]
+      ]
+    },
+    clueIds: ["baseline-mercer-identity", "rare-lantern-trade"]
+  },
+  {
+    id: "maeve-letter-1906",
+    catalogId: "KR-DEMO-C07-R2",
+    title: "Maeve Mercer’s 1906 letter",
+    kind: "Family correspondence",
+    date: "14 Nov 1906",
+    image: {
+      src: "/assets/challenge/kr-demo-c07-r2-maeve-letter.webp",
+      alt: "Fictional handwritten letter from Maeve mentioning Mercer and March",
+      width: 1024,
+      height: 1536
+    },
+    metadata: [
+      { label: "Creator", value: "Maeve Lenora Rowan Mercer" },
+      { label: "Recipient", value: "Elowen Rowan" },
+      { label: "Record type", value: "Private family letter" },
+      { label: "Research limit", value: "Maeve reports what she observed, but gives no reason for the two names." }
+    ],
+    transcript: {
+      kind: "letter",
+      paragraphs: [
+        "Northstar Cove · 14 November 1906",
+        "Dear Elowen,",
+        "Samuel practices his hand after supper—‘Mercer,’ then ‘March,’ again and again. Jonah asked what business he has with two names. Samuel folded the paper and would not answer. He speaks still of going west before spring.",
+        "Your loving sister, Maeve"
+      ]
+    },
+    clueIds: ["both-surnames-before-departure"]
+  },
+  {
+    id: "northstar-departure-1907",
+    catalogId: "KR-DEMO-C07-R3",
+    title: "Northstar Cove departure ledger",
+    kind: "Harbor ledger",
+    date: "1 May 1907",
+    image: {
+      src: "/assets/challenge/kr-demo-c07-r3-departure-ledger.webp",
+      alt: "Fictional harbor ledger with water damage obscuring a traveler’s surname",
+      width: 1536,
+      height: 1024
+    },
+    metadata: [
+      { label: "Creator", value: "Northstar Cove harbor clerk" },
+      { label: "Informant", value: "Unknown" },
+      { label: "Record type", value: "Bound departure ledger" },
+      { label: "Research limit", value: "Water loss hides most of the surname and part of the destination." }
+    ],
+    transcript: {
+      kind: "table",
+      columns: ["Date", "Certificate", "Traveler", "Age", "Trade", "Destination", "Baggage"],
+      rows: [
+        ["24 Apr", "367", "A. Pritchard", "32", "Cooper", "Greyhaven", "Two crates"],
+        ["26 Apr", "372", "N. Whitmore", "27", "Seamstress", "Whitecap Point", "One valise"],
+        ["1 May", "418", "S. M[—]", "21", "Lamp mechanic", "Lantern B[—]", "One trunk"],
+        ["3 May", "426", "C. Calder", "45", "Ship’s cook", "Saltedge", "One chest"]
+      ]
+    },
+    clueIds: ["certificate-418-continuity", "rare-lantern-trade", "damaged-surname"]
+  },
+  {
+    id: "lantern-passenger-declaration-1907",
+    catalogId: "KR-DEMO-C07-R4",
+    title: "Lantern Packet passenger declaration",
+    kind: "Passenger declaration",
+    date: "4 May 1907",
+    image: {
+      src: "/assets/challenge/kr-demo-c07-r4-passenger-declaration.webp",
+      alt: "Fictional passenger declaration signed Samuel March",
+      width: 1536,
+      height: 1024
+    },
+    metadata: [
+      { label: "Creator", value: "Lantern Packet Company; signed by the traveler" },
+      { label: "Route", value: "Northstar Cove to Lantern Bay" },
+      { label: "Record type", value: "Passenger declaration" },
+      { label: "Research limit", value: "Most particulars are self-reported; parents and a middle name are absent." }
+    ],
+    transcript: {
+      kind: "table",
+      columns: ["Field", "Entry"],
+      rows: [
+        ["Certificate", "418"],
+        ["Name", "March, Samuel"],
+        ["Age", "21"],
+        ["Condition", "Single"],
+        ["Occupation", "Lamp repairer"],
+        ["Birthplace", "Northstar Cove, N.S."],
+        ["Destination contact", "E. T. Hartwell, 14 Dock Street"],
+        ["Signature", "Samuel March"]
+      ]
+    },
+    clueIds: ["certificate-418-continuity", "rare-lantern-trade", "hartwell-associate", "signature-features"]
+  },
+  {
+    id: "lantern-directory-1908",
+    catalogId: "KR-DEMO-C07-R5",
+    title: "1908–1909 Lantern Bay city directory",
+    kind: "City directory",
+    date: "1908–1909",
+    image: {
+      src: "/assets/challenge/kr-demo-c07-r5-city-directory.webp",
+      alt: "Fictional city directory listing Samuel March and Samuel Mercer at 14 Dock",
+      width: 1024,
+      height: 1536
+    },
+    metadata: [
+      { label: "Creator", value: "Lantern Bay Directory Company" },
+      { label: "Informant", value: "Door-to-door canvass; exact dates unknown" },
+      { label: "Record type", value: "Derivative commercial directory" },
+      { label: "Research limit", value: "The two entries may describe two men, a duplicate canvass, or an alternate name." }
+    ],
+    transcript: {
+      kind: "table",
+      columns: ["Name", "Listing"],
+      rows: [
+        ["Alden, Cyrus", "carter, r 8 Mill"],
+        ["Bellamy, Ira F.", "grocer, r 23 Union"],
+        ["Clarke, Edith L.", "dressmkr., r 7 Pine"],
+        ["Dover, J. H.", "clk., r 31 Water"],
+        ["March, Samuel", "lab., bds 14 Dock"],
+        ["Mercer, Samuel R.", "lamp repr., r 14 Dock"],
+        ["Paine, Oscar", "tailor, r 19 Cedar"],
+        ["Vaughn, Lottie", "milliner, r 12 Church"]
+      ]
+    },
+    clueIds: ["directory-conflict"]
+  },
+  {
+    id: "lantern-marriage-1909",
+    catalogId: "KR-DEMO-C07-R6",
+    title: "1909 Lantern Bay marriage ledger",
+    kind: "Marriage ledger",
+    date: "19 Oct 1909",
+    image: {
+      src: "/assets/challenge/kr-demo-c07-r6-marriage-ledger.webp",
+      alt: "Fictional marriage ledger for Samuel Mercer and Nora Hartwell",
+      width: 1536,
+      height: 1024
+    },
+    metadata: [
+      { label: "Creator", value: "Lantern Bay civil clerk; signed by bride and groom" },
+      { label: "Informants", value: "Samuel Rowan Mercer and Nora Elise Hartwell" },
+      { label: "Record type", value: "Civil marriage ledger" },
+      { label: "Research limit", value: "Later and partly self-reported; it never explicitly says ‘also known as March.’" }
+    ],
+    transcript: {
+      kind: "table",
+      columns: ["Field", "Entry"],
+      rows: [
+        ["Date", "19 Oct 1909"],
+        ["Groom", "Samuel Rowan Mercer, age 23"],
+        ["Occupation", "Lantern repairer"],
+        ["Born", "Northstar Cove, Nova Scotia"],
+        ["Parents", "Jonah Silas Mercer and Maeve Lenora Rowan"],
+        ["Bride", "Nora Elise Hartwell, age 20"],
+        ["Witness", "Elias T. Hartwell"],
+        ["Groom signature", "Samuel R. Mercer"],
+        ["Bride signature", "Nora E. Hartwell"]
+      ]
+    },
+    clueIds: ["baseline-mercer-identity", "rare-lantern-trade", "hartwell-associate", "signature-features"]
+  }
+];
+
+const mercerMarchNotebookClues: readonly ResearchInstinctsNotebookClue[] = [
+  {
+    id: "baseline-mercer-identity",
+    label: "The 1901 household and 1909 marriage ledger agree on Samuel’s birth, parents, and Northstar Cove identity.",
+    recordIds: ["northstar-household-1901", "lantern-marriage-1909"]
+  },
+  {
+    id: "both-surnames-before-departure",
+    label: "Maeve independently saw Samuel practice both ‘Mercer’ and ‘March’ before he left Northstar Cove.",
+    recordIds: ["maeve-letter-1906"]
+  },
+  {
+    id: "certificate-418-continuity",
+    label: "Certificate 418 links the damaged Northstar departure entry to Samuel March’s Lantern Bay declaration.",
+    recordIds: ["northstar-departure-1907", "lantern-passenger-declaration-1907"]
+  },
+  {
+    id: "rare-lantern-trade",
+    label: "Lantern work follows Samuel from his 1901 apprenticeship through the 1907 and 1909 records.",
+    recordIds: [
+      "northstar-household-1901",
+      "northstar-departure-1907",
+      "lantern-passenger-declaration-1907",
+      "lantern-marriage-1909"
+    ]
+  },
+  {
+    id: "hartwell-associate",
+    label: "Elias Hartwell is the 1907 destination contact and the 1909 marriage witness.",
+    recordIds: ["lantern-passenger-declaration-1907", "lantern-marriage-1909"]
+  },
+  {
+    id: "signature-features",
+    label: "The two Samuel signatures share a flattened capital S and an unusually tall final stroke, with small differences preserved.",
+    recordIds: ["lantern-passenger-declaration-1907", "lantern-marriage-1909"]
+  },
+  {
+    id: "directory-conflict",
+    label: "The directory prints March and Mercer as two entries at 14 Dock; it could be duplication, an alias, or two men.",
+    recordIds: ["lantern-directory-1908"]
+  },
+  {
+    id: "damaged-surname",
+    label: "Water damage leaves the Northstar surname unreadable beyond ‘M,’ so that ledger cannot settle Mercer versus March.",
+    recordIds: ["northstar-departure-1907"]
+  }
+];
+
 export const researchInstinctsCases: readonly ResearchInstinctsCase[] = [
   {
     id: "mercer-march-identity",
-    title: "Mercer or March?",
+    title: "Mercer or March? The man who signed twice",
     kicker: "Identity",
-    brief: "A fictional 1907 passenger list names Samuel March. A 1909 Lantern Bay marriage record names Samuel Mercer. Decide whether the records follow one man or two.",
+    brief: "Six fictional records follow a lamp worker from Northstar Cove to Lantern Bay. One names Samuel March; another names Samuel Mercer. Work the documents, preserve the conflict, and decide whether they follow one man or two.",
     clues: [
-      "The passenger list records Samuel March, age 21, traveling from Northstar Cove to Lantern Bay on 4 May 1907.",
-      "The passenger-list signature and Samuel Mercer’s fictional 1909 marriage signature share the same unusually tall final stroke.",
+      "The passenger declaration records Samuel March, age 21, traveling from Northstar Cove to Lantern Bay on 4 May 1907.",
+      "The passenger-declaration signature and Samuel Mercer’s fictional 1909 marriage signature share the same unusually tall final stroke.",
       "A 1906 letter from Maeve Mercer says Samuel practiced signing both Mercer and March, without explaining why.",
       "The similar age and route make a useful lead, but neither characteristic identifies a person by itself."
     ],
+    records: mercerMarchRecords,
+    notebookClues: mercerMarchNotebookClues,
     questions: [
       {
         id: "conclusion",
@@ -98,9 +388,9 @@ export const researchInstinctsCases: readonly ResearchInstinctsCase[] = [
         points: 40,
         pickCount: 2,
         options: [
-          { id: "signature-match", label: "The passenger-list and 1909 marriage signatures share an unusual final stroke." },
+          { id: "signature-match", label: "The passenger-declaration and 1909 marriage signatures share an unusual final stroke." },
           { id: "maeve-letter", label: "Maeve’s 1906 letter says Samuel practiced signing both surnames." },
-          { id: "age-conflict", label: "The passenger-list traveler is about the expected age." },
+          { id: "age-conflict", label: "The passenger-declaration traveler is about the expected age." },
           { id: "route-wording", label: "Both records can be associated with the Northstar Cove–Lantern Bay route." },
           { id: "not-sure", label: "I’m not sure which clues matter most." }
         ],
@@ -437,11 +727,23 @@ export function scoreResearchInstinctsChallenge(answers: Record<string, Research
 }
 
 export function createEmptyResearchInstinctsProgress(): ResearchInstinctsProgress {
+  const firstCase = researchInstinctsCases[0];
+  const firstRecord = firstCase.records?.[0];
+
   return {
     version: RESEARCH_INSTINCTS_PROGRESS_VERSION,
-    activeCaseId: researchInstinctsCases[0].id,
+    activeCaseId: firstCase.id,
     answers: {},
-    completedCaseIds: []
+    completedCaseIds: [],
+    recordDesk: firstRecord
+      ? {
+          [firstCase.id]: {
+            activeRecordId: firstRecord.id,
+            reviewedRecordIds: [firstRecord.id],
+            notebookClueIds: []
+          }
+        }
+      : {}
   };
 }
 
@@ -483,6 +785,64 @@ function hasCompleteSelections(
   );
 }
 
+function sanitizeRecordDesk(
+  rawRecordDesk: unknown,
+  defaults: Record<string, ResearchInstinctsRecordDeskProgress>
+): Record<string, ResearchInstinctsRecordDeskProgress> {
+  const sanitized: Record<string, ResearchInstinctsRecordDeskProgress> = {};
+  const rawByCase = isObject(rawRecordDesk) ? rawRecordDesk : {};
+
+  for (const challengeCase of researchInstinctsCases) {
+    const records = challengeCase.records ?? [];
+    if (records.length === 0) continue;
+
+    const defaultDesk = defaults[challengeCase.id] ?? {
+      activeRecordId: records[0].id,
+      reviewedRecordIds: [records[0].id],
+      notebookClueIds: []
+    };
+    const rawDesk = rawByCase[challengeCase.id];
+    if (!isObject(rawDesk)) {
+      sanitized[challengeCase.id] = defaultDesk;
+      continue;
+    }
+
+    const validRecordIds = new Set(records.map((record) => record.id));
+    const validClueIds = new Set((challengeCase.notebookClues ?? []).map((clue) => clue.id));
+    const activeRecordId = typeof rawDesk.activeRecordId === "string" && validRecordIds.has(rawDesk.activeRecordId)
+      ? rawDesk.activeRecordId
+      : defaultDesk.activeRecordId;
+    const reviewedRecordIds = Array.isArray(rawDesk.reviewedRecordIds)
+      ? [...new Set(rawDesk.reviewedRecordIds.filter(
+          (recordId): recordId is string => typeof recordId === "string" && validRecordIds.has(recordId)
+        ))]
+      : [...defaultDesk.reviewedRecordIds];
+    if (!reviewedRecordIds.includes(activeRecordId)) reviewedRecordIds.unshift(activeRecordId);
+    const notebookClueIds = Array.isArray(rawDesk.notebookClueIds)
+      ? [...new Set(rawDesk.notebookClueIds.filter(
+          (clueId): clueId is string => typeof clueId === "string" && validClueIds.has(clueId)
+        ))]
+      : [...defaultDesk.notebookClueIds];
+
+    sanitized[challengeCase.id] = { activeRecordId, reviewedRecordIds, notebookClueIds };
+  }
+
+  return sanitized;
+}
+
+function hasCompleteRecordDesk(
+  challengeCase: ResearchInstinctsCase,
+  desk: ResearchInstinctsRecordDeskProgress | undefined
+) {
+  const records = challengeCase.records ?? [];
+  if (records.length === 0) return true;
+  return Boolean(
+    desk &&
+    records.every((record) => desk.reviewedRecordIds.includes(record.id)) &&
+    desk.notebookClueIds.length >= 2
+  );
+}
+
 export function sanitizeResearchInstinctsProgress(rawProgress: unknown): ResearchInstinctsProgress {
   const empty = createEmptyResearchInstinctsProgress();
   if (!isObject(rawProgress) || rawProgress.version !== RESEARCH_INSTINCTS_PROGRESS_VERSION) return empty;
@@ -499,12 +859,18 @@ export function sanitizeResearchInstinctsProgress(rawProgress: unknown): Researc
     if (sanitized) answers[challengeCase.id] = sanitized;
   }
 
+  const recordDesk = sanitizeRecordDesk(rawProgress.recordDesk, empty.recordDesk);
+
   const completedCaseIds: string[] = [];
   if (Array.isArray(rawProgress.completedCaseIds)) {
     for (const rawCaseId of rawProgress.completedCaseIds) {
       if (typeof rawCaseId !== "string" || completedCaseIds.includes(rawCaseId)) continue;
       const challengeCase = researchInstinctsCases.find((candidate) => candidate.id === rawCaseId);
-      if (challengeCase && hasCompleteSelections(challengeCase, answers[rawCaseId])) {
+      if (
+        challengeCase &&
+        hasCompleteSelections(challengeCase, answers[rawCaseId]) &&
+        hasCompleteRecordDesk(challengeCase, recordDesk[rawCaseId])
+      ) {
         completedCaseIds.push(rawCaseId);
       }
     }
@@ -514,7 +880,8 @@ export function sanitizeResearchInstinctsProgress(rawProgress: unknown): Researc
     version: RESEARCH_INSTINCTS_PROGRESS_VERSION,
     activeCaseId,
     answers,
-    completedCaseIds
+    completedCaseIds,
+    recordDesk
   };
 }
 

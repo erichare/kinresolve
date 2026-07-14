@@ -115,7 +115,7 @@ export default function ProductPage() {
 
       <div className="shell section">
         <CtaStrip
-          body="Work five evidence-led mini-cases before bringing private records, then tell us where the reasoning or workflow breaks down."
+          body="Investigate six fictional record images and transcripts, then work four compact cases before bringing private records."
           eyebrow="Fictional interactive demo"
           primaryHref="/challenge"
           primaryLabel="Start the challenge"

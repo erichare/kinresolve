@@ -40,6 +40,12 @@ A curated, privacy-gated site for the ancestors you choose to share — publishe
 
 <img src="docs/screenshots/public-home.webp" alt="Fictional Hartwell–Mercer public archive landing page" width="90%" />
 
+### Immersive synthetic research challenge
+
+Open six period-inspired record images, compare accessible transcripts, save cited observations to a clue notebook, and state a conclusion without erasing unresolved conflicts. The flagship case and four shorter follow-ups run entirely in the browser with fictional data.
+
+<img src="docs/screenshots/research-challenge.webp" alt="Fictional Hartwell–Mercer immersive record desk with a synthetic household schedule and transcript" width="90%" />
+
 ### Investigation dashboard
 
 Workspace metrics, cases in motion, an action queue of privacy and quality problems, and top DNA signals — all computed from your actual archive.
@@ -109,7 +115,7 @@ Compose provisions Postgres with pgvector and a MinIO service alongside the app.
 | `/` | Public archive landing page |
 | `/people`, `/people/[slug]` | Published people and profiles |
 | `/stories`, `/places` | Synthetic demo stories and the public place index |
-| `/challenge` | Static, fictional research-instincts challenge with browser-local progress |
+| `/challenge` | Fictional six-record investigation and four compact research cases with browser-local progress |
 | `/app` | Investigation dashboard |
 | `/app/people` | Search, filter, and curate people |
 | `/app/cases` | Research cases, evidence, hypotheses, and task queues |

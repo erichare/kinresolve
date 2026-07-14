@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Fixed local demo records are shared by two independently installed Next packages. */
+
 import type { FormEvent } from "react";
 
 import {
@@ -21,6 +23,10 @@ type ChallengeAnswers = Parameters<typeof scoreResearchInstinctsChallenge>[0];
 type ReactHooks = Pick<typeof import("react"), "useEffect" | "useMemo" | "useRef" | "useState">;
 type ReactHookRuntime = Record<keyof ReactHooks, unknown>;
 
+const minimumRecordZoom = 75;
+const maximumRecordZoom = 200;
+const recordZoomStep = 25;
+
 function dossierAssessment(score: number) {
   if (score >= 450) return "Archive sleuth";
   if (score >= 350) return "Careful investigator";
@@ -40,6 +46,7 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
     const [announcement, setAnnouncement] = useState("");
     const [focusResult, setFocusResult] = useState(false);
     const [focusCaseRequest, setFocusCaseRequest] = useState(0);
+    const [recordZoom, setRecordZoom] = useState(100);
     const resultRef = useRef<HTMLElement>(null);
     const caseTitleRef = useRef<HTMLHeadingElement>(null);
     const resetConfirmRef = useRef<HTMLButtonElement>(null);
@@ -88,6 +95,21 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
       researchInstinctsCases.findIndex((challengeCase) => challengeCase.id === progress.activeCaseId)
     );
     const activeCase = researchInstinctsCases[activeCaseIndex] ?? researchInstinctsCases[0];
+    const caseRecords = activeCase.records ?? [];
+    const caseNotebookClues = activeCase.notebookClues ?? [];
+    const hasRecordDesk = caseRecords.length > 0;
+    const activeDesk = progress.recordDesk[activeCase.id];
+    const activeRecordId = activeDesk?.activeRecordId ?? caseRecords[0]?.id ?? "";
+    const reviewedRecordIds = activeDesk?.reviewedRecordIds ?? [];
+    const notebookClueIds = activeDesk?.notebookClueIds ?? [];
+    const activeRecord = caseRecords.find((record) => record.id === activeRecordId) ?? caseRecords[0];
+    const activeRecordClues = activeRecord
+      ? caseNotebookClues.filter((clue) => activeRecord.clueIds.includes(clue.id))
+      : [];
+    const savedNotebookClues = caseNotebookClues.filter((clue) => notebookClueIds.includes(clue.id));
+    const reviewedRecordCount = caseRecords.filter((record) => reviewedRecordIds.includes(record.id)).length;
+    const allCaseRecordsReviewed = !hasRecordDesk || reviewedRecordCount === caseRecords.length;
+    const notebookReady = !hasRecordDesk || notebookClueIds.length >= 2;
     const selections = (progress.answers[activeCase.id] ?? {}) as DraftSelections;
     const submitted = progress.completedCaseIds.includes(activeCase.id);
     const completedCount = progress.completedCaseIds.length;
@@ -103,12 +125,13 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
       [allComplete, progress.answers]
     );
 
-    const readyToSubmit = activeCase.questions.every(
+    const questionsComplete = activeCase.questions.every(
       (question) => isResearchInstinctsSelectionComplete(
         selections[question.id] ?? [],
         question.pickCount
       )
     );
+    const readyToSubmit = questionsComplete && allCaseRecordsReviewed && notebookReady;
 
     useEffect(() => {
       if (focusResult && submitted) {
@@ -153,6 +176,65 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
       setAnnouncement("");
     }
 
+    function openRecord(recordId: string) {
+      const record = caseRecords.find((candidate) => candidate.id === recordId);
+      if (!record) return;
+
+      setProgress((current) => {
+        const currentDesk = current.recordDesk[activeCase.id] ?? {
+          activeRecordId: record.id,
+          reviewedRecordIds: [],
+          notebookClueIds: []
+        };
+        return sanitizeResearchInstinctsProgress({
+          ...current,
+          activeCaseId: activeCase.id,
+          recordDesk: {
+            ...current.recordDesk,
+            [activeCase.id]: {
+              ...currentDesk,
+              activeRecordId: record.id,
+              reviewedRecordIds: currentDesk.reviewedRecordIds.includes(record.id)
+                ? currentDesk.reviewedRecordIds
+                : [...currentDesk.reviewedRecordIds, record.id]
+            }
+          }
+        });
+      });
+      setRecordZoom(100);
+      setAnnouncement(`Opened ${record.catalogId}: ${record.title}.`);
+    }
+
+    function changeRecordZoom(nextZoom: number) {
+      const boundedZoom = Math.min(maximumRecordZoom, Math.max(minimumRecordZoom, nextZoom));
+      setRecordZoom(boundedZoom);
+      setAnnouncement(`Record zoom set to ${boundedZoom} percent.`);
+    }
+
+    function toggleNotebookClue(clueId: string) {
+      const clue = caseNotebookClues.find((candidate) => candidate.id === clueId);
+      if (!clue) return;
+
+      const removing = notebookClueIds.includes(clueId);
+      setProgress((current) => {
+        const currentDesk = current.recordDesk[activeCase.id];
+        if (!currentDesk) return current;
+        return sanitizeResearchInstinctsProgress({
+          ...current,
+          recordDesk: {
+            ...current.recordDesk,
+            [activeCase.id]: {
+              ...currentDesk,
+              notebookClueIds: removing
+                ? currentDesk.notebookClueIds.filter((savedId) => savedId !== clueId)
+                : [...currentDesk.notebookClueIds, clueId]
+            }
+          }
+        });
+      });
+      setAnnouncement(`${removing ? "Removed" : "Added"} clue ${removing ? "from" : "to"} your notebook.`);
+    }
+
     function submitCase(event: FormEvent<HTMLFormElement>) {
       event.preventDefault();
       if (!readyToSubmit || submitted) return;
@@ -178,6 +260,7 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
           activeCaseId: nextIncompleteCase.id
         })
       );
+      setRecordZoom(100);
       setAnnouncement(`Opened ${nextIncompleteCase.title}.`);
       setFocusCaseRequest((request) => request + 1);
     }
@@ -189,6 +272,7 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
         // State still resets for this visit when browser storage is unavailable.
       }
       setProgress(createEmptyResearchInstinctsProgress());
+      setRecordZoom(100);
       setConfirmReset(false);
       setAnnouncement("Challenge progress reset. Case one is ready.");
       setFocusCaseRequest((request) => request + 1);
@@ -228,14 +312,251 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
             <p>{activeCase.brief}</p>
           </header>
 
-          <section className="challenge-clue-board" aria-labelledby={`clues-${activeCase.id}`}>
-            <h3 id={`clues-${activeCase.id}`}>Evidence board</h3>
-            <ul>
-              {activeCase.clues.map((clue) => <li key={clue}>{clue}</li>)}
-            </ul>
-          </section>
+          {hasRecordDesk && activeRecord ? (
+            <section className="challenge-record-desk" aria-labelledby={`record-desk-${activeCase.id}`}>
+              <header className="challenge-record-desk-header">
+                <div>
+                  <span className="challenge-record-kicker">Immersive case file</span>
+                  <h3 id={`record-desk-${activeCase.id}`}>Investigate the source trail</h3>
+                  <p>Open every record, compare the image with its transcript, and save the clues you would carry into a research log.</p>
+                </div>
+                <p className="challenge-record-review-count">
+                  <strong>{reviewedRecordCount} of {caseRecords.length}</strong>
+                  records reviewed
+                </p>
+              </header>
 
-          <form className="challenge-form" onSubmit={submitCase}>
+              <nav aria-label="Case records" className="challenge-record-nav">
+                {caseRecords.map((record, index) => {
+                  const selected = activeRecord.id === record.id;
+                  const reviewed = reviewedRecordIds.includes(record.id);
+
+                  return (
+                    <button
+                      aria-current={selected ? "page" : undefined}
+                      aria-pressed={selected}
+                      className="challenge-record-tab"
+                      key={record.id}
+                      onClick={() => openRecord(record.id)}
+                      type="button"
+                    >
+                      <span>Record {index + 1}{reviewed ? " · Reviewed" : ""}</span>
+                      <strong>{record.catalogId}</strong>
+                      <small>{record.kind} · {record.date}</small>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="challenge-record-layout">
+                <section
+                  aria-labelledby={`record-title-${activeRecord.id}`}
+                  className="challenge-record-inspector"
+                  data-challenge-region="record-inspector"
+                >
+                  <header className="challenge-record-inspector-header">
+                    <span>{activeRecord.catalogId}</span>
+                    <h3 id={`record-title-${activeRecord.id}`}>{activeRecord.title}</h3>
+                    <p>{activeRecord.kind} · {activeRecord.date}</p>
+                  </header>
+
+                  <div aria-label="Record image controls" className="challenge-record-toolbar" role="group">
+                    <button
+                      aria-label="Zoom out"
+                      disabled={recordZoom <= minimumRecordZoom}
+                      onClick={() => changeRecordZoom(recordZoom - recordZoomStep)}
+                      type="button"
+                    >
+                      <span aria-hidden="true">−</span>
+                    </button>
+                    <output aria-live="polite">{recordZoom}%</output>
+                    <button
+                      aria-label="Zoom in"
+                      disabled={recordZoom >= maximumRecordZoom}
+                      onClick={() => changeRecordZoom(recordZoom + recordZoomStep)}
+                      type="button"
+                    >
+                      <span aria-hidden="true">+</span>
+                    </button>
+                    <button
+                      aria-label="Reset zoom"
+                      className="challenge-record-reset-zoom"
+                      disabled={recordZoom === 100}
+                      onClick={() => changeRecordZoom(100)}
+                      type="button"
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  <figure className="challenge-record-figure">
+                    <div
+                      aria-label={`Scrollable image of ${activeRecord.title}`}
+                      className="challenge-record-viewport"
+                      key={activeRecord.id}
+                      role="region"
+                      tabIndex={0}
+                    >
+                      <img
+                        alt={activeRecord.image.alt}
+                        decoding="async"
+                        draggable={false}
+                        height={activeRecord.image.height}
+                        src={activeRecord.image.src}
+                        style={{ transform: `scale(${recordZoom / 100})` }}
+                        width={activeRecord.image.width}
+                      />
+                    </div>
+                    <figcaption>
+                      Synthetic exhibit {activeRecord.catalogId}. The permanent fictional-demo mark is part of the image.
+                    </figcaption>
+                  </figure>
+
+                  <dl className="challenge-record-metadata">
+                    {activeRecord.metadata.map((item) => (
+                      <div key={item.label}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+
+                <section
+                  aria-labelledby={`transcript-${activeRecord.id}`}
+                  className="challenge-transcript"
+                  data-challenge-region="transcript"
+                >
+                  <header>
+                    <span>Accessible reading copy</span>
+                    <h3 id={`transcript-${activeRecord.id}`}>Transcript</h3>
+                    <p>Use the image for visual clues and this research transcript for names, dates, and damaged text.</p>
+                  </header>
+
+                  {activeRecord.transcript.kind === "table" ? (
+                    <div
+                      aria-label={`Scrollable transcript table for ${activeRecord.title}`}
+                      className="challenge-transcript-table-wrap"
+                      role="region"
+                      tabIndex={0}
+                    >
+                      <table>
+                        <caption>{activeRecord.title}</caption>
+                        <thead>
+                          <tr>
+                            {activeRecord.transcript.columns.map((column) => <th key={column} scope="col">{column}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeRecord.transcript.rows.map((row, rowIndex) => (
+                            <tr key={`${activeRecord.id}-row-${rowIndex}`}>
+                              {row.map((cell, cellIndex) => (
+                                cellIndex === 0
+                                  ? <th key={`${cell}-${cellIndex}`} scope="row">{cell}</th>
+                                  : <td key={`${cell}-${cellIndex}`}>{cell}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="challenge-letter-transcript">
+                      {activeRecord.transcript.paragraphs.map((paragraph, index) => (
+                        <p key={`${activeRecord.id}-paragraph-${index}`}>{paragraph}</p>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              <aside
+                aria-labelledby={`notebook-${activeCase.id}`}
+                className="challenge-clue-notebook"
+                data-challenge-region="clue-notebook"
+              >
+                <header className="challenge-clue-notebook-header">
+                  <div>
+                    <span>Working research log</span>
+                    <h3 id={`notebook-${activeCase.id}`}>Clue notebook</h3>
+                  </div>
+                  <p><strong>{savedNotebookClues.length}</strong> clues saved</p>
+                </header>
+                <p className="challenge-clue-notebook-instruction">
+                  Save at least two useful observations. Good notes cite their records and preserve conflicts instead of explaining them away.
+                </p>
+
+                <div className="challenge-clue-notebook-layout">
+                  <section aria-labelledby={`available-clues-${activeRecord.id}`}>
+                    <h4 id={`available-clues-${activeRecord.id}`}>Clues in {activeRecord.catalogId}</h4>
+                    <div className="challenge-clue-candidates">
+                      {activeRecordClues.map((clue) => {
+                        const saved = notebookClueIds.includes(clue.id);
+                        return (
+                          <button
+                            aria-pressed={saved}
+                            className="challenge-clue-candidate"
+                            key={clue.id}
+                            onClick={() => toggleNotebookClue(clue.id)}
+                            type="button"
+                          >
+                            <span>{clue.label}</span>
+                            <strong>{saved ? "Remove from notebook" : "Add to notebook"}</strong>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section aria-labelledby={`saved-clues-${activeCase.id}`} className="challenge-saved-clues">
+                    <h4 id={`saved-clues-${activeCase.id}`}>Saved observations</h4>
+                    {savedNotebookClues.length > 0 ? (
+                      <ol>
+                        {savedNotebookClues.map((clue) => (
+                          <li key={clue.id}>
+                            <p>{clue.label}</p>
+                            <span>
+                              Cites {clue.recordIds
+                                .map((recordId) => caseRecords.find((record) => record.id === recordId)?.catalogId)
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                            <button
+                              aria-label={`Remove clue: ${clue.label}`}
+                              onClick={() => toggleNotebookClue(clue.id)}
+                              type="button"
+                            >
+                              Remove
+                            </button>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="challenge-notebook-empty">Your notebook is empty. Open a record and save an observation that changes—or limits—your theory.</p>
+                    )}
+                  </section>
+                </div>
+              </aside>
+            </section>
+          ) : (
+            <section className="challenge-clue-board" aria-labelledby={`clues-${activeCase.id}`}>
+              <h3 id={`clues-${activeCase.id}`}>Evidence board</h3>
+              <ul>
+                {activeCase.clues.map((clue) => <li key={clue}>{clue}</li>)}
+              </ul>
+            </section>
+          )}
+
+          <form
+            className="challenge-form challenge-conclusion"
+            data-challenge-region="conclusion"
+            onSubmit={submitCase}
+          >
+            <header className="challenge-conclusion-header">
+              <span>{hasRecordDesk ? "Your working theory" : "Case questions"}</span>
+              <h3>{hasRecordDesk ? "State your conclusion" : "Resolve the case"}</h3>
+              <p>{hasRecordDesk ? "Weigh identity, evidence, and uncertainty as separate judgments." : "Choose the conclusion, evidence, and caution that best fit the record."}</p>
+            </header>
             {activeCase.questions.map((question) => {
               const selected = selections[question.id] ?? [];
               const instructionId = `${activeCase.id}-${question.id}-instruction`;
@@ -287,7 +608,13 @@ export function createResearchInstinctsChallenge(runtime: ReactHookRuntime) {
               <div className="challenge-form-actions">
                 <button className="button" disabled={!readyToSubmit} type="submit">Submit this case</button>
                 <p className="challenge-form-hint">
-                  {readyToSubmit ? "Ready for review. Submitting locks this case." : "Answer all three prompts to submit."}
+                  {!allCaseRecordsReviewed
+                    ? `Review all ${caseRecords.length} records before submitting.`
+                    : !notebookReady
+                      ? "Save at least two clues to your notebook before submitting."
+                      : !questionsComplete
+                        ? "Answer all three prompts to submit."
+                        : "Ready for review. Submitting locks this case."}
                 </p>
               </div>
             ) : null}
