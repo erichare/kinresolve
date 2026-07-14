@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   loadReleaseContractFiles,
+  validateLoginRedirect,
   validateReleaseContract,
   type ReleaseContractInput
 } from "@/lib/release-contract";
@@ -127,5 +128,22 @@ describe("stable release contract", () => {
     await expect(loadReleaseContractFiles({ repositoryRoot: root })).rejects.toThrow(
       /pulled Vercel production environment file is missing/i
     );
+  });
+
+  it("accepts only the configured login redirect from the deployed application", () => {
+    expect(() =>
+      validateLoginRedirect({
+        deploymentUrl: "https://kinresolve-release.vercel.app",
+        appBaseUrl: "https://app.kinresolve.com",
+        location: "https://app.kinresolve.com/login?next=%2Fapp"
+      })
+    ).not.toThrow();
+    expect(() =>
+      validateLoginRedirect({
+        deploymentUrl: "https://kinresolve-release.vercel.app",
+        appBaseUrl: "https://app.kinresolve.com",
+        location: "https://attacker.example/login?next=%2Fapp"
+      })
+    ).toThrow(/configured APP_BASE_URL/i);
   });
 });
