@@ -78,6 +78,14 @@ describe("research instincts accessible interaction contract", () => {
     expect(html).toContain('type="checkbox"');
   });
 
+  it("makes the case skill and multi-pick progress explicit", () => {
+    const html = renderToStaticMarkup(createElement(ResearchInstinctsChallenge));
+
+    expect(html).toMatch(/Research skill/i);
+    expect(html).toContain("0 of 1 selected");
+    expect(html).toContain("0 of 2 selected");
+  });
+
   it("announces progress and results without relying on color", () => {
     const html = renderToStaticMarkup(createElement(ResearchInstinctsChallenge));
 

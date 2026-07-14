@@ -353,29 +353,30 @@ describe("research instincts scoring", () => {
 });
 
 describe("research instincts local progress", () => {
-  it("uses the isolated, versioned v2 browser storage key", () => {
+  it("uses the isolated, versioned v3 key and initializes every immersive record desk", () => {
     const firstCase = researchInstinctsCases[0];
     const firstRecord = firstCase.records?.[0];
     expect(firstRecord).toBeDefined();
 
-    expect(RESEARCH_INSTINCTS_PROGRESS_VERSION).toBe(2);
-    expect(RESEARCH_INSTINCTS_STORAGE_KEY).toBe("kinresolve:research-instincts:v2");
+    expect(RESEARCH_INSTINCTS_PROGRESS_VERSION).toBe(3);
+    expect(RESEARCH_INSTINCTS_STORAGE_KEY).toBe("kinresolve:research-instincts:v3");
     expect(createEmptyResearchInstinctsProgress()).toEqual({
-      version: 2,
+      version: 3,
       activeCaseId: expectedCaseIds[0],
       answers: {},
       completedCaseIds: [],
-      recordDesk: {
-        [firstCase.id]: {
-          activeRecordId: firstRecord?.id,
-          reviewedRecordIds: [firstRecord?.id],
+      recordDesk: Object.fromEntries(researchInstinctsCases.map((challengeCase) => {
+        const firstCaseRecord = challengeCase.records?.[0];
+        return [challengeCase.id, {
+          activeRecordId: firstCaseRecord?.id,
+          reviewedRecordIds: [firstCaseRecord?.id],
           notebookClueIds: []
-        }
-      }
+        }];
+      }))
     });
   });
 
-  it.each([null, undefined, 17, "progress", [], {}, { version: 2, answers: null }])(
+  it.each([null, undefined, 17, "progress", [], {}, { version: 3, answers: null }])(
     "fails closed for malformed stored progress %#",
     (rawProgress) => {
       expect(sanitizeResearchInstinctsProgress(rawProgress)).toEqual(createEmptyResearchInstinctsProgress());
@@ -387,7 +388,7 @@ describe("research instincts local progress", () => {
 
     expect(
       sanitizeResearchInstinctsProgress({
-        version: 1,
+        version: 2,
         activeCaseId: validCase.id,
         answers: { [validCase.id]: correctSelections(validCase) },
         completedCaseIds: [validCase.id]
@@ -405,7 +406,7 @@ describe("research instincts local progress", () => {
 
     expect(
       sanitizeResearchInstinctsProgress({
-        version: 2,
+        version: 3,
         activeCaseId: "invented-case",
         answers: {
           [firstCase.id]: {
@@ -434,7 +435,7 @@ describe("research instincts local progress", () => {
         answerKey: "must not survive"
       })
     ).toEqual({
-      version: 2,
+      version: 3,
       activeCaseId: expectedCaseIds[0],
       answers: {
         [firstCase.id]: {
@@ -443,14 +444,22 @@ describe("research instincts local progress", () => {
         },
         [secondCase.id]: secondCorrect
       },
-      completedCaseIds: [secondCase.id],
-      recordDesk: {
-        [firstCase.id]: {
-          activeRecordId: records[2].id,
-          reviewedRecordIds: [records[0].id, records[2].id],
-          notebookClueIds: [clues[0].id]
+      completedCaseIds: [],
+      recordDesk: Object.fromEntries(researchInstinctsCases.map((challengeCase) => {
+        if (challengeCase.id === firstCase.id) {
+          return [challengeCase.id, {
+            activeRecordId: records[2].id,
+            reviewedRecordIds: [records[0].id, records[2].id],
+            notebookClueIds: [clues[0].id]
+          }];
         }
-      }
+        const firstCaseRecord = challengeCase.records?.[0];
+        return [challengeCase.id, {
+          activeRecordId: firstCaseRecord?.id,
+          reviewedRecordIds: [firstCaseRecord?.id],
+          notebookClueIds: []
+        }];
+      }))
     });
   });
 
@@ -467,7 +476,7 @@ describe("research instincts local progress", () => {
 
     expect(
       sanitizeResearchInstinctsProgress({
-        version: 2,
+        version: 3,
         activeCaseId: firstCase.id,
         answers: { [firstCase.id]: completeAnswers },
         completedCaseIds: [firstCase.id],
@@ -481,7 +490,7 @@ describe("research instincts local progress", () => {
       notebookClueIds: clues.slice(0, 2).map((clue) => clue.id)
     };
     const restored = sanitizeResearchInstinctsProgress({
-      version: 2,
+      version: 3,
       activeCaseId: firstCase.id,
       answers: { [firstCase.id]: completeAnswers },
       completedCaseIds: [firstCase.id],
@@ -502,5 +511,6 @@ describe("research instincts local progress", () => {
     expect(removeItem).toHaveBeenCalledWith(RESEARCH_INSTINCTS_STORAGE_KEY);
     expect(removeItem).not.toHaveBeenCalledWith("kinresolve:workspace");
     expect(removeItem).not.toHaveBeenCalledWith("kinresolve:research-instincts:v1");
+    expect(removeItem).not.toHaveBeenCalledWith("kinresolve:research-instincts:v2");
   });
 });
