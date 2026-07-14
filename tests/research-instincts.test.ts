@@ -24,7 +24,7 @@ const expectedLore = [
   [/Amalia/i, /1922/i, /1907/i],
   [/Northstar Cove/i, /1906/i, /Samuel/i, /Maeve/i, /Jonah/i, /\bAR\b/i, /Clara/i],
   [/Amalia Rose/i, /seven[- ]year[- ]old/i, /sibling/i],
-  [/M Alder/i, /T Pike/i, /Elowen Rowan/i, /R Solari/i, /Bellandi/i, /cM/i]
+  [/M\. Alder/i, /T\. Pike/i, /Elowen Rowan/i, /R\. Solari/i, /Bellandi/i, /cM/i]
 ] as const;
 
 type ChallengeCase = (typeof researchInstinctsCases)[number];
@@ -83,7 +83,7 @@ describe("research instincts fictional challenge data", () => {
       ["1984", "1921 repair receipt", "Amalia Bellandi", "Nora Hartwell"],
       ["North Star Chandlery", "September through November 1906", "image quality", "after 1928"],
       ["Luca Bellandi", "Mira Solari", "Rosa", "Ettore", "7 July 1861", "1883"],
-      ["86 cM", "54 cM", "37 cM", "Elowen Rowan", "Rosa Bellandi", "provisional"]
+      ["M. Alder", "T. Pike", "R. Solari", "86 cM", "54 cM", "37 cM", "Elowen Rowan", "Rosa Bellandi", "provisional"]
     ] as const;
 
     researchInstinctsCases.forEach((challengeCase, index) => {
