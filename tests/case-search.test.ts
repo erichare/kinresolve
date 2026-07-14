@@ -52,6 +52,68 @@ describe("case search", () => {
     expect(filterCases(cases, { query: "dna-fletcher" }).map((item) => item.id)).toEqual(["case-fletcher"]);
   });
 
+  it("searches the private research memory stored on assignments and hypotheses", () => {
+    const memoryCase = researchCase({
+      id: "case-memory",
+      title: "Remembered searches",
+      question: "What have we already tried?",
+      hypotheses: [
+        {
+          id: "hyp-memory",
+          statement: "The probate file names the missing parent.",
+          confidence: 0.4,
+          status: "weakened",
+          decisions: [
+            {
+              id: "decision-memory",
+              requestId: "request-decision-memory",
+              fromStatus: "open",
+              toStatus: "weakened",
+              statement: "The probate file names the missing parent.",
+              reason: "The Cook County packet names a different household.",
+              contextRefs: [],
+              actorId: "user-memory",
+              actorName: "Researcher",
+              createdAt: "2026-07-13T20:00:00.000Z"
+            }
+          ],
+          updatedAt: "2026-07-13T20:00:00.000Z"
+        }
+      ] as ResearchCase["hypotheses"],
+      tasks: [
+        {
+          id: "task-memory",
+          title: "Search probate packets",
+          status: "done",
+          origin: "manual",
+          priority: "normal",
+          workFingerprint: "search probate packets",
+          guidance: "Check the guardianship index before browsing packets.",
+          contextRefs: [],
+          outcomes: [
+            {
+              id: "outcome-memory",
+              requestId: "request-outcome-memory",
+              type: "not_found",
+              note: "Searched Cook County probate packets from 1890 through 1905.",
+              searchScope: { repository: "Cook County", collection: "Probate packets", dateRange: "1890-1905" },
+              actorId: "user-memory",
+              actorName: "Researcher",
+              createdAt: "2026-07-13T20:05:00.000Z"
+            }
+          ],
+          createdAt: "2026-07-13T19:00:00.000Z",
+          completedAt: "2026-07-13T20:05:00.000Z",
+          updatedAt: "2026-07-13T20:05:00.000Z"
+        }
+      ] as ResearchCase["tasks"]
+    });
+
+    expect(filterCases([memoryCase], { query: "guardianship index" }).map((item) => item.id)).toEqual(["case-memory"]);
+    expect(filterCases([memoryCase], { query: "1890 1905" }).map((item) => item.id)).toEqual(["case-memory"]);
+    expect(filterCases([memoryCase], { query: "different household" }).map((item) => item.id)).toEqual(["case-memory"]);
+  });
+
   it("filters by status, privacy, and evidence state", () => {
     expect(filterCases(cases, { status: "planning" }).map((item) => item.id)).toEqual(["case-zajicek"]);
     expect(filterCases(cases, { privacy: "sensitive" }).map((item) => item.id)).toEqual(["case-zajicek"]);
