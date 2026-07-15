@@ -1,0 +1,622 @@
+name: Contain failed Kin Resolve release
+run-name: Contain release run ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}
+
+on:
+  workflow_run:
+    workflows:
+      - Release Kin Resolve beta candidate
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: kinresolve-beta-release-containment
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'cancelled' ||
+      github.event.workflow_run.conclusion == 'timed_out'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      authorized: ${{ steps.classification.outputs.authorized }}
+      candidate_run_attempt: ${{ steps.classification.outputs.candidate_run_attempt }}
+      should_contain: ${{ steps.classification.outputs.should_contain }}
+    steps:
+      - name: Validate the failed protected release event before classifier checkout
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_ACTION" = "completed"
+          test "$EVENT_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_WORKFLOW_NAME" = "Release Kin Resolve beta candidate"
+          test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/vercel-release.yml"
+          test "$SOURCE_EVENT" = "workflow_dispatch"
+          test "$SOURCE_HEAD_BRANCH" = "main"
+          test "$SOURCE_HEAD_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_RUN_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_CONCLUSION" = "failure" || \
+            test "$SOURCE_CONCLUSION" = "cancelled" || \
+            test "$SOURCE_CONCLUSION" = "timed_out"
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$SOURCE_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+
+      - name: Check out the exact failed release revision for classification
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the classifier revision remains on protected main
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SOURCE_HEAD_SHA"
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" origin/main
+
+      - name: Set up Node.js for credential-free classification
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Classify the failed release phase without production credentials
+        id: classification
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          should_contain=true
+          reason=job-inspection-failed
+          candidate_run_attempt=""
+          all_jobs_file="$RUNNER_TEMP/release-jobs-all.json"
+          attempt_jobs_file="$RUNNER_TEMP/release-jobs-attempt.json"
+          if gh api "repos/$CURRENT_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=all&per_page=100" \
+              > "$all_jobs_file" \
+              && gh api "repos/$CURRENT_REPOSITORY/actions/runs/$SOURCE_RUN_ID/attempts/$SOURCE_RUN_ATTEMPT/jobs?per_page=100" \
+                > "$attempt_jobs_file"; then
+            if classification="$(node --experimental-strip-types \
+                scripts/classify-release-containment.mjs "$all_jobs_file" "$attempt_jobs_file")" \
+                && [[ "$classification" =~ ^(true|false)\ ([a-z][a-z-]{2,63})\ (none|[1-9][0-9]{0,9})$ ]]; then
+              should_contain="${BASH_REMATCH[1]}"
+              reason="${BASH_REMATCH[2]}"
+              if [[ "${BASH_REMATCH[3]}" != "none" ]]; then
+                candidate_run_attempt="${BASH_REMATCH[3]}"
+              fi
+            fi
+          fi
+          {
+            printf 'authorized=true\n'
+            printf 'candidate_run_attempt=%s\n' "$candidate_run_attempt"
+            printf 'should_contain=%s\n' "$should_contain"
+          } >> "$GITHUB_OUTPUT"
+          {
+            printf '## Kin Resolve release failure classification\n\n'
+            printf -- '- Source release run: %s\n' "$SOURCE_RUN_ID"
+            printf -- '- Commit: %s\n' "$SOURCE_HEAD_SHA"
+            printf -- '- Candidate-owning production attempt: %s\n' "${candidate_run_attempt:-unresolved}"
+            printf -- '- Automatic containment required: %s\n' "$should_contain"
+            printf -- "- Reason: \`%s\`\n" "$reason"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  contain:
+    needs: classify
+    if: >-
+      always() &&
+      needs.classify.result != 'skipped' &&
+      (
+        needs.classify.result != 'success' ||
+        (
+          needs.classify.outputs.authorized == 'true' &&
+          needs.classify.outputs.should_contain == 'true'
+        )
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production-containment
+    steps:
+      - name: Validate the failed protected release event before checkout
+        id: protected-event
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_ACTION" = "completed"
+          test "$EVENT_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_WORKFLOW_NAME" = "Release Kin Resolve beta candidate"
+          test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/vercel-release.yml"
+          test "$SOURCE_EVENT" = "workflow_dispatch"
+          test "$SOURCE_HEAD_BRANCH" = "main"
+          test "$SOURCE_HEAD_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_RUN_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_CONCLUSION" = "failure" || \
+            test "$SOURCE_CONCLUSION" = "cancelled" || \
+            test "$SOURCE_CONCLUSION" = "timed_out"
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$SOURCE_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          {
+            printf 'RELEASE_COMMIT=%s\n' "$SOURCE_HEAD_SHA"
+            printf 'RELEASE_FENCE_ID=fence-recovery-%s\n' "$SOURCE_HEAD_SHA"
+            printf 'CONTAINMENT_SOURCE_RUN_ID=%s\n' "$SOURCE_RUN_ID"
+            printf 'CONTAINMENT_SOURCE_RUN_ATTEMPT=%s\n' "$SOURCE_RUN_ATTEMPT"
+          } >> "$GITHUB_ENV"
+          printf 'authorized=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Bind Vercel control credentials to the exact protected production project
+        id: vercel-target
+        if: >-
+          always() &&
+          steps.protected-event.outputs.authorized == 'true' &&
+          (
+            needs.classify.result != 'success' ||
+            needs.classify.outputs.should_contain == 'true'
+          )
+        env:
+          EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$EXPECTED_VERCEL_PROJECT_ID" = "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+          test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          printf 'authorized=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact failed release revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact protected-main provenance
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$RELEASE_COMMIT"
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Independently resolve the candidate-owning production attempt
+        id: privileged-classification
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_CANDIDATE_RUN_ATTEMPT: ${{ needs.classify.outputs.candidate_run_attempt }}
+          ORIGINAL_CLASSIFY_RESULT: ${{ needs.classify.result }}
+          ORIGINAL_SHOULD_CONTAIN: ${{ needs.classify.outputs.should_contain }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          all_jobs_file="$RUNNER_TEMP/privileged-release-jobs-all.json"
+          attempt_jobs_file="$RUNNER_TEMP/privileged-release-jobs-attempt.json"
+          gh api "repos/$CURRENT_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=all&per_page=100" \
+            > "$all_jobs_file"
+          gh api "repos/$CURRENT_REPOSITORY/actions/runs/$SOURCE_RUN_ID/attempts/$SOURCE_RUN_ATTEMPT/jobs?per_page=100" \
+            > "$attempt_jobs_file"
+          classification="$(node --experimental-strip-types \
+            scripts/classify-release-containment.mjs "$all_jobs_file" "$attempt_jobs_file")"
+          [[ "$classification" =~ ^(true|false)\ ([a-z][a-z-]{2,63})\ (none|[1-9][0-9]{0,9})$ ]]
+          should_contain="${BASH_REMATCH[1]}"
+          reason="${BASH_REMATCH[2]}"
+          candidate_run_attempt="${BASH_REMATCH[3]}"
+          if [[ "$ORIGINAL_CLASSIFY_RESULT" == "success" &&
+                "$ORIGINAL_CANDIDATE_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,9}$ ]]; then
+            test "$should_contain" = "$ORIGINAL_SHOULD_CONTAIN"
+            test "$should_contain" = "true"
+            test "$candidate_run_attempt" = "$ORIGINAL_CANDIDATE_RUN_ATTEMPT"
+          fi
+          if [[ "$should_contain" == "true" ]]; then
+            [[ "$candidate_run_attempt" =~ ^[1-9][0-9]{0,9}$ ]]
+            test "$candidate_run_attempt" -le "$SOURCE_RUN_ATTEMPT"
+            printf 'CONTAINMENT_CANDIDATE_RUN_ATTEMPT=%s\n' "$candidate_run_attempt" >> "$GITHUB_ENV"
+          else
+            test "$candidate_run_attempt" = "none"
+          fi
+          {
+            printf 'candidate_run_attempt=%s\n' "$candidate_run_attempt"
+            printf 'reason=%s\n' "$reason"
+            printf 'should_contain=%s\n' "$should_contain"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install exact dependencies without deployment credentials
+        if: steps.privileged-classification.outputs.should_contain == 'true'
+        run: npm ci
+
+      - name: Prove current canonical ownership before a manual containment rerun
+        id: rerun-ownership
+        if: >-
+          steps.privileged-classification.outputs.should_contain == 'true' &&
+          github.run_attempt > 1
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID }}
+          EXPECTED_GITHUB_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ steps.privileged-classification.outputs.candidate_run_attempt }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.event.workflow_run.id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$APP_BASE_URL" = "https://app.kinresolve.com"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          canonical_host="${APP_BASE_URL#https://}"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$canonical_host$scope_query" \
+            --output "$RUNNER_TEMP/containment-rerun-canonical-ownership.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs containment \
+            "$RUNNER_TEMP/containment-rerun-canonical-ownership.json"
+
+      - name: Recontain the exact release fence before relying on the deployment control plane
+        id: contain-fence
+        if: >-
+          steps.privileged-classification.outputs.should_contain == 'true' &&
+          (
+            github.run_attempt == 1 ||
+            steps.rerun-ownership.outputs.containment_required == 'true'
+          )
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
+          RELEASE_FENCE_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npm run --silent release:fence:control -- contain > "$RUNNER_TEMP/containment-fence.json"
+          jq -e '
+            (.found == false) or
+            (.found == true and (.transition == "already-active" or .transition == "reacquired"))
+          ' "$RUNNER_TEMP/containment-fence.json" > /dev/null
+          if jq -e '.found == false' "$RUNNER_TEMP/containment-fence.json" > /dev/null; then
+            printf 'contained=false\n' >> "$GITHUB_OUTPUT"
+          else
+            {
+              printf 'contained=true\n'
+              jq -er '.transition' "$RUNNER_TEMP/containment-fence.json" | sed 's/^/transition=/'
+              jq -er '.fence.activatedAt' "$RUNNER_TEMP/containment-fence.json" | sed 's/^/activated_at=/'
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enforce disabled production domain auto-assignment before ownership checks
+        id: containment-domain-auto-assignment
+        if: >-
+          always() &&
+          steps.vercel-target.outputs.authorized == 'true' &&
+          (
+            needs.classify.result != 'success' ||
+            needs.classify.outputs.should_contain == 'true'
+          )
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          project_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request PATCH \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"autoAssignCustomDomains":false}' \
+            "$project_api" --output "$RUNNER_TEMP/containment-auto-assignment-patch.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$project_api" --output "$RUNNER_TEMP/containment-project-safety.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/containment-project-safety.json"
+
+      - name: Emergency-pause production if containment cannot disable auto-assignment
+        if: >-
+          always() &&
+          steps.vercel-target.outputs.authorized == 'true' &&
+          (
+            needs.classify.result != 'success' ||
+            needs.classify.outputs.should_contain == 'true'
+          ) &&
+          steps.containment-domain-auto-assignment.outcome != 'success'
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "true"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query" \
+            --output "$RUNNER_TEMP/containment-emergency-pause.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/containment-project-after-emergency-pause.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/containment-project-after-emergency-pause.json"
+
+      - name: Refuse stale containment against a different live release
+        id: canonical-ownership
+        if: steps.privileged-classification.outputs.should_contain == 'true'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID }}
+          EXPECTED_GITHUB_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ steps.privileged-classification.outputs.candidate_run_attempt }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.event.workflow_run.id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$APP_BASE_URL" = "https://app.kinresolve.com"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          canonical_host="${APP_BASE_URL#https://}"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$canonical_host$scope_query" \
+            --output "$RUNNER_TEMP/containment-canonical-ownership.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs containment \
+            "$RUNNER_TEMP/containment-canonical-ownership.json"
+
+      - name: Require a matching fence whenever the failed source release is still canonical
+        if: steps.privileged-classification.outputs.should_contain == 'true'
+        env:
+          CANONICAL_STATE: ${{ steps.canonical-ownership.outputs.canonical_state }}
+          CONTAINED: ${{ steps.contain-fence.outputs.contained }}
+        run: |
+          set -euo pipefail
+          case "$CANONICAL_STATE" in
+            source-release) test "$CONTAINED" = "true" ;;
+            holding|other-release) ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Idempotently release only the stale source fence after proving another release is canonical
+        if: steps.canonical-ownership.outputs.canonical_state == 'other-release'
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
+          RELEASE_FENCE_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npm run --silent release:fence:control -- release > "$RUNNER_TEMP/stale-containment-fence-release.json"
+          jq -e '
+            .found == true and
+            (.transition == "released" or .transition == "already-released") and
+            .fence.state == "released" and
+            .fence.fenceId == env.RELEASE_FENCE_ID and
+            .fence.releaseCommitSha == env.RELEASE_COMMIT
+          ' "$RUNNER_TEMP/stale-containment-fence-release.json" > /dev/null
+
+      - name: Drain admitted work and prove the protected database is idle
+        if: >-
+          steps.contain-fence.outputs.contained == 'true' &&
+          steps.canonical-ownership.outputs.containment_required == 'true'
+        timeout-minutes: 40
+        env:
+          EXPECTED_ARCHIVE_ID: ${{ vars.EXPECTED_ARCHIVE_ID }}
+          EXPECTED_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
+          FENCE_ACTIVATED_AT: ${{ steps.contain-fence.outputs.activated_at }}
+          RECOVERY_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RECOVERY_REQUIRE_STRAGGLER_PROOF: "true"
+        run: |
+          set -euo pipefail
+          sleep 1860
+          node --experimental-strip-types scripts/capture-recovery-database.mjs \
+            "$RUNNER_TEMP/containment-drain.json"
+          jq -e '
+            .activeJobLeases == 0 and
+            .unexpiredUploadIntents == 0 and
+            .stragglerTransactions == 0
+          ' "$RUNNER_TEMP/containment-drain.json" > /dev/null
+
+      - name: Install the pinned Vercel CLI after database containment
+        if: steps.canonical-ownership.outputs.containment_required == 'true'
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Validate canonical state and the approved zero-runtime holding artifact
+        id: holding
+        if: steps.canonical-ownership.outputs.containment_required == 'true'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID }}
+          EXPECTED_GITHUB_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ steps.privileged-classification.outputs.candidate_run_attempt }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.event.workflow_run.id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$APP_BASE_URL" = "https://app.kinresolve.com"
+          [[ "$APPROVED_HOLDING_DEPLOYMENT_ID" =~ ^dpl_[A-Za-z0-9]{8,96}$ ]]
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test -n "$VERCEL_TOKEN"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          canonical_host="${APP_BASE_URL#https://}"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$canonical_host$scope_query" \
+            --output "$RUNNER_TEMP/containment-canonical.json"
+          ownership_output="$RUNNER_TEMP/containment-canonical-output"
+          : > "$ownership_output"
+          GITHUB_OUTPUT="$ownership_output" node --experimental-strip-types \
+            scripts/validate-vercel-deployment.mjs containment \
+            "$RUNNER_TEMP/containment-canonical.json"
+          canonical_state="$(awk -F= '$1 == "canonical_state" { print substr($0, index($0, "=") + 1) }' "$ownership_output")"
+          containment_required="$(awk -F= '$1 == "containment_required" { print substr($0, index($0, "=") + 1) }' "$ownership_output")"
+          if [[ "$canonical_state" == "holding" && "$containment_required" == "false" ]]; then
+            printf 'canonical_state=holding\n' >> "$GITHUB_OUTPUT"
+            printf 'needs_rollback=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$canonical_state" == "other-release" && "$containment_required" == "false" ]]; then
+            printf 'canonical_state=other-release\n' >> "$GITHUB_OUTPUT"
+            printf 'needs_rollback=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$canonical_state" = "source-release"
+          test "$containment_required" = "true"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$APPROVED_HOLDING_DEPLOYMENT_ID$scope_query" \
+            --output "$RUNNER_TEMP/containment-holding.json"
+          APPROVED_HOLDING_DEPLOYMENT_ID="$APPROVED_HOLDING_DEPLOYMENT_ID" node -e '
+            const { readFileSync } = require("node:fs");
+            const value = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/containment-holding.json", "utf8"));
+            const ids = [value.id, value.uid].filter((item) => item !== undefined);
+            if (ids.length === 0 || ids.some((item) => item !== process.env.APPROVED_HOLDING_DEPLOYMENT_ID)) {
+              process.exit(1);
+            }
+          '
+          output_file="$RUNNER_TEMP/containment-holding-output"
+          GITHUB_OUTPUT="$output_file" node --experimental-strip-types \
+            scripts/validate-static-holding-deployment.mjs \
+            "$RUNNER_TEMP/containment-holding.json"
+          holding_url="$(awk -F= '$1 == "deployment_url" { print substr($0, index($0, "=") + 1) }' "$output_file")"
+          [[ "$holding_url" =~ ^https://[a-z0-9-]+\.vercel\.app$ ]]
+          printf 'canonical_state=source-release\n' >> "$GITHUB_OUTPUT"
+          printf 'needs_rollback=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Roll back to the approved holding artifact after containment and drain
+        if: steps.holding.outputs.needs_rollback == 'true'
+        timeout-minutes: 10
+        env:
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel rollback "$APPROVED_HOLDING_DEPLOYMENT_ID" --yes --timeout=5m
+
+      - name: Prove the canonical alias is on the approved holding deployment
+        if: steps.holding.outputs.needs_rollback == 'true'
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          canonical_host="${APP_BASE_URL#https://}"
+          for attempt in $(seq 1 20); do
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$canonical_host$scope_query" \
+                --output "$RUNNER_TEMP/containment-rollback.json" \
+              && env -u GITHUB_OUTPUT node --experimental-strip-types \
+                scripts/validate-vercel-deployment.mjs holding \
+                "$RUNNER_TEMP/containment-rollback.json"; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then exit 1; fi
+            sleep 3
+          done
+
+      - name: Prove rollback left production domain auto-assignment disabled
+        if: steps.holding.outputs.needs_rollback == 'true'
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "false"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/containment-project-after-rollback.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/containment-project-after-rollback.json"
+
+      - name: Record privacy-safe containment summary
+        if: always()
+        env:
+          CANONICAL_STATE: ${{ steps.canonical-ownership.outputs.canonical_state }}
+          CONTAINED: ${{ steps.contain-fence.outputs.contained }}
+          CONTAINMENT_REQUIRED: ${{ steps.canonical-ownership.outputs.containment_required }}
+          CLASSIFICATION_REASON: ${{ steps.privileged-classification.outputs.reason }}
+          SHOULD_CONTAIN: ${{ steps.privileged-classification.outputs.should_contain }}
+          HOLDING_ROLLBACK_REQUIRED: ${{ steps.holding.outputs.needs_rollback }}
+        run: |
+          {
+            printf '## Kin Resolve automatic release containment\n\n'
+            printf -- '- Source release run: %s\n' "$CONTAINMENT_SOURCE_RUN_ID"
+            printf -- '- Commit: %s\n' "$RELEASE_COMMIT"
+            printf -- '- Independent classification: %s (%s)\n' "${SHOULD_CONTAIN:-unresolved}" "${CLASSIFICATION_REASON:-unresolved}"
+            printf -- '- Canonical ownership: %s\n' "${CANONICAL_STATE:-unresolved}"
+            printf -- '- Containment required for this exact run attempt: %s\n' "${CONTAINMENT_REQUIRED:-unknown}"
+            printf -- '- Candidate-owning production attempt: %s\n' "${CONTAINMENT_CANDIDATE_RUN_ATTEMPT:-unresolved}"
+            printf -- '- Matching release fence found: %s\n' "${CONTAINED:-false}"
+            printf -- '- Holding rollback required: %s\n' "${HOLDING_ROLLBACK_REQUIRED:-false}"
+            printf -- '- Cron follow-up: verify or disable both schedules in the Vercel dashboard before resuming service.\n'
+          } >> "$GITHUB_STEP_SUMMARY"

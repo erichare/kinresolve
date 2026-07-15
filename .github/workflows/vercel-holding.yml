@@ -1,0 +1,409 @@
+name: Deploy Kin Resolve static holding page
+run-name: Kin Resolve static holding ${{ inputs.target }} run ${{ github.run_id }} attempt ${{ github.run_attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Protected release cell that will receive the holding deployment
+        required: true
+        type: choice
+        options:
+          - beta-staging
+          - production
+      holding_commit:
+        description: Full 40-character commit SHA currently selected on main
+        required: true
+        type: string
+      promotion_acknowledgement:
+        description: Leave blank to stage only; use the documented exact acknowledgement to promote
+        required: false
+        default: ""
+        type: string
+      auto_assignment_acknowledgement:
+        description: Exact acknowledgement that protected Vercel dashboard auto-assignment is disabled
+        required: true
+        type: string
+      deployment_protection_acknowledgement:
+        description: Exact acknowledgement that Standard Protection covers every generated URL with no exceptions
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: kinresolve-beta-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  safety:
+    name: Require prior automatic safety work to finish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the trusted safety gate from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js for the credential-free safety gate
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Refuse to overtake unresolved containment or cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: holding
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+  holding:
+    needs: safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.target }}
+    outputs:
+      app_base_url: ${{ steps.dispatch.outputs.app_base_url }}
+      deployment_id: ${{ steps.holding-candidate.outputs.deployment_id }}
+      deployment_url: ${{ steps.holding-candidate.outputs.deployment_url }}
+      promoted: ${{ steps.holding-promoted.outcome == 'success' }}
+      target: ${{ steps.dispatch.outputs.target }}
+    steps:
+      - name: Validate the manual request before checkout
+        id: dispatch
+        env:
+          EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          AUTO_ASSIGNMENT_ACKNOWLEDGEMENT: ${{ inputs.auto_assignment_acknowledgement }}
+          DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT: ${{ inputs.deployment_protection_acknowledgement }}
+          GITHUB_REF_VALUE: ${{ github.ref }}
+          HOLDING_COMMIT: ${{ inputs.holding_commit }}
+          PROMOTION_ACKNOWLEDGEMENT: ${{ inputs.promotion_acknowledgement }}
+          TARGET: ${{ inputs.target }}
+          TARGET_APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          TARGET_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          production_app_base_url="https://app.kinresolve.com"
+          production_vercel_project_id="prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+          test "$GITHUB_REF_VALUE" = "refs/heads/main"
+          [[ "$HOLDING_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$HOLDING_COMMIT" = "$EXPECTED_GITHUB_SHA"
+          test "$AUTO_ASSIGNMENT_ACKNOWLEDGEMENT" = "I acknowledge Vercel production deployment auto-assignment is disabled in the protected project dashboard."
+          test "$DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT" = "I acknowledge Vercel Standard Protection covers every generated deployment URL and has no exceptions."
+          [[ "$TARGET_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$TARGET_APP_BASE_URL" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]{2,251}[A-Za-z0-9]$ ]]
+
+          case "$TARGET" in
+            beta-staging)
+              exact_acknowledgement="PROMOTE KIN RESOLVE STATIC HOLDING TO BETA-STAGING"
+              summary_secret_name="STAGING_HOLDING_DEPLOYMENT_ID"
+              test "$TARGET_APP_BASE_URL" != "$production_app_base_url"
+              test "$TARGET_VERCEL_PROJECT_ID" != "$production_vercel_project_id"
+              ;;
+            production)
+              exact_acknowledgement="PROMOTE KIN RESOLVE STATIC HOLDING TO APP.KINRESOLVE.COM"
+              summary_secret_name="FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID"
+              test "$TARGET_APP_BASE_URL" = "$production_app_base_url"
+              test "$TARGET_VERCEL_PROJECT_ID" = "$production_vercel_project_id"
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+
+          app_base_url="$TARGET_APP_BASE_URL"
+          if [[ -z "$PROMOTION_ACKNOWLEDGEMENT" ]]; then
+            promote="false"
+          else
+            test "$PROMOTION_ACKNOWLEDGEMENT" = "$exact_acknowledgement"
+            promote="true"
+          fi
+          {
+            printf 'promote=%s\n' "$promote"
+            printf 'app_base_url=%s\n' "$app_base_url"
+            printf 'expected_vercel_project_id=%s\n' "$TARGET_VERCEL_PROJECT_ID"
+            printf 'summary_secret_name=%s\n' "$summary_secret_name"
+            printf 'target=%s\n' "$TARGET"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact holding revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.holding_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Recheck the safety queue for this holding attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: holding
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Verify exact main provenance
+        env:
+          HOLDING_COMMIT: ${{ inputs.holding_commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          checked_out_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+          resolved_holding_commit="$(git rev-parse --verify --end-of-options "${HOLDING_COMMIT}^{commit}")"
+          test "$checked_out_commit" = "$HOLDING_COMMIT"
+          test "$resolved_holding_commit" = "$HOLDING_COMMIT"
+          git merge-base --is-ancestor "$HOLDING_COMMIT" origin/main
+
+      - name: Build the checked-in static holding artifact
+        run: npm run holding:build
+
+      - name: Verify zero-runtime holding output
+        run: npm run holding:verify
+
+      - name: Install the pinned Vercel CLI without deployment credentials
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Validate and link the product Vercel project
+        env:
+          EXPECTED_VERCEL_PROJECT_ID: ${{ steps.dispatch.outputs.expected_vercel_project_id }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          mkdir -p .vercel
+          node -e '
+            const { writeFileSync } = require("node:fs");
+            const project = {
+              orgId: process.env.VERCEL_ORG_ID,
+              projectId: process.env.VERCEL_PROJECT_ID
+            };
+            writeFileSync(".vercel/project.json", JSON.stringify(project) + "\n", { mode: 0o600 });
+          '
+
+      - name: Deploy the unaliased production-target holding candidate
+        id: holding-deploy
+        timeout-minutes: 10
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          deployment_url="$(vercel deploy --prebuilt --prod --skip-domain --yes \
+            --meta "releaseRole=kinresolve-static-holding-v1" \
+            --meta "databaseAccess=none" \
+            --meta "rollbackPolicy=forward-only" \
+            --meta "packageVersion=holding-v1")"
+          DEPLOYMENT_URL="$deployment_url" node -e '
+            const url = new URL(process.env.DEPLOYMENT_URL);
+            if (url.protocol !== "https:" || url.origin !== process.env.DEPLOYMENT_URL ||
+                !url.hostname.endsWith(".vercel.app") || url.hostname === "vercel.app") process.exit(1);
+          '
+          printf 'url=%s\n' "$deployment_url" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the holding candidate deployment record
+        timeout-minutes: 5
+        env:
+          DEPLOYMENT_URL: ${{ steps.holding-deploy.outputs.url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${DEPLOYMENT_URL#https://}"
+          [[ "$deployment_host" =~ ^[a-z0-9-]+\.vercel\.app$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 5 --max-time 20 \
+            --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/static-holding-candidate.json"
+
+      - name: Validate the exact unaliased holding candidate
+        id: holding-candidate
+        env:
+          APP_BASE_URL: ${{ steps.dispatch.outputs.app_base_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-static-holding-deployment.mjs "$RUNNER_TEMP/static-holding-candidate.json"
+
+      - name: Prove the generated holding candidate rejects unauthenticated access
+        timeout-minutes: 5
+        env:
+          HOLDING_DEPLOYMENT_URL: ${{ steps.holding-candidate.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          status="$(curl --connect-timeout 5 --max-time 20 --retry 3 --retry-all-errors \
+            --silent --show-error \
+            --output "$RUNNER_TEMP/static-holding-unauthenticated.html" \
+            --write-out '%{http_code}' \
+            "$HOLDING_DEPLOYMENT_URL/")"
+          case "$status" in
+            401|403) ;;
+            *) exit 1 ;;
+          esac
+          if grep -Fq "Kin Resolve" "$RUNNER_TEMP/static-holding-unauthenticated.html"; then
+            echo "Unauthenticated request reached the Kin Resolve holding page." >&2
+            exit 1
+          fi
+
+      - name: Smoke the protected holding candidate with automation bypass
+        timeout-minutes: 5
+        env:
+          HOLDING_DEPLOYMENT_URL: ${{ steps.holding-candidate.outputs.deployment_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          curl --connect-timeout 5 --max-time 20 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+            "$HOLDING_DEPLOYMENT_URL/" \
+            --output "$RUNNER_TEMP/static-holding-protected.html"
+          cmp "$RUNNER_TEMP/static-holding-protected.html" holding/login.html
+
+      - name: Promote the explicitly acknowledged static holding deployment
+        id: promote-holding
+        if: steps.dispatch.outputs.promote == 'true'
+        timeout-minutes: 10
+        env:
+          HOLDING_DEPLOYMENT_URL: ${{ steps.holding-candidate.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel promote "$HOLDING_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Disable and independently attest target domain auto-assignment
+        id: holding-domain-auto-assignment
+        if: steps.dispatch.outputs.promote == 'true'
+        timeout-minutes: 5
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "false"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          project_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request PATCH \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"autoAssignCustomDomains":false}' \
+            "$project_api" --output "$RUNNER_TEMP/static-holding-auto-assignment-patch.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$project_api" --output "$RUNNER_TEMP/static-holding-project.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/static-holding-project.json"
+
+      - name: Emergency-pause the target if domain auto-assignment cannot be disabled
+        if: >-
+          always() &&
+          steps.promote-holding.outcome == 'success' &&
+          steps.holding-domain-auto-assignment.outcome == 'failure'
+        timeout-minutes: 5
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "true"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query" \
+            --output "$RUNNER_TEMP/static-holding-emergency-pause.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/static-holding-project-after-emergency-pause.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/static-holding-project-after-emergency-pause.json"
+
+      - name: Wait for the canonical alias to resolve to the holding deployment
+        if: steps.dispatch.outputs.promote == 'true'
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ steps.dispatch.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.holding-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 30); do
+            rm -f "$RUNNER_TEMP/static-holding-promoted.json"
+            if curl --connect-timeout 5 --max-time 20 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/static-holding-promoted.json" \
+              && env -u GITHUB_OUTPUT node --experimental-strip-types \
+                scripts/validate-vercel-deployment.mjs holding \
+                "$RUNNER_TEMP/static-holding-promoted.json"; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq 30 ]]; then exit 1; fi
+            sleep 2
+          done
+
+      - name: Validate the promoted canonical holding deployment
+        id: holding-promoted
+        if: steps.dispatch.outputs.promote == 'true'
+        env:
+          APP_BASE_URL: ${{ steps.dispatch.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.holding-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding "$RUNNER_TEMP/static-holding-promoted.json"
+
+      - name: Record the holding deployment ID
+        if: always() && steps.holding-candidate.outcome == 'success'
+        env:
+          APP_BASE_URL: ${{ steps.dispatch.outputs.app_base_url }}
+          DEPLOYMENT_ID: ${{ steps.holding-candidate.outputs.deployment_id }}
+          DEPLOYMENT_URL: ${{ steps.holding-candidate.outputs.deployment_url }}
+          PROMOTED: ${{ steps.holding-promoted.outcome == 'success' }}
+          SUMMARY_SECRET_NAME: ${{ steps.dispatch.outputs.summary_secret_name }}
+          TARGET: ${{ steps.dispatch.outputs.target }}
+        run: |
+          {
+            printf '## Kin Resolve static holding deployment\n\n'
+            printf -- '- Target: %s\n' "$TARGET"
+            printf -- '- %s=%s\n' "$SUMMARY_SECRET_NAME" "$DEPLOYMENT_ID"
+            printf -- '- Candidate: %s\n' "$DEPLOYMENT_URL"
+            printf -- '- Promoted to %s: %s\n' "$APP_BASE_URL" "$PROMOTED"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove generated deployment material
+        if: always()
+        run: |
+          rm -f .vercel/project.json
+          rm -rf .vercel/output

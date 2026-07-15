@@ -49,7 +49,36 @@ describe("GET /api/health", () => {
         gedcomPersonLimit: 40_000
       },
       ai: { enabled: false, configured: false },
+      scheduledWrites: { valid: true, configured: true, enabled: true },
       storage: { configured: true }
+    });
+  });
+
+  it("stays ready while an explicitly valid staging scheduled-write gate is disabled", async () => {
+    runtimeMocks.getRuntimeStatus.mockResolvedValue(
+      runtimeStatus(true, {}, {}, { enabled: false })
+    );
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "ok",
+      scheduledWrites: { valid: true, configured: true, enabled: false }
+    });
+  });
+
+  it("reports degraded readiness when hosted scheduled-write configuration is invalid", async () => {
+    runtimeMocks.getRuntimeStatus.mockResolvedValue(
+      runtimeStatus(true, {}, {}, { valid: false, configured: false, enabled: false })
+    );
+
+    const response = await GET();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "degraded",
+      scheduledWrites: { valid: false, configured: false, enabled: false }
     });
   });
 
@@ -116,6 +145,11 @@ function runtimeStatus(
   }> = {},
   capabilityOverrides: Partial<{
     valid: boolean;
+  }> = {},
+  scheduledWritesOverrides: Partial<{
+    valid: boolean;
+    configured: boolean;
+    enabled: boolean;
   }> = {}
 ) {
   return {
@@ -124,6 +158,10 @@ function runtimeStatus(
     database: {
       configured: true,
       connected: true,
+      identityConfigured: true,
+      identity: "a".repeat(64),
+      identityMatchesConfigured: true,
+      transportVerified: true,
       archiveId: "archive-synthetic",
       archiveName: "Synthetic archive",
       archiveTagline: "",
@@ -160,6 +198,16 @@ function runtimeStatus(
       gedcomPersonLimit: 40_000,
       ...capabilityOverrides
     },
-    storage: { configured: storageConfigured }
+    scheduledWrites: {
+      valid: true,
+      configured: true,
+      enabled: true,
+      ...scheduledWritesOverrides
+    },
+    storage: {
+      configured: storageConfigured,
+      identityConfigured: true,
+      identityVerified: storageConfigured
+    }
   };
 }

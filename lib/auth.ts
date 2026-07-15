@@ -3,8 +3,9 @@ import { nextCookies } from "better-auth/next-js";
 import { getPool } from "./db";
 
 // Session lifetime: 30 days hard expiry, refreshed at most once a day. The
-// proxy validates sessions but cannot forward refresh Set-Cookie headers, so
-// refreshes happen on route-handler traffic; sessions still hard-expire.
+// proxy validates sessions but cannot forward refresh Set-Cookie headers.
+// Defer refresh makes GET session checks read-only; Better Auth performs any
+// refresh through its POST path, which the release fence can centrally block.
 const sessionExpirySeconds = 60 * 60 * 24 * 30;
 const sessionUpdateAgeSeconds = 60 * 60 * 24;
 
@@ -26,7 +27,8 @@ function buildAuth() {
     },
     session: {
       expiresIn: sessionExpirySeconds,
-      updateAge: sessionUpdateAgeSeconds
+      updateAge: sessionUpdateAgeSeconds,
+      deferSessionRefresh: true
     },
     // Better Auth skips origin validation by default in NODE_ENV=test.
     // Opt in explicitly so the same CSRF boundary is enforced and exercised

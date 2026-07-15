@@ -1,8 +1,16 @@
-import { query } from "./db";
+import { createHash } from "node:crypto";
+import { getPool, query } from "./db";
+import { isDatabaseTransportVerified } from "./connection-string";
+import {
+  databaseIdentityPattern,
+  readDatabaseIdentity
+} from "./database-attestation";
 import { datasetModes, type DatasetMode, type DeploymentMode } from "./hosted-config";
 import { resolveHostedCapabilities, type HostedCapabilities } from "./hosted-capabilities";
 import { demoFixtureVersion, getArchiveId } from "./workspace-store";
 import { APP_VERSION } from "./app-version";
+import { createConfiguredArchiveObjectStorage } from "./storage/object-storage";
+import { getScheduledWritesStatus, type ScheduledWritesStatus } from "./scheduled-writes";
 
 export type RuntimeStatus = {
   product: "KinSleuth";
@@ -10,6 +18,10 @@ export type RuntimeStatus = {
   database: {
     configured: boolean;
     connected: boolean;
+    identityConfigured: boolean;
+    identity: string | null;
+    identityMatchesConfigured: boolean;
+    transportVerified: boolean;
     archiveId: string;
     archiveName: string;
     archiveTagline: string;
@@ -34,7 +46,10 @@ export type RuntimeStatus = {
   };
   storage: {
     configured: boolean;
+    identityConfigured: boolean;
+    identityVerified: boolean;
   };
+  scheduledWrites: ScheduledWritesStatus;
   capabilities: {
     valid: boolean;
     deploymentMode: DeploymentMode | null;
@@ -57,12 +72,14 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   const capabilityResolution = resolveRuntimeCapabilities();
   const capabilities = capabilityResolution.status;
   const ai = getAIStatus(capabilities);
-  const storage = getStorageStatus();
+  const storage = await getStorageIdentityStatus(archiveId);
+  const scheduledWrites = getScheduledWritesStatus();
   const expectedDatasetMode = capabilities.valid && (
     capabilities.deploymentMode === "hosted" || Boolean(process.env.KINRESOLVE_DATASET_MODE?.trim())
   )
     ? capabilities.datasetMode
     : null;
+  const identityStatus = await getDatabaseIdentityStatus(databaseUrl);
 
   if (!capabilities.valid) {
     return {
@@ -70,10 +87,12 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       version: APP_VERSION,
       ai,
       storage,
+      scheduledWrites,
       capabilities,
       database: {
         configured: Boolean(databaseUrl),
         connected: false,
+        ...identityStatus,
         archiveId,
         archiveName: "",
         archiveTagline: "",
@@ -97,10 +116,12 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       version: APP_VERSION,
       ai,
       storage,
+      scheduledWrites,
       capabilities,
       database: {
         configured: false,
         connected: false,
+        ...identityStatus,
         archiveId,
         archiveName: "",
         archiveTagline: "",
@@ -160,10 +181,12 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       version: APP_VERSION,
       ai,
       storage,
+      scheduledWrites,
       capabilities,
       database: {
         configured: true,
         connected: true,
+        ...identityStatus,
         archiveId,
         archiveName: row?.archive_name ?? "",
         archiveTagline: row?.archive_tagline ?? "",
@@ -185,10 +208,12 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       version: APP_VERSION,
       ai,
       storage,
+      scheduledWrites,
       capabilities,
       database: {
         configured: true,
         connected: false,
+        ...identityStatus,
         archiveId,
         archiveName: "",
         archiveTagline: "",
@@ -205,6 +230,37 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       }
     };
   }
+}
+
+async function getDatabaseIdentityStatus(databaseUrl: string | undefined): Promise<{
+  identityConfigured: boolean;
+  identity: string | null;
+  identityMatchesConfigured: boolean;
+  transportVerified: boolean;
+}> {
+  const configuredIdentity = process.env.KINRESOLVE_DATABASE_IDENTITY?.trim() ?? "";
+  const identityConfigured = databaseIdentityPattern.test(configuredIdentity);
+  if (!databaseUrl) {
+    return {
+      identityConfigured,
+      identity: null,
+      identityMatchesConfigured: false,
+      transportVerified: false
+    };
+  }
+
+  let identity: string | null = null;
+  try {
+    identity = (await readDatabaseIdentity(getPool({ databaseUrl }))).fingerprint;
+  } catch {
+    // The public health contract reports only the safe readiness booleans below.
+  }
+  return {
+    identityConfigured,
+    identity,
+    identityMatchesConfigured: identityConfigured && identity === configuredIdentity,
+    transportVerified: isDatabaseTransportVerified(databaseUrl)
+  };
 }
 
 function isDatasetMode(value: string): value is DatasetMode {
@@ -278,18 +334,38 @@ export function getStorageStatus(): RuntimeStatus["storage"] {
   const backend = process.env.KINRESOLVE_OBJECT_STORAGE_BACKEND?.trim().toLowerCase();
 
   if (backend === "vercel-blob") {
-    return { configured: Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim()) };
+    return storageStatus(Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim()));
   }
 
   if (backend === "s3") {
     const hasAccessKey = Boolean(process.env.S3_ACCESS_KEY_ID?.trim());
     const hasSecretKey = Boolean(process.env.S3_SECRET_ACCESS_KEY?.trim());
-    return {
-      configured: Boolean(process.env.S3_BUCKET?.trim()) && hasAccessKey === hasSecretKey
-    };
+    return storageStatus(Boolean(process.env.S3_BUCKET?.trim()) && hasAccessKey === hasSecretKey);
   }
 
-  return {
-    configured: false
-  };
+  return storageStatus(false);
+}
+
+function storageStatus(configured: boolean): RuntimeStatus["storage"] {
+  const identityConfigured = /^[a-f0-9]{64}$/.test(
+    process.env.KINRESOLVE_OBJECT_STORAGE_IDENTITY?.trim() ?? ""
+  );
+  return { configured, identityConfigured, identityVerified: false };
+}
+
+async function getStorageIdentityStatus(archiveId: string): Promise<RuntimeStatus["storage"]> {
+  const status = getStorageStatus();
+  const identity = process.env.KINRESOLVE_OBJECT_STORAGE_IDENTITY?.trim() ?? "";
+  if (!status.configured || !status.identityConfigured) return status;
+
+  try {
+    const bytes = await createConfiguredArchiveObjectStorage().read({
+      archiveId,
+      key: `archives/${archiveId}/release-readiness/${identity}`
+    });
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    return { ...status, identityVerified: actual === identity };
+  } catch {
+    return status;
+  }
 }

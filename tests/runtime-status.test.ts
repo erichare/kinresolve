@@ -70,7 +70,36 @@ describe("runtime status", () => {
       gedcomPersonLimit: hostedGedcomPersonLimit
     });
     expect(status.ai).toMatchObject({ enabled: false, configured: false });
+    expect(status.scheduledWrites).toEqual({ valid: true, configured: true, enabled: true });
   });
+
+  it("exposes an explicit disabled staging value without treating it as invalid", async () => {
+    setPrivateBetaEnvironment();
+    process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED = "false";
+    delete process.env.DATABASE_URL;
+
+    const status = await getRuntimeStatus();
+
+    expect(status.scheduledWrites).toEqual({ valid: true, configured: true, enabled: false });
+  });
+
+  it.each([undefined, "invalid"])(
+    "fails closed for a hosted scheduled-write value of %s",
+    async (value) => {
+      setPrivateBetaEnvironment();
+      if (value === undefined) delete process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED;
+      else process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED = value;
+      delete process.env.DATABASE_URL;
+
+      const status = await getRuntimeStatus();
+
+      expect(status.scheduledWrites).toEqual({
+        valid: false,
+        configured: value !== undefined,
+        enabled: false
+      });
+    }
+  );
 
   it("fails closed when a hosted capability configuration is invalid", async () => {
     setPrivateBetaEnvironment();
@@ -122,22 +151,42 @@ describe("runtime status", () => {
     delete process.env.S3_BUCKET;
     delete process.env.S3_ACCESS_KEY_ID;
     delete process.env.S3_SECRET_ACCESS_KEY;
-    expect(getStorageStatus()).toEqual({ configured: false });
+    expect(getStorageStatus()).toEqual({
+      configured: false,
+      identityConfigured: false,
+      identityVerified: false
+    });
 
     process.env.KINRESOLVE_OBJECT_STORAGE_BACKEND = "vercel-blob";
     process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test";
-    expect(getStorageStatus()).toEqual({ configured: true });
+    expect(getStorageStatus()).toEqual({
+      configured: true,
+      identityConfigured: false,
+      identityVerified: false
+    });
 
     delete process.env.BLOB_READ_WRITE_TOKEN;
     process.env.KINRESOLVE_OBJECT_STORAGE_BACKEND = "s3";
     process.env.S3_BUCKET = "kinresolve-private";
-    expect(getStorageStatus()).toEqual({ configured: true });
+    expect(getStorageStatus()).toEqual({
+      configured: true,
+      identityConfigured: false,
+      identityVerified: false
+    });
 
     process.env.S3_ACCESS_KEY_ID = "partial-credential";
-    expect(getStorageStatus()).toEqual({ configured: false });
+    expect(getStorageStatus()).toEqual({
+      configured: false,
+      identityConfigured: false,
+      identityVerified: false
+    });
 
     process.env.S3_SECRET_ACCESS_KEY = "matching-secret";
-    expect(getStorageStatus()).toEqual({ configured: true });
+    expect(getStorageStatus()).toEqual({
+      configured: true,
+      identityConfigured: false,
+      identityVerified: false
+    });
   });
 });
 
@@ -151,6 +200,7 @@ function setPrivateBetaEnvironment() {
     KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
     KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
     KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
-    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true",
+    KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
   });
 }

@@ -1,0 +1,763 @@
+name: Production recovery evidence
+run-name: Kin Resolve recovery run ${{ github.run_id }} attempt ${{ github.run_attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact 40-character commit on main to recover and release
+        required: true
+        type: string
+      release_version:
+        description: Exact package version at that commit
+        required: true
+        type: string
+      auto_assignment_acknowledgement:
+        description: Exact acknowledgement that protected Vercel dashboard auto-assignment is disabled
+        required: true
+        type: string
+      deployment_protection_acknowledgement:
+        description: Exact acknowledgement that Standard Protection covers every generated deployment URL
+        required: true
+        type: string
+      target_destruction_acknowledgement:
+        description: Exact acknowledgement authorizing destruction of the disposable recovery target
+        required: true
+        type: string
+      writer_perimeter_acknowledgement:
+        description: Exact acknowledgement that the protected production writer perimeter is exclusive
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kinresolve-beta-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  safety:
+    name: Require prior automatic safety work to finish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the trusted safety gate from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js for the credential-free safety gate
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Refuse to overtake unresolved containment or cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: recovery
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+  recover:
+    needs: safety
+    name: Prove encrypted production recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production-recovery
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_COMMIT: ${{ inputs.release_commit }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      PRODUCTION_APP_BASE_URL: ${{ vars.PRODUCTION_APP_BASE_URL }}
+      EXPECTED_ARCHIVE_ID: ${{ vars.EXPECTED_ARCHIVE_ID }}
+      KINRESOLVE_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
+      KINRESOLVE_OBJECT_STORAGE_IDENTITY: ${{ vars.KINRESOLVE_OBJECT_STORAGE_IDENTITY }}
+      KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID: ${{ vars.KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID }}
+      RECOVERY_TARGET_DATABASE_IDENTITY: ${{ vars.RECOVERY_TARGET_DATABASE_IDENTITY }}
+      RECOVERY_TARGET_DATABASE_REPLACEMENT_POLICY: ${{ vars.RECOVERY_TARGET_DATABASE_REPLACEMENT_POLICY }}
+      RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY: ${{ vars.RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY }}
+      RECOVERY_TARGET_OBJECT_STORAGE_PROVIDER_ID: ${{ vars.RECOVERY_TARGET_OBJECT_STORAGE_PROVIDER_ID }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      RECOVERY_TARGET_SUPABASE_PROJECT_REF: ${{ vars.RECOVERY_TARGET_SUPABASE_PROJECT_REF }}
+      RECOVERY_AGE_RECIPIENT: ${{ vars.RECOVERY_AGE_RECIPIENT }}
+      RECOVERY_BACKUP_S3_BUCKET: ${{ vars.RECOVERY_BACKUP_S3_BUCKET }}
+      RECOVERY_BACKUP_S3_REGION: ${{ vars.RECOVERY_BACKUP_S3_REGION }}
+      RECOVERY_BACKUP_S3_ENDPOINT: ${{ vars.RECOVERY_BACKUP_S3_ENDPOINT }}
+
+    steps:
+      - name: Require exact main dispatch and protected configuration
+        shell: bash
+        env:
+          AUTO_ASSIGNMENT_ACKNOWLEDGEMENT: ${{ inputs.auto_assignment_acknowledgement }}
+          DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT: ${{ inputs.deployment_protection_acknowledgement }}
+          TARGET_DESTRUCTION_ACKNOWLEDGEMENT: ${{ inputs.target_destruction_acknowledgement }}
+          WRITER_PERIMETER_ACKNOWLEDGEMENT: ${{ inputs.writer_perimeter_acknowledgement }}
+        run: |
+          set -euo pipefail
+          test "${AUTO_ASSIGNMENT_ACKNOWLEDGEMENT}" = "I acknowledge Vercel production deployment auto-assignment is disabled in the protected project dashboard."
+          test "${DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT}" = "I acknowledge Vercel Standard Protection covers every generated deployment URL and has no exceptions."
+          test "${TARGET_DESTRUCTION_ACKNOWLEDGEMENT}" = "DESTROY DISPOSABLE KIN RESOLVE RECOVERY TARGET AFTER PROOF"
+          test "${WRITER_PERIMETER_ACKNOWLEDGEMENT}" = "I acknowledge the production writer perimeter contains only the canonical Vercel runtime and protected GitHub release/recovery workflows; no external workers, SQL/API writers, or shared database/Blob credentials remain."
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_SHA}" = "${RELEASE_COMMIT}"
+          [[ "${RELEASE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          required=(
+            PRODUCTION_APP_BASE_URL EXPECTED_ARCHIVE_ID KINRESOLVE_DATABASE_IDENTITY
+            KINRESOLVE_OBJECT_STORAGE_IDENTITY KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID
+            RECOVERY_TARGET_DATABASE_IDENTITY RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY
+            RECOVERY_TARGET_OBJECT_STORAGE_PROVIDER_ID SUPABASE_PROJECT_REF
+            RECOVERY_TARGET_SUPABASE_PROJECT_REF RECOVERY_AGE_RECIPIENT
+            RECOVERY_BACKUP_S3_BUCKET RECOVERY_BACKUP_S3_REGION
+          )
+          for name in "${required[@]}"; do test -n "${!name}"; done
+          test "${KINRESOLVE_DATABASE_IDENTITY}" != "${RECOVERY_TARGET_DATABASE_IDENTITY}"
+          test "${KINRESOLVE_OBJECT_STORAGE_IDENTITY}" != "${RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY}"
+          test "${KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID}" != "${RECOVERY_TARGET_OBJECT_STORAGE_PROVIDER_ID}"
+          [[ "${SUPABASE_PROJECT_REF}" =~ ^[a-z0-9]{20}$ ]]
+          [[ "${RECOVERY_TARGET_SUPABASE_PROJECT_REF}" =~ ^[a-z0-9]{20}$ ]]
+          test "${SUPABASE_PROJECT_REF}" != "${RECOVERY_TARGET_SUPABASE_PROJECT_REF}"
+          test "${RECOVERY_TARGET_DATABASE_REPLACEMENT_POLICY}" = "identity-bound-disposable-v1"
+          [[ "${PRODUCTION_APP_BASE_URL}" =~ ^https://[^/]+$ ]]
+          work="${RUNNER_TEMP}/kinresolve-production-recovery"
+          install -d -m 700 "${work}"
+          echo "RECOVERY_WORK=${work}" >> "${GITHUB_ENV}"
+          fence_id="fence-recovery-${RELEASE_COMMIT}"
+          echo "RECOVERY_FENCE_ID=${fence_id}" >> "${GITHUB_ENV}"
+
+      - name: Check out the exact candidate
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify candidate provenance and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "${RELEASE_COMMIT}"
+          test "$(git rev-parse origin/main)" = "${RELEASE_COMMIT}"
+          node -e 'const p=require("./package.json"); if (p.version!==process.env.RELEASE_VERSION) process.exit(1)'
+
+      - name: Install exact dependencies and recovery tools
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Recheck the safety queue for this recovery attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: recovery
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Validate the checked-in Vercel deployment bypass guard
+        run: npm run vercel:config:validate
+
+      - name: Install dependencies and OS tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          sudo apt-get update
+          sudo apt-get install --yes age postgresql-client
+
+      - name: Create the immutable source-run cleanup lease before protected mutations
+        shell: bash
+        env:
+          SOURCE_HEAD_SHA: ${{ env.RELEASE_COMMIT }}
+          SOURCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/recovery-cleanup-lease.mjs create \
+            "${RECOVERY_WORK}/production-recovery-cleanup-lease.json"
+
+      - name: Publish the immutable source-run cleanup lease before protected mutations
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-recovery-cleanup-lease-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/kinresolve-production-recovery/production-recovery-cleanup-lease.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Install the pinned Vercel CLI before loading deployment credentials
+        shell: bash
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Validate protected Vercel recovery credentials
+        shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ "${VERCEL_ORG_ID}" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "${VERCEL_PROJECT_ID}" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test -n "${VERCEL_TOKEN}"
+          test -n "${VERCEL_AUTOMATION_BYPASS_SECRET}"
+
+      - name: Pull and validate exact production project settings
+        shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          vercel pull --yes --environment=production
+          scope_query="?limit=100"
+          if [[ "${VERCEL_ORG_ID}" == team_* ]]; then scope_query="${scope_query}&teamId=${VERCEL_ORG_ID}"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env${scope_query}" \
+            --output "${RECOVERY_WORK}/production-environment.json"
+          node --experimental-strip-types scripts/validate-vercel-environment.mjs \
+            "${RECOVERY_WORK}/production-environment.json"
+
+      - name: Capture the canonical holding deployment before recovery
+        id: canonical-before-recovery
+        shell: bash
+        env:
+          APP_BASE_URL: ${{ env.PRODUCTION_APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${PRODUCTION_APP_BASE_URL#https://}"
+          [[ "${deployment_host}" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "${VERCEL_ORG_ID}" == team_* ]]; then scope_query="?teamId=${VERCEL_ORG_ID}"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${deployment_host}${scope_query}" \
+            --output "${RECOVERY_WORK}/canonical-before-recovery.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+            "${RECOVERY_WORK}/canonical-before-recovery.json"
+
+      - name: Acquire or resume the exact-SHA production write fence before deployment
+        shell: bash
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ env.KINRESOLVE_DATABASE_IDENTITY }}
+          RELEASE_FENCE_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npm run --silent release:fence:control -- acquire > "${RECOVERY_WORK}/fence-acquire-direct.json"
+          jq -e '
+            .found == true and
+            (.transition == "acquired" or .transition == "already-active") and
+            .fence.fenceId == env.RECOVERY_FENCE_ID and
+            .fence.releaseCommitSha == env.RELEASE_COMMIT and
+            .fence.state == "active"
+          ' "${RECOVERY_WORK}/fence-acquire-direct.json" > /dev/null
+          jq '{
+            activatedAt: .fence.activatedAt,
+            activationGeneration: .fence.activationGeneration,
+            active: (.fence.state == "active"),
+            fenceId: .fence.fenceId,
+            releaseCommitSha: .fence.releaseCommitSha,
+            released: (.fence.state == "released"),
+            transition: .transition
+          }' "${RECOVERY_WORK}/fence-acquire-direct.json" \
+            > "${RECOVERY_WORK}/fence-acquire-raw.json"
+          node --experimental-strip-types scripts/validate-recovery-fence-response.mjs \
+            acquire "${RECOVERY_WORK}/fence-acquire-raw.json" "${RECOVERY_WORK}/fence-acquire.json"
+          activated_at=$(jq -er '.activatedAt' "${RECOVERY_WORK}/fence-acquire.json")
+          echo "FENCE_ACTIVATED_AT=${activated_at}" >> "${GITHUB_ENV}"
+
+      - name: Build the exact-SHA unaliased production recovery candidate
+        shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel build --prod
+
+      - name: Deploy the exact-SHA unaliased production recovery candidate
+        id: recovery-deploy
+        shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_url=$(vercel deploy --prebuilt --prod --skip-domain --yes \
+            --meta "githubCommitSha=${RELEASE_COMMIT}" \
+            --meta "githubRunId=${GITHUB_RUN_ID}" \
+            --meta "githubRunAttempt=${GITHUB_RUN_ATTEMPT}" \
+            --meta "releaseTag=v${RELEASE_VERSION}" \
+            --meta "packageVersion=${RELEASE_VERSION}")
+          DEPLOYMENT_URL="${deployment_url}" node -e '
+            const url = new URL(process.env.DEPLOYMENT_URL);
+            if (url.protocol !== "https:" || url.origin !== process.env.DEPLOYMENT_URL ||
+                !url.hostname.endsWith(".vercel.app") || url.hostname === "vercel.app") process.exit(1);
+          '
+          printf 'url=%s\n' "${deployment_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Fetch and validate the unaliased recovery candidate record
+        id: recovery-candidate
+        shell: bash
+        env:
+          APP_BASE_URL: ${{ env.PRODUCTION_APP_BASE_URL }}
+          DEPLOYMENT_URL: ${{ steps.recovery-deploy.outputs.url }}
+          EXPECTED_GITHUB_COMMIT_SHA: ${{ env.RELEASE_COMMIT }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+          PACKAGE_VERSION: ${{ env.RELEASE_VERSION }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.canonical-before-recovery.outputs.deployment_id }}
+          RELEASE_TAG: v${{ env.RELEASE_VERSION }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${DEPLOYMENT_URL#https://}"
+          [[ "${deployment_host}" =~ ^[a-z0-9-]+\.vercel\.app$ ]]
+          scope_query=""
+          if [[ "${VERCEL_ORG_ID}" == team_* ]]; then scope_query="?teamId=${VERCEL_ORG_ID}"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${deployment_host}${scope_query}" \
+            --output "${RECOVERY_WORK}/recovery-candidate.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs candidate \
+            "${RECOVERY_WORK}/recovery-candidate.json"
+
+      - name: Remove pulled production secrets and prebuilt output
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f .vercel/.env.production.local; then chmod 600 .vercel/.env.production.local; fi
+          rm -f .vercel/.env.production.local
+          rm -rf .vercel/output
+
+      - name: Prove the generated recovery URL is protected without a bypass
+        shell: bash
+        env:
+          RECOVERY_CONTROL_ORIGIN: ${{ steps.recovery-candidate.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --connect-timeout 10 --max-time 45 \
+            --output "${RECOVERY_WORK}/unbypassed-health-response.txt" \
+            --write-out '%{http_code}' \
+            "${RECOVERY_CONTROL_ORIGIN}/api/health")
+          test "${status}" = "401" || test "${status}" = "403"
+          RESPONSE_PATH="${RECOVERY_WORK}/unbypassed-health-response.txt" node -e '
+            const { readFileSync } = require("node:fs");
+            let value;
+            try { value = JSON.parse(readFileSync(process.env.RESPONSE_PATH, "utf8")); }
+            catch { process.exit(0); }
+            if (value && typeof value === "object" &&
+                ("product" in value || "database" in value || "capabilities" in value || value.status === "ok")) {
+              process.exit(1);
+            }
+          '
+
+      - name: Prove the exact-SHA recovery candidate observes the active production fence
+        shell: bash
+        env:
+          RECOVERY_CONTROL_ORIGIN: ${{ steps.recovery-candidate.outputs.deployment_url }}
+          RELEASE_FENCE_SECRET: ${{ secrets.RELEASE_FENCE_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_FENCE_SECRET}" =~ ^[A-Za-z0-9_-]{43,128}$ ]]
+          payload=$(jq -cn --arg fenceId "${RECOVERY_FENCE_ID}" --arg releaseCommitSha "${RELEASE_COMMIT}" \
+            '{fenceId:$fenceId,releaseCommitSha:$releaseCommitSha}')
+          status=$(curl --silent --show-error --request POST \
+            --header "Authorization: Bearer ${RELEASE_FENCE_SECRET}" \
+            --header "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+            --header "Content-Type: application/json" \
+            --data "${payload}" \
+            --output "${RECOVERY_WORK}/fence-candidate-assert-raw.json" \
+            --write-out '%{http_code}' \
+            "${RECOVERY_CONTROL_ORIGIN}/api/release/fence/assert")
+          test "${status}" = "200"
+          node --experimental-strip-types scripts/validate-recovery-fence-response.mjs \
+            assert "${RECOVERY_WORK}/fence-candidate-assert-raw.json" \
+            "${RECOVERY_WORK}/fence-candidate-assert.json" "${RECOVERY_WORK}/fence-acquire.json"
+
+      - name: Capture fenced production state before drain
+        shell: bash
+        env:
+          RECOVERY_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RECOVERY_DATABASE_CAPTURE_PHASE: source-prefix
+          EXPECTED_DATABASE_IDENTITY: ${{ env.KINRESOLVE_DATABASE_IDENTITY }}
+          RECOVERY_REQUIRE_STRAGGLER_PROOF: "true"
+          RECOVERY_BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          EXPECTED_OBJECT_STORAGE_IDENTITY: ${{ env.KINRESOLVE_OBJECT_STORAGE_IDENTITY }}
+          EXPECTED_OBJECT_STORAGE_PROVIDER_ID: ${{ env.KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/capture-recovery-database.mjs \
+            "${RECOVERY_WORK}/source-before-database.json"
+          node --experimental-strip-types scripts/capture-recovery-objects.mjs \
+            "${RECOVERY_WORK}/source-before-object-backup" "${RECOVERY_WORK}/source-before-objects.json"
+          node --experimental-strip-types scripts/combine-recovery-state.mjs \
+            "${RECOVERY_WORK}/source-before-database.json" "${RECOVERY_WORK}/source-before-objects.json" \
+            "${RECOVERY_WORK}/source-before-state.json"
+
+      - name: Enforce the full 31-minute quiescence interval
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 1860
+          node scripts/record-recovery-time.mjs "${RECOVERY_WORK}/drained-at.txt"
+
+      - name: Prove both authenticated cron writers are fenced
+        shell: bash
+        env:
+          RECOVERY_CONTROL_ORIGIN: ${{ steps.recovery-candidate.outputs.deployment_url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${RECOVERY_WORK}/cron-probes"
+          curl --silent --show-error --dump-header "${RECOVERY_WORK}/cron-probes/import-uploads.headers" \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            --header "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+            --output "${RECOVERY_WORK}/cron-probes/import-uploads.json" \
+            --write-out '%{http_code}' \
+            "${RECOVERY_CONTROL_ORIGIN}/api/cron/import-uploads" \
+            > "${RECOVERY_WORK}/cron-probes/import-uploads.status"
+          curl --silent --show-error --dump-header "${RECOVERY_WORK}/cron-probes/integration-jobs.headers" \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            --header "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+            --output "${RECOVERY_WORK}/cron-probes/integration-jobs.json" \
+            --write-out '%{http_code}' \
+            "${RECOVERY_CONTROL_ORIGIN}/api/cron/integration-jobs" \
+            > "${RECOVERY_WORK}/cron-probes/integration-jobs.status"
+          node --experimental-strip-types scripts/validate-fenced-cron-probes.mjs \
+            "${RECOVERY_WORK}/cron-probes" "${RECOVERY_WORK}/fence-acquire.json" \
+            "${RECOVERY_WORK}/cron-endpoints.json"
+
+      - name: Capture and require stable, idle production state after drain
+        shell: bash
+        env:
+          RECOVERY_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RECOVERY_DATABASE_CAPTURE_PHASE: source-prefix
+          EXPECTED_DATABASE_IDENTITY: ${{ env.KINRESOLVE_DATABASE_IDENTITY }}
+          RECOVERY_REQUIRE_STRAGGLER_PROOF: "true"
+          RECOVERY_BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          EXPECTED_OBJECT_STORAGE_IDENTITY: ${{ env.KINRESOLVE_OBJECT_STORAGE_IDENTITY }}
+          EXPECTED_OBJECT_STORAGE_PROVIDER_ID: ${{ env.KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/capture-recovery-database.mjs \
+            "${RECOVERY_WORK}/source-after-database.json"
+          jq -e '.activeJobLeases == 0 and .unexpiredUploadIntents == 0 and .stragglerTransactions == 0' \
+            "${RECOVERY_WORK}/source-after-database.json" > /dev/null
+          node --experimental-strip-types scripts/capture-recovery-objects.mjs \
+            "${RECOVERY_WORK}/source-after-object-backup" "${RECOVERY_WORK}/source-after-objects.json"
+          node --experimental-strip-types scripts/combine-recovery-state.mjs \
+            "${RECOVERY_WORK}/source-after-database.json" "${RECOVERY_WORK}/source-after-objects.json" \
+            "${RECOVERY_WORK}/source-after-state.json"
+          cmp --silent "${RECOVERY_WORK}/source-before-state.json" "${RECOVERY_WORK}/source-after-state.json"
+
+      - name: Require a fresh provider recovery point for the source project
+        shell: bash
+        env:
+          RECOVERY_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --output "${RECOVERY_WORK}/supabase-backups.json" \
+            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/backups"
+          node --experimental-strip-types scripts/validate-supabase-recovery-point.mjs \
+            "${RECOVERY_WORK}/supabase-backups.json" "${RECOVERY_WORK}/provider-recovery-point.json"
+
+      - name: Create encrypted logical database and object backups
+        shell: bash
+        env:
+          RECOVERY_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/recovery-database-tool.mjs \
+            dump "${RECOVERY_WORK}/database.dump"
+          age --recipient "${RECOVERY_AGE_RECIPIENT}" \
+            --output "${RECOVERY_WORK}/database.dump.age" "${RECOVERY_WORK}/database.dump"
+          tar --create --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            --file "${RECOVERY_WORK}/objects.tar" \
+            --directory "${RECOVERY_WORK}/source-after-object-backup" manifests objects
+          age --recipient "${RECOVERY_AGE_RECIPIENT}" \
+            --output "${RECOVERY_WORK}/objects.tar.age" "${RECOVERY_WORK}/objects.tar"
+          rm -f "${RECOVERY_WORK}/database.dump" "${RECOVERY_WORK}/objects.tar"
+          rm -rf "${RECOVERY_WORK}/source-before-object-backup" "${RECOVERY_WORK}/source-after-object-backup"
+
+      - name: Round-trip both encrypted backups through offsite storage
+        shell: bash
+        env:
+          RECOVERY_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.RECOVERY_BACKUP_S3_ACCESS_KEY_ID }}
+          RECOVERY_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.RECOVERY_BACKUP_S3_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          prefix="production-recovery/${RELEASE_COMMIT}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node scripts/recovery-offsite.mjs upload "${prefix}/database.dump.age" \
+            "${RECOVERY_WORK}/database.dump.age" "${RECOVERY_WORK}/database-upload.json"
+          node scripts/recovery-offsite.mjs upload "${prefix}/objects.tar.age" \
+            "${RECOVERY_WORK}/objects.tar.age" "${RECOVERY_WORK}/objects-upload.json"
+          database_sha=$(jq -er '.sha256' "${RECOVERY_WORK}/database-upload.json")
+          objects_sha=$(jq -er '.sha256' "${RECOVERY_WORK}/objects-upload.json")
+          rm -f "${RECOVERY_WORK}/database.dump.age" "${RECOVERY_WORK}/objects.tar.age"
+          node scripts/recovery-offsite.mjs download "${prefix}/database.dump.age" \
+            "${RECOVERY_WORK}/database-restored.dump.age" "${database_sha}" \
+            "${RECOVERY_WORK}/database-download.json"
+          node scripts/recovery-offsite.mjs download "${prefix}/objects.tar.age" \
+            "${RECOVERY_WORK}/objects-restored.tar.age" "${objects_sha}" \
+            "${RECOVERY_WORK}/objects-download.json"
+
+      - name: Decrypt only the provider-round-tripped backups
+        shell: bash
+        env:
+          RECOVERY_AGE_IDENTITY: ${{ secrets.RECOVERY_AGE_IDENTITY }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null "${RECOVERY_WORK}/age-identity.txt"
+          printf '%s\n' "${RECOVERY_AGE_IDENTITY}" > "${RECOVERY_WORK}/age-identity.txt"
+          age --decrypt --identity "${RECOVERY_WORK}/age-identity.txt" \
+            --output "${RECOVERY_WORK}/database-restored.dump" "${RECOVERY_WORK}/database-restored.dump.age"
+          age --decrypt --identity "${RECOVERY_WORK}/age-identity.txt" \
+            --output "${RECOVERY_WORK}/objects-restored.tar" "${RECOVERY_WORK}/objects-restored.tar.age"
+          install -d -m 700 "${RECOVERY_WORK}/restore-object-backup"
+          tar --extract --no-same-owner --no-same-permissions \
+            --file "${RECOVERY_WORK}/objects-restored.tar" \
+            --directory "${RECOVERY_WORK}/restore-object-backup"
+          rm -f "${RECOVERY_WORK}/age-identity.txt" "${RECOVERY_WORK}/database-restored.dump.age" \
+            "${RECOVERY_WORK}/objects-restored.tar.age" "${RECOVERY_WORK}/objects-restored.tar"
+
+      - name: Restore raw database into the distinct recovery target
+        shell: bash
+        env:
+          DATABASE_IDENTITY_URL: ${{ secrets.RECOVERY_TARGET_DATABASE_URL }}
+          RECOVERY_DATABASE_URL: ${{ secrets.RECOVERY_TARGET_DATABASE_URL }}
+          RECOVERY_DATABASE_CAPTURE_PHASE: restored-prefix
+          EXPECTED_DATABASE_IDENTITY: ${{ env.RECOVERY_TARGET_DATABASE_IDENTITY }}
+          RECOVERY_REQUIRE_STRAGGLER_PROOF: "false"
+          RECOVERY_TARGET_SUPABASE_PROJECT_REF: ${{ vars.RECOVERY_TARGET_SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          node scripts/record-recovery-time.mjs "${RECOVERY_WORK}/restore-started-at.txt"
+          node --experimental-strip-types scripts/database-identity.mjs > "${RECOVERY_WORK}/target-database-identity.txt"
+          test "$(tr -d '\n' < "${RECOVERY_WORK}/target-database-identity.txt")" = "${RECOVERY_TARGET_DATABASE_IDENTITY}"
+          install -m 600 /dev/null "${RECOVERY_WORK}/target-database-touched"
+          node --experimental-strip-types scripts/recovery-database-tool.mjs \
+            restore "${RECOVERY_WORK}/database-restored.dump"
+          rm -f "${RECOVERY_WORK}/database-restored.dump"
+          node --experimental-strip-types scripts/capture-recovery-database.mjs \
+            "${RECOVERY_WORK}/raw-restore-database.json"
+          test "$(jq -er '.manifestSha256' "${RECOVERY_WORK}/raw-restore-database.json")" = \
+            "$(jq -er '.manifestSha256' "${RECOVERY_WORK}/source-after-database.json")"
+          test "$(jq -c '.migrationVersions' "${RECOVERY_WORK}/raw-restore-database.json")" = \
+            "$(jq -c '.migrationVersions' "${RECOVERY_WORK}/source-after-database.json")"
+          node scripts/record-recovery-time.mjs "${RECOVERY_WORK}/pre-migration-restored-at.txt"
+
+      - name: Apply candidate migrations and require the exact candidate ledger
+        shell: bash
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.RECOVERY_TARGET_DATABASE_URL }}
+          RECOVERY_DATABASE_URL: ${{ secrets.RECOVERY_TARGET_DATABASE_URL }}
+          RECOVERY_DATABASE_CAPTURE_PHASE: candidate-final
+          EXPECTED_DATABASE_IDENTITY: ${{ env.RECOVERY_TARGET_DATABASE_IDENTITY }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ env.RECOVERY_TARGET_DATABASE_IDENTITY }}
+          RECOVERY_REQUIRE_STRAGGLER_PROOF: "false"
+        run: |
+          set -euo pipefail
+          node scripts/record-recovery-time.mjs "${RECOVERY_WORK}/migration-started-at.txt"
+          npm run db:migrate:production
+          npm run db:migrations:verify-production
+          node --experimental-strip-types scripts/capture-recovery-database.mjs \
+            "${RECOVERY_WORK}/post-migration-database.json"
+          jq -e '.candidateSemanticsVerified == true' \
+            "${RECOVERY_WORK}/post-migration-database.json" > /dev/null
+          node scripts/record-recovery-time.mjs "${RECOVERY_WORK}/migration-completed-at.txt"
+
+      - name: Attest a distinct bounded-privilege runtime credential on the exact target
+        shell: bash
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ env.RECOVERY_TARGET_DATABASE_IDENTITY }}
+          RECOVERY_TARGET_DATABASE_URL: ${{ secrets.RECOVERY_TARGET_DATABASE_URL }}
+          RECOVERY_TARGET_RUNTIME_DATABASE_URL: ${{ secrets.RECOVERY_TARGET_RUNTIME_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/attest-recovery-runtime-database.mjs \
+            "${RECOVERY_WORK}/runtime-database-attestation.json"
+
+      - name: Restore both namespaces into the distinct empty recovery store
+        shell: bash
+        env:
+          RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN: ${{ secrets.RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/restore-recovery-objects.mjs \
+            "${RECOVERY_WORK}/restore-object-backup" "${RECOVERY_WORK}/restored-objects.json" \
+            "${RECOVERY_WORK}/target-object-cleanup.json"
+          rm -rf "${RECOVERY_WORK}/restore-object-backup"
+
+      - name: Build and prove the restored candidate application health
+        shell: bash
+        env:
+          APP_BASE_URL: http://127.0.0.1:3100
+          RECOVERY_APP_ORIGIN: http://127.0.0.1:3100
+          AUTH_SECRET: ${{ secrets.RECOVERY_AUTH_SECRET }}
+          DATABASE_URL: ${{ secrets.RECOVERY_TARGET_RUNTIME_DATABASE_URL }}
+          DATABASE_AUTO_MIGRATE: "false"
+          DATABASE_POOL_MAX: "2"
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN }}
+          KINSLEUTH_ARCHIVE_ID: ${{ env.EXPECTED_ARCHIVE_ID }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ env.RECOVERY_TARGET_DATABASE_IDENTITY }}
+          KINRESOLVE_OBJECT_STORAGE_IDENTITY: ${{ env.RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY }}
+          KINRESOLVE_OBJECT_STORAGE_BACKEND: vercel-blob
+          KINRESOLVE_DEPLOYMENT_MODE: hosted
+          KINRESOLVE_DATASET_MODE: pilot
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
+          KINSLEUTH_ALLOW_SIGNUPS: "false"
+          KINRESOLVE_DNA_ENABLED: "false"
+          KINRESOLVE_EXTERNAL_AI_ENABLED: "false"
+          KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false"
+          KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false"
+          KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false"
+          KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false"
+          KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+          HOSTNAME: 127.0.0.1
+          PORT: "3100"
+        run: |
+          set -euo pipefail
+          npm run build
+          setsid npm start > "${RECOVERY_WORK}/restored-app.log" 2>&1 &
+          echo "$!" > "${RECOVERY_WORK}/restored-app.pid"
+          ready=false
+          for _ in $(seq 1 30); do
+            if curl --silent --output /dev/null "${RECOVERY_APP_ORIGIN}/api/health"; then ready=true; break; fi
+            sleep 2
+          done
+          test "${ready}" = "true"
+          node --experimental-strip-types scripts/validate-recovery-health.mjs \
+            "${RECOVERY_WORK}/restore-health.json"
+          node scripts/record-recovery-time.mjs "${RECOVERY_WORK}/restore-completed-at.txt"
+
+      - name: Stop the restored application before destructive target cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${RECOVERY_WORK}/restored-app.pid"
+          restored_app_pid=$(cat "${RECOVERY_WORK}/restored-app.pid")
+          kill -- "-${restored_app_pid}"
+          wait "${restored_app_pid}" 2>/dev/null || true
+          rm -f "${RECOVERY_WORK}/restored-app.pid"
+
+      - name: Remove and prove removal of all restored target object data
+        shell: bash
+        env:
+          RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN: ${{ secrets.RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN }}
+          RECOVERY_TARGET_OBJECT_CLEANUP_REQUIRE_COMPLETE: "true"
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/cleanup-recovery-objects.mjs \
+            "${RECOVERY_WORK}/target-object-cleanup.json" \
+            "${RECOVERY_WORK}/target-object-cleanup-proof.json"
+
+      - name: Destroy and prove deletion of the disposable recovery database project
+        shell: bash
+        env:
+          RECOVERY_TARGET_DESTRUCTION_REQUIRE_EXISTING: "true"
+          RECOVERY_TARGET_DATABASE_URL: ${{ secrets.RECOVERY_TARGET_DATABASE_URL }}
+          RECOVERY_TARGET_SUPABASE_ACCESS_TOKEN: ${{ secrets.RECOVERY_TARGET_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/destroy-recovery-database-target.mjs \
+            "${RECOVERY_WORK}/target-database-destruction.json"
+
+      - name: Assert the exact fence activation immediately before evidence
+        shell: bash
+        env:
+          RECOVERY_CONTROL_ORIGIN: ${{ steps.recovery-candidate.outputs.deployment_url }}
+          RELEASE_FENCE_SECRET: ${{ secrets.RELEASE_FENCE_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_FENCE_SECRET}" =~ ^[A-Za-z0-9_-]{43,128}$ ]]
+          payload=$(jq -cn --arg fenceId "${RECOVERY_FENCE_ID}" --arg releaseCommitSha "${RELEASE_COMMIT}" \
+            '{fenceId:$fenceId,releaseCommitSha:$releaseCommitSha}')
+          status=$(curl --silent --show-error --request POST \
+            --header "Authorization: Bearer ${RELEASE_FENCE_SECRET}" \
+            --header "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+            --header "Content-Type: application/json" \
+            --data "${payload}" \
+            --output "${RECOVERY_WORK}/fence-assert-raw.json" \
+            --write-out '%{http_code}' \
+            "${RECOVERY_CONTROL_ORIGIN}/api/release/fence/assert")
+          test "${status}" = "200"
+          node --experimental-strip-types scripts/validate-recovery-fence-response.mjs \
+            assert "${RECOVERY_WORK}/fence-assert-raw.json" "${RECOVERY_WORK}/fence-assert.json" \
+            "${RECOVERY_WORK}/fence-acquire.json"
+
+      - name: Assemble the sole strict recovery evidence file
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/assemble-recovery-evidence.mjs \
+            "${RECOVERY_WORK}" "${RECOVERY_WORK}/recovery-evidence.json"
+          node --experimental-strip-types scripts/validate-release-readiness.mjs \
+            "${RECOVERY_WORK}/recovery-evidence.json"
+
+      - name: Attest the recovery evidence with GitHub Artifact Attestations
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: ${{ runner.temp }}/kinresolve-production-recovery/recovery-evidence.json
+
+      - name: Upload only the release-bound recovery evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-recovery-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/kinresolve-production-recovery/recovery-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Remove all local backup material while leaving the fence active
+        if: always()
+        shell: bash
+        env:
+          RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN: ${{ secrets.RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN }}
+          RECOVERY_TARGET_DESTRUCTION_REQUIRE_EXISTING: "false"
+          RECOVERY_TARGET_DATABASE_URL: ${{ secrets.RECOVERY_TARGET_DATABASE_URL }}
+          RECOVERY_TARGET_SUPABASE_ACCESS_TOKEN: ${{ secrets.RECOVERY_TARGET_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set +e
+          cleanup_status=0
+          if test -n "${RECOVERY_WORK:-}" && test -f "${RECOVERY_WORK}/restored-app.pid"; then
+            kill -- "-$(cat "${RECOVERY_WORK}/restored-app.pid")" 2>/dev/null || true
+            rm -f "${RECOVERY_WORK}/restored-app.pid"
+          fi
+          if test -n "${RECOVERY_WORK:-}" && test -f "${RECOVERY_WORK}/target-object-cleanup.json"; then
+            node --experimental-strip-types scripts/cleanup-recovery-objects.mjs \
+              "${RECOVERY_WORK}/target-object-cleanup.json" || cleanup_status=$?
+          fi
+          if test -n "${RECOVERY_WORK:-}" && test -f "${RECOVERY_WORK}/target-database-touched"; then
+            node --experimental-strip-types scripts/destroy-recovery-database-target.mjs \
+              "${RECOVERY_WORK}/target-database-cleanup-fallback.json" || cleanup_status=$?
+          fi
+          rm -f .vercel/.env.production.local
+          rm -rf .vercel/output
+          if test -n "${RECOVERY_WORK:-}"; then rm -rf "${RECOVERY_WORK}"; fi
+          exit "${cleanup_status}"

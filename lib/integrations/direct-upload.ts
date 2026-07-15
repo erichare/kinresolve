@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 
 import { query, withTransaction, type DatabaseOptions } from "../db";
 import { validateHostedGedcomFile } from "../hosted-capabilities";
+import { assertReleaseWritesAllowed } from "../release-fence";
 import {
   createConfiguredArchiveObjectStorage,
   type ArchiveObjectStorage,
@@ -107,6 +108,10 @@ export async function stageDirectIntegrationUpload(
   input: StageDirectIntegrationUploadInput,
   options: DirectIntegrationUploadOptions
 ): Promise<{ intent: PublicIntegrationUploadIntent; upload: DirectUploadInstructions }> {
+  // This service-level guard is deliberate defense in depth: the centralized
+  // API proxy blocks the route, while this check prevents any internal caller
+  // from minting a ticket that could outlive a release drain.
+  await assertReleaseWritesAllowed(options);
   const archiveId = required(options.archiveId, "archiveId");
   const normalizedConnectionId = required(connectionId, "connection id");
   const file = validateUploadDeclaration(input);

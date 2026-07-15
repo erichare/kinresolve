@@ -27,6 +27,7 @@ beforeEach(() => {
   process.env.KINSLEUTH_ARCHIVE_ID = archiveId;
   process.env.KINRESOLVE_DEPLOYMENT_MODE = "hosted";
   process.env.KINRESOLVE_DATASET_MODE = "pilot";
+  process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED = "true";
   Object.assign(process.env, hostedCohortCapabilities);
 });
 

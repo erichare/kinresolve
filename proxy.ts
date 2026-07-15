@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   allowedApiMethods,
+  isApiWriteBlockedByReleaseFence,
   resolveApiAccess,
   resolveApiMethodPolicy,
   resolveApiRoute
@@ -13,6 +14,8 @@ import {
   publicArchiveEnabled
 } from "@/lib/public-surface";
 import { evaluateSameOriginRequest } from "@/lib/same-origin-request";
+import { getActiveReleaseFence } from "@/lib/release-fence";
+import { releaseFenceLockedResponse } from "@/lib/release-fence-http";
 
 const protectedPagePrefixes = ["/app"];
 
@@ -39,6 +42,17 @@ export async function proxy(request: NextRequest) {
     return apiErrorResponse(405, "Method not allowed", {
       headers: { allow: allowedApiMethods(apiRoute).join(", ") }
     });
+  }
+
+  if (isApi && isApiWriteBlockedByReleaseFence(pathname, request.method)) {
+    try {
+      const activeFence = await getActiveReleaseFence();
+      if (activeFence) return releaseFenceLockedResponse(activeFence);
+    } catch {
+      return apiErrorResponse(503, "Release write safety check unavailable", {
+        headers: { "cache-control": "private, no-store" }
+      });
+    }
   }
 
   if (apiRequestPolicy === "same-origin-cookie") {

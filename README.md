@@ -156,7 +156,7 @@ Compose provisions Postgres with pgvector, explicitly provisions the versioned f
 | --- | --- |
 | `DATABASE_URL` | **Required.** Postgres connection string for workspace storage |
 | `DATABASE_POOL_MAX` | Max connections per instance; use `2` for serverless |
-| `DATABASE_AUTO_MIGRATE` | Applies pending versioned migrations at boot; set `false` in production and run `npm run db:migrate` at deploy time instead |
+| `DATABASE_AUTO_MIGRATE` | Applies pending versioned migrations at boot; hosted production requires exactly `false` and uses the candidate workflow's dedicated migration connection |
 | `KINRESOLVE_DEPLOYMENT_MODE` | `self-hosted` or `hosted`; required in hosted production and set explicitly by the bundled Compose stack |
 | `KINRESOLVE_DATASET_MODE` | Persisted archive contract: `empty`, versioned fictional `demo`, or real-data `pilot`; required for hosted deployments and provisioning |
 | `KINRESOLVE_DNA_ENABLED` | Hosted cohort one: `false`; server-side DNA capability gate |
@@ -187,6 +187,7 @@ Compose provisions Postgres with pgvector, explicitly provisions the versioned f
 | `S3_BUCKET` / `S3_REGION` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Private S3/MinIO bucket and server-only credentials for non-Compose runtimes; Compose derives its access keys from the required MinIO values |
 | `KINRESOLVE_WORKER_*` | Worker identity, polling and maintenance intervals, lease duration, per-run parse bound, and bounded staged-upload cleanup limit |
 | `CRON_SECRET` | Bearer token for scheduled integration parsing and stale-upload cleanup jobs |
+| `RELEASE_FENCE_SECRET` | Dedicated 256-bit-or-stronger base64url/hex bearer token for protected production release-fence transitions; generate with `openssl rand -hex 32` and never reuse `CRON_SECRET` |
 | `AI_BASE_URL` / `AI_API_KEY` | OpenAI-compatible provider; deterministic fallback runs without a key |
 | `AI_API_MODE` | `responses` (default) or `chat` |
 | `AI_CHAT_MODEL` / `AI_EMBEDDING_MODEL` | Chat model for analysis; the embedding model is reserved for planned pgvector retrieval (not implemented yet) |
@@ -216,13 +217,18 @@ npm run test          # Vitest unit tests
 npm run test:db       # Every Postgres-gated suite, serialized (needs TEST_DATABASE_URL)
 npm run test:db:large # 10.5+ MB / 65k-person GEDCOM load regression
 npm run test:release-upgrade # Rehearse v0.17.4 -> current (needs a local control DB)
+npm run test:release-compatibility # Prove archived v0.17.4 is unsafe on current schema (local scratch DBs only)
 npm run migrations:verify   # Verify migration checksums and released history
 npm run demo:verify # Block retired real-family demo identifiers and images
 npm run db:migrate    # Apply pending db/migrations to DATABASE_URL (Node 22.6+)
+npm run db:migrate:production # Migrate through MIGRATION_DATABASE_URL only
+npm run db:migrations:verify-production # Prove the exact production ledger
+npm run db:identity    # Fingerprint DATABASE_IDENTITY_URL from read-only catalogs
+npm run storage:identity:provision # Write and fingerprint the private storage sentinel
 npm run build         # Production build
 ```
 
-Schema changes live as ordered SQL files in `db/migrations/` (`NNN_name.sql`). Applied versions are tracked in the `schema_migrations` table, each file runs in its own transaction, and concurrent runners serialize on an advisory lock. In development the app applies pending migrations at boot (`DATABASE_AUTO_MIGRATE`); in production run `npm run db:migrate` against the production `DATABASE_URL` when a release includes new migrations.
+Schema changes live as ordered SQL files in `db/migrations/` (`NNN_name.sql`). Applied versions are tracked in the `schema_migrations` table, each file runs in its own transaction, and concurrent runners serialize on an advisory lock. In development the app applies pending migrations at boot (`DATABASE_AUTO_MIGRATE`). The hosted workflow instead deploys an unaliased candidate first, proves that its runtime catalog fingerprint matches the dedicated `MIGRATION_DATABASE_URL`, refuses transaction-pooler port `6543`, preflights the exact approved ledger prefix before DDL, and proves the exact version ledger after applying the immutable checked-in SQL and release policy.
 
 Set `TEST_DATABASE_URL` to a **disposable** Postgres database before running either DB
 command—never point it at real data. `test:db` intentionally runs every database-gated
@@ -233,8 +239,14 @@ command fails before Vitest when the URL is absent or identifies the same databa
 The upgrade rehearsal is destructive by design: set
 `TEST_RELEASE_UPGRADE_DATABASE_URL` to a separate local disposable control database.
 It creates and drops isolated child databases and refuses remote hosts, application/test
-database reuse, and connection-routing overrides. Product CI gives the standard suite,
-large-import regression, and released-schema upgrade rehearsal separate required jobs.
+database reuse, and connection-routing overrides. The compatibility proof uses that same
+guard, archives the exact locally pinned `v0.17.4` tag without fetching or running its
+migrations, migrates only tracked `kr_compat_*` children forward to the current immutable
+ledger, and executes the tagged login and workspace code with auto-migration disabled.
+Its auth, guided-state, integration-reference, and pilot-seed observations must match
+`db/release-policy.json` exactly. Product CI gives the standard suite, large-import
+regressions, released-schema upgrade rehearsal, and legacy compatibility proof separate
+required jobs.
 
 ## Data & privacy model
 
@@ -259,30 +271,187 @@ Provider export / DNA CSV ──▶ Private workspace (Postgres) ──▶ Curat
 
 ## Production releases
 
-Deployments are release-driven: publishing a stable GitHub Release runs
-`.github/workflows/vercel-release.yml` (Git auto-deployments are disabled in
-`vercel.json`). The workflow requires the tag to match `package.json`, verifies that the
-tagged commit is the checked-out revision on `origin/main`, matches the linked Vercel
-project and organization, validates actual pulled production values, builds one prebuilt
-artifact, and probes the deployment URL emitted by Vercel.
+Releases are candidate-first. Run `.github/workflows/vercel-release.yml` manually from
+`main` with an exact full commit SHA, the matching stable `package.json` version, the
+forward-only policy acknowledgement, and the run ID plus SHA-256 of a fresh attested
+attempt-scoped `production-recovery-evidence-<run_attempt>` artifact. The workflow refuses an existing tag or release;
+the stable GitHub tag and Release are created idempotently only after the exact candidate
+is live and verified. GitHub verifies that recovery evidence came from the protected workflow at the
+requested `main` commit; typed text is not accepted as backup or quiescence evidence.
+Git auto-deployments remain disabled in `vercel.json`.
 
-Required GitHub Actions secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
+Protected infrastructure prerequisite: before approving a production release or holding
+promotion, a reviewer must verify in the Vercel project dashboard that production
+deployment auto-assignment is disabled and that Standard Protection covers every generated
+deployment URL without an exception. Promotion can re-enable domain auto-assignment, so the
+holding and release workflows immediately set the official project
+`autoAssignCustomDomains` field to `false`, independently re-read the exact project, and
+refuse to release the database fence until that state is proven. Automatic failure handlers
+repeat that repair after runner loss; if the setting cannot be proven, they use Vercel's
+project-pause API as the fail-closed fallback. Standard Protection remains a reviewed
+dashboard prerequisite and is separately probed on every generated deployment URL. The
+checked-in configuration validator also proves `git.deploymentEnabled=false`, `sfo1`, and
+the two exact cron definitions. The holding workflow requires the first two exact
+acknowledgements. The product-release and recovery workflows additionally require the
+protected writer-perimeter acknowledgement before checkout:
+
+```text
+I acknowledge Vercel production deployment auto-assignment is disabled in the protected project dashboard.
+I acknowledge Vercel Standard Protection covers every generated deployment URL and has no exceptions.
+I acknowledge the production writer perimeter contains only the canonical Vercel runtime and protected GitHub release/recovery workflows; no external workers, SQL/API writers, or shared database/Blob credentials remain.
+```
+
+That final acknowledgement means the database runtime credential and Blob token exist only
+in the canonical Vercel runtime, while migration, fence, backup, and recovery credentials
+exist only in their protected GitHub environments. Hosted cells must have no long-lived
+worker, Supabase SQL/Data API writer, stale custom-domain deployment, shared service token,
+or operator process retaining write access during the fenced interval. The database fence
+is application-enforced; this credential and deployment perimeter is therefore a required
+part of the release safety boundary, not an optional operational convention.
+The runtime role's exact fail-closed grant contract and current single-cell RLS tradeoff
+are documented in [Production runtime database role](docs/production-runtime-database-role.md).
+
+After each generated production-target deployment is metadata-validated, the workflow
+requires its unauthenticated URL to return a `401` or `403` protection response without
+Kin Resolve application content. It then
+smokes the same immutable URL with `VERCEL_AUTOMATION_BYPASS_SECRET` before any database
+mutation or holding-page promotion.
+
+The rollback target is also checked in and independently deployable: see
+[Static maintenance holding deployment](docs/static-holding-deployment.md). Its protected
+manual workflow builds a zero-runtime page, stages it with `--skip-domain`, and reports the
+validated ID to use as `STAGING_HOLDING_DEPLOYMENT_ID` or
+`FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`, depending on the selected protected environment;
+each target has a separate exact promotion acknowledgement.
+
+The workflow has four serialized phases:
+
+1. Prove the requested SHA is the workflow's `main` SHA, run the full product/release
+   suite, immutable migration checks, build, and production dependency audit without
+   Vercel credentials.
+2. Prove the protected `beta-staging` canonical origin is on its exact approved static
+   holding deployment and smoke that zero-runtime target before mutation. Then rehearse
+   the release using a separate target-specific build from the same commit and procedure,
+   a separate Vercel project, database, object store, archive, and generated unaliased URL;
+   the staging candidate is never promoted.
+3. In the protected `production` environment, validate Vercel metadata and actual
+   readable settings, verify policy and machine-attested recovery/fence evidence, prove
+   the canonical alias is on the approved static holding deployment, build and deploy an
+   unaliased candidate, attest its runtime database identity, revalidate and smoke the
+   holding deployment again immediately before mutation, require the live production
+   ledger to equal the exact checksum-bound prefix proved by recovery evidence, migrate
+   through the matching dedicated connection, prove the exact final ledger, smoke the
+   candidate, and promote it.
+4. Prove the canonical alias resolves to the candidate, run the full non-mutating smoke
+   while writes remain fenced, disable and independently re-read production domain
+   auto-assignment, release that exact fence, rerun the full canonical smoke, revalidate
+   the alias and release namespace, then publish the stable GitHub Release in a separately
+   retryable final job. A failed post-promotion step must re-contain writes before the alias
+   can return to the approved holding deployment.
+
+The protected GitHub environments are intentionally separate. Configure their exact
+inventory as follows; do not promote a repository-level secret as a shortcut:
+
+- `beta-staging` secrets: `CRON_SECRET`, `MIGRATION_DATABASE_URL`,
+  `STAGING_HOLDING_DEPLOYMENT_ID`, `VERCEL_AUTOMATION_BYPASS_SECRET`, `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables: `APP_BASE_URL`,
+  `VERCEL_PROJECT_ID`, `KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID`, and the exact protected
+  production exclusions `FORBIDDEN_PRODUCTION_DATABASE_IDENTITY`,
+  `FORBIDDEN_PRODUCTION_OBJECT_STORAGE_IDENTITY`, and
+  `FORBIDDEN_PRODUCTION_OBJECT_STORAGE_PROVIDER_ID`. The pulled Vercel Production setting
+  `KINRESOLVE_SCHEDULED_WRITES_ENABLED` must be readable and exactly `false`.
+- `production` secrets: `CRON_SECRET`, `FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`,
+  `MIGRATION_DATABASE_URL`, `RELEASE_FENCE_SECRET`, `VERCEL_AUTOMATION_BYPASS_SECRET`,
+  `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables: `APP_BASE_URL`,
+  `VERCEL_PROJECT_ID`, `KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID`, `SUPABASE_PROJECT_REF`,
+  `RECOVERY_TARGET_DATABASE_IDENTITY`, `RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY`,
+  `RECOVERY_TARGET_OBJECT_STORAGE_PROVIDER_ID`, and
+  `RECOVERY_TARGET_SUPABASE_PROJECT_REF`. The two project refs are required release
+  evidence bindings and must differ. The pulled scheduled-write setting must be readable
+  and exactly `true`.
+- `beta-staging-containment` is an automatic safety environment with no required reviewers
+  or wait timer. Secrets: `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`.
+  Variables: `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`. Its Vercel organization and project
+  identities must exactly match the `beta-staging` cell; it exists only so failed holding runs cannot wait for an
+  interactive deployment approval before disabling domain auto-assignment.
+- `production-containment` is an automatic safety environment with no required reviewers
+  or wait timer. Secrets: `MIGRATION_DATABASE_URL`,
+  `FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and
+  `VERCEL_TOKEN`. Variables: `APP_BASE_URL`, `EXPECTED_ARCHIVE_ID`,
+  `KINRESOLVE_DATABASE_IDENTITY`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`.
+- `production-recovery` secrets: `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`,
+  `FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`, `MIGRATION_DATABASE_URL`,
+  `RECOVERY_AGE_IDENTITY`, `RECOVERY_AUTH_SECRET`, `RECOVERY_BACKUP_S3_ACCESS_KEY_ID`,
+  `RECOVERY_BACKUP_S3_SECRET_ACCESS_KEY`, `RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN`,
+  `RECOVERY_TARGET_DATABASE_URL`, `RECOVERY_TARGET_RUNTIME_DATABASE_URL`,
+  `RECOVERY_TARGET_SUPABASE_ACCESS_TOKEN`, `RELEASE_FENCE_SECRET`,
+  `SUPABASE_ACCESS_TOKEN`, `VERCEL_AUTOMATION_BYPASS_SECRET`, `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables: `PRODUCTION_APP_BASE_URL`,
+  `EXPECTED_ARCHIVE_ID`, both production database/object identities and provider IDs,
+  both `SUPABASE_PROJECT_REF` values, `RECOVERY_TARGET_DATABASE_REPLACEMENT_POLICY`,
+  `RECOVERY_AGE_RECIPIENT`, and the recovery S3 bucket, region, and endpoint.
+- `production-recovery-cleanup` is target-only. Secrets:
+  `RECOVERY_TARGET_BLOB_READ_WRITE_TOKEN`, `RECOVERY_TARGET_DATABASE_URL`, and
+  `RECOVERY_TARGET_SUPABASE_ACCESS_TOKEN`. Variables: `EXPECTED_ARCHIVE_ID`, both
+  source and target database/object identities and provider IDs, and both source and
+  target Supabase project refs. It must not receive the production database, Blob, fence,
+  backup, Vercel, or source Supabase write credentials.
+
+Protect the interactive release and recovery environments with reviewers; the automatic
+containment and cleanup environments must remain able to respond to runner loss. Staging and
+production values must differ. Automatic safety cells require their secret and independently
+readable Vercel organization/project IDs to match before any control-plane mutation. The
+protected recovery workflow produces one attested release-evidence payload plus a non-secret,
+attempt-scoped 90-day cleanup lease. A successful cutover writes only a privacy-safe Actions
+summary with the commit, version, deployment IDs, fence ID, and passed gates.
 
 Required Vercel production environment: `DATABASE_URL` (Supabase transaction pooler on
 port `6543` with `sslmode=require`—the app upgrades known Supabase pooler connections to
 `verify-full` with the bundled root CA), `DATABASE_POOL_MAX=2`,
 `DATABASE_AUTO_MIGRATE=false`, `APP_BASE_URL` set to the canonical HTTPS product origin,
 `KINRESOLVE_DEPLOYMENT_MODE=hosted`, an explicit `KINRESOLVE_DATASET_MODE`, an explicit
-`KINSLEUTH_ARCHIVE_ID`, `KINSLEUTH_ALLOW_SIGNUPS=false`, `AUTH_SECRET`, the selected private object-storage credentials, `CRON_SECRET`, and the
-integration feature flags. The current product provider
-configuration is intentionally considered incomplete until `APP_BASE_URL` is present;
-the release workflow fails rather than guessing a legacy hostname.
+`KINSLEUTH_ARCHIVE_ID`, `KINSLEUTH_ALLOW_SIGNUPS=false`, catalog-derived
+`KINRESOLVE_DATABASE_IDENTITY`, sentinel-derived
+`KINRESOLVE_OBJECT_STORAGE_IDENTITY`,
+`KINRESOLVE_OBJECT_STORAGE_BACKEND=vercel-blob`, guided research and export refresh
+enabled, the exact seven-flag cohort-one manifest, `AUTH_SECRET`,
+`BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, and `RELEASE_FENCE_SECRET`. The five credentials must be Vercel Sensitive
+variables; every listed noncredential setting must remain readable, and every assignment
+must be scoped to Production only so the workflow can validate configuration without
+reading secret values. Before either staging or production can build, deploy, or mutate a
+database, the workflow rejects control-plane-only credentials (including migration/admin
+database URLs, recovery/offsite/age credentials, Supabase management tokens, GitHub
+tokens, and user-configured Vercel deploy/bypass assignments) from both the complete Vercel metadata inventory
+and the pulled runtime environment; validation reports names and counts only, never values.
 
-This is still the legacy post-publication deployment choreography. It does not migrate
-the production database or prove a backup/restore point, candidate smoke test, promotion,
-or database rollback. Do not publish a migration-bearing release until the candidate-first
-release slice and its runbook land; use `npm run db:migrate` only through an explicitly
-reviewed maintenance procedure.
+The first hosted cutover is forward-only: never attach `v0.17.4` to the migrated pilot
+database. Provision the fresh, empty pilot cell through `013_release_write_fence.sql`
+before loading real data. Recovery evidence rejects every earlier ledger prefix; it may
+prove the full candidate ledger as a no-op migration, or, for future releases, prove an
+exact prefix containing 013 and apply only the remaining candidate migrations on the
+recovery target before production is allowed to advance from that identical prefix. If
+promotion or the live smoke fails, automation may move the alias only to the
+captured, pre-approved static holding deployment and only after the production write
+fence is active. It never runs a down migration or reattaches the legacy application.
+A failed, cancelled, or timed-out release run starts a credential-free classifier first.
+It leaves production alone when the production job was skipped, and it leaves a verified
+candidate live when only GitHub publication failed after the final canonical revalidation.
+A failed, cancelled, or timed-out production job instead recontains the exact database
+fence and rolls back to the pre-approved holding deployment. A failed, cancelled, or
+timed-out recovery run starts the target-only recovery janitor, which removes restored
+target objects and destroys only the identity-bound disposable target database project.
+A failed, cancelled, or timed-out holding promotion starts a target-specific automatic
+repair that disables and independently re-reads domain auto-assignment; when promotion may
+have occurred and repair cannot be proven, it pauses that exact Vercel project. Every marked
+failed source attempt needs its exact successful containment, cleanup, or holding-repair
+receipt before any later release, recovery, or holding run may load protected credentials.
+Vercel's [Cron Jobs rollback guidance](https://vercel.com/docs/cron-jobs/manage-cron-jobs#rollbacks-with-cron-jobs)
+and [Instant Rollback guidance](https://vercel.com/docs/instant-rollback) describe different
+schedule behavior, so both rollback paths keep the durable write fence active and record mandatory dashboard cron verification; the
+zero-runtime holding deployment remains the traffic target until that follow-up is done.
+The operator containment runbook remains the fallback if either automation fails. An
+alias rollback is not a database rollback, and restore/forward-fix evidence remains a
+separate launch gate rather than something inferred from a successful migration.
 
 ## Project map
 

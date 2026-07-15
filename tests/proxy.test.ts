@@ -7,6 +7,9 @@ const authMocks = vi.hoisted(() => ({
 const dbMocks = vi.hoisted(() => ({
   ensureDatabaseSchema: vi.fn().mockResolvedValue(undefined)
 }));
+const releaseFenceMocks = vi.hoisted(() => ({
+  getActiveReleaseFence: vi.fn().mockResolvedValue(null)
+}));
 
 vi.mock("@/lib/auth-session", () => ({
   getSessionContext: authMocks.getSessionContext
@@ -14,17 +17,117 @@ vi.mock("@/lib/auth-session", () => ({
 vi.mock("@/lib/db", () => ({
   ensureDatabaseSchema: dbMocks.ensureDatabaseSchema
 }));
+vi.mock("@/lib/release-fence", () => ({
+  getActiveReleaseFence: releaseFenceMocks.getActiveReleaseFence
+}));
 
 import { proxy } from "@/proxy";
 
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
+  releaseFenceMocks.getActiveReleaseFence.mockResolvedValue(null);
 });
 
 const memberContext = { userId: "u1", email: "a@b.c", name: "A", role: "owner" as const, archiveId: "archive-default" };
 
 describe("private workspace proxy", () => {
+  it.each([
+    ["product POST", "/api/cases", "POST"],
+    ["product PATCH", "/api/settings/archive", "PATCH"],
+    ["product DELETE", "/api/integrations/integration-1", "DELETE"],
+    ["Better Auth POST", "/api/auth/sign-in/email", "POST"],
+    ["logout POST", "/api/auth/logout", "POST"],
+    ["bootstrap POST", "/api/setup/claim", "POST"]
+  ])("blocks a %s with the durable release fence before route handling", async (_label, pathname, method) => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    vi.stubEnv("APP_BASE_URL", "https://app.kinresolve.com");
+    releaseFenceMocks.getActiveReleaseFence.mockResolvedValue({
+      fenceId: "fence-private-beta-01",
+      releaseCommitSha: "a".repeat(40),
+      state: "active",
+      activationGeneration: 1,
+      firstActivatedAt: "2026-07-15T06:00:00.000Z",
+      activatedAt: "2026-07-15T06:00:00.000Z",
+      releasedAt: null,
+      updatedAt: "2026-07-15T06:00:00.000Z"
+    });
+
+    const response = await proxy(new NextRequest(`https://app.kinresolve.com${pathname}`, {
+      method,
+      headers: {
+        origin: "https://app.kinresolve.com",
+        "sec-fetch-site": "same-origin"
+      }
+    }));
+
+    expect(response.status).toBe(423);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(response.json()).resolves.toEqual({
+      error: "Writes are temporarily paused for release safety"
+    });
+    expect(dbMocks.ensureDatabaseSchema).not.toHaveBeenCalled();
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["health", "/api/health", "GET"],
+    ["private reads", "/api/people", "GET"],
+    ["authenticated integration cron", "/api/cron/integration-jobs", "GET"],
+    ["authenticated upload cleanup cron", "/api/cron/import-uploads", "GET"],
+    ["fence acquire", "/api/release/fence/acquire", "POST"],
+    ["fence assert", "/api/release/fence/assert", "POST"],
+    ["fence reacquire", "/api/release/fence/reacquire", "POST"],
+    ["fence release", "/api/release/fence/release", "POST"]
+  ])("does not block %s through the mutation fence", async (_label, pathname, method) => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    vi.stubEnv("APP_BASE_URL", "https://app.kinresolve.com");
+    authMocks.getSessionContext.mockResolvedValue(memberContext);
+    releaseFenceMocks.getActiveReleaseFence.mockResolvedValue({
+      fenceId: "fence-private-beta-01",
+      releaseCommitSha: "a".repeat(40),
+      state: "active",
+      activationGeneration: 1,
+      firstActivatedAt: "2026-07-15T06:00:00.000Z",
+      activatedAt: "2026-07-15T06:00:00.000Z",
+      releasedAt: null,
+      updatedAt: "2026-07-15T06:00:00.000Z"
+    });
+
+    const response = await proxy(new NextRequest(`https://app.kinresolve.com${pathname}`, {
+      method,
+      headers: {
+        origin: "https://app.kinresolve.com",
+        "sec-fetch-site": "same-origin"
+      }
+    }));
+
+    expect(response.status).toBe(200);
+    expect(releaseFenceMocks.getActiveReleaseFence).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the durable release-fence check is unavailable", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    vi.stubEnv("APP_BASE_URL", "https://app.kinresolve.com");
+    releaseFenceMocks.getActiveReleaseFence.mockRejectedValue(new Error("database unavailable"));
+
+    const response = await proxy(new NextRequest("https://app.kinresolve.com/api/cases", {
+      method: "POST",
+      headers: {
+        origin: "https://app.kinresolve.com",
+        "sec-fetch-site": "same-origin"
+      }
+    }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "Release write safety check unavailable" });
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["permission POST mutation", "/api/cases", "POST"],
     ["permission PATCH mutation", "/api/settings/archive", "PATCH"],

@@ -1,12 +1,29 @@
 # Kin Resolve hosted private beta launch blueprint
 
-- **Status:** Proposed for approval
+- **Status:** Execution in progress; owner, legal, and live-infrastructure approvals remain open
 - **Planning date:** 2026-07-14
-- **Planning base:** `main` at `8f40da57a2febd20753737137d2e06f16e623a4b`
+- **Planning base:** `origin/main` at `be6aca1b7b1f449a988fd496b24be9fde16ce55d`
 - **Primary product origin:** `https://app.kinresolve.com`
 - **Marketing origin:** `https://kinresolve.com`
 - **Recommended launch window:** 30–40 engineering days for one primary engineer, or roughly 4–5 elapsed weeks with two engineering streams plus an independent owner/legal track
 - **Launch owner:** Eric
+
+### Implementation snapshot — 2026-07-15
+
+- B0 and B1a–B1d are merged through PRs 36–40: truthful beta scope, explicit dataset
+  provisioning, server-enforced capability limits, the private hosted surface, and the
+  same-origin mutation perimeter are on `main`.
+- B2 is in final validation on `fix/beta-candidate-release`: candidate-first staging and
+  production workflows, static zero-runtime holding deployments, durable write fencing,
+  exact migration/identity proofs, attested database-plus-object recovery evidence,
+  attempt-scoped cleanup leases, exact automatic-safety receipts, fail-closed Vercel
+  auto-assignment repair, the archived `v0.17.4` incompatibility harness, and both
+  large-data release gates are built.
+- B3–B8 remain launch work. Invitations/recovery, operator deletion and monitoring, API
+  v1, the authenticated browser canary, coordinated marketing/legal material, and all live
+  DNS/vendor/protected-environment provisioning are not yet complete.
+- No real family data is authorized. The first public launch remains a synthetic,
+  invitation-only beta until every applicable gate in section 8 has recorded evidence.
 
 ## 1. Outcome
 
@@ -58,7 +75,7 @@ As of 2026-07-14:
 - The beta intake is a prepared `mailto:` link; it does not create an application record or an account.
 - `app.kinresolve.com` has no DNS record.
 - `kinsleuth.vercel.app` is a static `noindex` holding page. Even `/api/health` returns that HTML placeholder, so HTTP status alone is a false-positive health check.
-- The latest product release is `v0.17.4` from 2026-07-10. Current `main` is 96 commits and ten migrations beyond that release anchor.
+- The latest product release is `v0.17.4` from 2026-07-10. At planning base `be6aca1`, `main` is 194 commits and eleven migrations beyond that release anchor; B2 adds migration 013 on top of that base.
 - Current `main` Product CI and CodeQL are green, and the GitHub security alert queues are clear.
 - The marketing site says “Current private beta,” “working beta,” and “available now” in `site/app/page.tsx`, while its footer says “Private beta in development.” Until launch, that is contradictory.
 - The product has strong foundations on `main`: database-backed auth and RBAC, a fail-closed API registry, private object storage, durable jobs, reviewable imports, rollback, and export.
@@ -312,8 +329,8 @@ Official pricing references:
 - [ ] The actual `v0.17.4` app/new-schema harness demonstrates its known preservation/auth/seed incompatibilities, the machine-readable first-cutover policy is owner-acknowledged `forward-only`, and new migrations are expansion-first until a compatible hosted rollback anchor exists.
 - [ ] Stable GitHub release is published only after production promotion succeeds.
 - [ ] Maintenance, kill-switch, forward-fix, and restore-to-new-cell paths are recorded. `v0.17.4` is explicitly refused as a pilot rollback; the first compatible hosted release is recorded only after evidence.
-- [ ] Production candidate smoke validates JSON health, exact version, schema, database, storage, auth redirect, API denial, unsigned-cron denial, configuration, and worker freshness without writing synthetic archive state.
-- [ ] Cron definitions are captured per release. Crons are disabled before the first production candidate, reconciled and verified before re-enable after promotion, and explicitly handled after any future rollback; code alias rollback alone is not treated as cron rollback.
+- [ ] Production base candidate smoke validates JSON health, exact version, schema, database, storage, auth redirect, API denial, unsigned-cron denial, and configuration without writing synthetic archive state. B6 adds authenticated journey, invalid-method, worker-freshness, and external log/monitor proof.
+- [ ] Cron definitions are captured per release. Staging generated candidates make scheduled writers inert; production recovery acquires the durable fence before any production candidate exists. After promotion the exact signed endpoints are reconciled only after fence release, while a reviewer separately confirms the Vercel dashboard schedule state after promotion or rollback; alias rollback alone is not treated as cron rollback.
 
 ### Gate D — security and operations
 
@@ -505,27 +522,28 @@ Run DB-backed mode/provisioning tests against a disposable Postgres instance wit
 
 #### Changes
 
-- Add a protected `workflow_dispatch` candidate workflow accepting exact SHA, proposed version, and explicit first-cutover/cron acknowledgements; refuse non-`main` ancestors, dirty version state, or an existing tag/release.
+- Add a protected `workflow_dispatch` candidate workflow accepting exact SHA, proposed version, the first-cutover acknowledgement, and the run ID plus SHA-256 of machine-attested recovery evidence; refuse non-`main` revisions, dirty version state, or an existing tag/release.
 - Separate configuration validation:
   - verify Sensitive variable name, target, and type through Vercel environment metadata;
   - validate readable non-secret configuration directly;
   - prove secrets through candidate behavior without printing them.
 - Add `MIGRATION_DATABASE_URL` (or equivalent) for a protected direct/session Supabase connection. Keep runtime `DATABASE_URL` on the transaction pooler.
-- Add an isolated staging custom-origin job with its own `APP_BASE_URL`, database, object store, archive, credentials, and email sink. B2 proves deployment plus base route/configuration smoke and exposes a required hook; B6 supplies the full authenticated/mutating journey. A non-aliased production URL cannot be used for auth proof because Better Auth and proxy redirects intentionally canonicalize to `APP_BASE_URL`.
-- After staging passes, build the production prebuilt artifact once and promote that exact production artifact after its safe checks.
-- Add a mandatory protected recovery-evidence hook before production migration. B2 refuses a missing hook result; B4 implements database/object backup and restore evidence, and B8 is the first complete execution.
+- Add an isolated staging custom-origin job with its own `APP_BASE_URL`, database, object store, archive, credentials, and email sink. Build a target-specific staging artifact from the same commit and procedure; do not describe it as the production artifact. B2 proves deployment plus base route/configuration smoke and exposes a required hook; B6 supplies the full authenticated/mutating journey. A non-aliased production URL cannot be used for auth proof because Better Auth and proxy redirects intentionally canonicalize to `APP_BASE_URL`.
+- After staging passes, build and deploy the target-specific production artifact as an unaliased candidate before any production database mutation. Promote that exact candidate after identity, migration, and smoke checks; do not rebuild it.
+- Add a mandatory protected recovery-evidence hook before production migration. Accept only a fresh, strict-schema artifact attested by the protected recovery workflow at the exact release commit. Require a database-backed write fence, a 31-minute drain, both cron endpoints returning the same fenced response, zero active leases/upload intents, encrypted backup manifests, and a distinct successful database/object restore. Provision the first empty pilot cell through migration 013 before any real data and reject every recovery prefix before the exact checksum-backed 013 fence. Prove the restored target equals the source at that prefix, then apply only the remaining candidate migrations on the target and validate the exact final ledger and candidate semantics; a current-schema first cutover is an explicit valid no-op. B2 refuses missing or mismatched evidence; B4 implements its production execution, and B8 is the first complete rehearsal.
+- Fingerprint runtime and migrator databases from read-only PostgreSQL catalogs and require the exact same configured identity; require staging and production identities to differ. Provision a private object-store sentinel and require its content-derived fingerprint at runtime, with a distinct staging identity.
 - Query and record the production `schema_migrations` ledger; never assume migrations 002–011 are applied.
-- Add a machine-readable migration policy that pins `v0.17.4`/`6f544ea8a5e92fbb68230db1cce4cb9231a40247`, the immutable migration checksums, risk classifications, `rollbackPolicy: "forward-only"`, owner/date acknowledgement, and an initially empty first-compatible-rollback anchor.
+- Add a machine-readable migration policy that pins `v0.17.4`/`6f544ea8a5e92fbb68230db1cce4cb9231a40247`, the immutable migration checksums, risk classifications, `rollbackPolicy: "forward-only"`, the exact required acknowledgement text, and an initially empty first-compatible-rollback anchor. The protected workflow binds the actor and acknowledgement timestamp at execution rather than pretending they are immutable policy-file fields.
 - Add a hermetic `npm run test:release-compatibility` harness that runs the actual tagged app against the migrated schema and proves why it is not preservation-safe: legacy writes lose post-005 guided-research state, can conflict with post-006 backup references, bypass account memberships, and can seed legacy synthetic data. The test succeeds only when those observations match the checked-in forward-only policy; it must never substitute current code or imply `v0.17.4` is a pilot rollback.
 - Require expansion-first/backward-compatible migrations for new beta work after the reviewed first-cutover set (including B1's persisted dataset-mode migration), with contract/removal deferred until a compatible hosted artifact is established as the rollback anchor.
-- Run the idempotent production migration once under the existing advisory lock.
-- Deploy the prebuilt artifact as a production-target, non-aliased candidate using the pinned Vercel CLI and `--skip-domain` or equivalent current behavior.
-- For the first cutover, require Vercel crons disabled before the production-target candidate deploy; compare deployed definitions to the checked-in manifest while disabled, then re-enable and verify exact paths/schedules only after promotion and canonical smoke.
+- Preflight the production ledger as the exact checksum-bound release-policy prefix recorded in the attested recovery evidence, then run the idempotent production migration once under the existing advisory lock and prove the exact final ledger. Refuse production if the live prefix changed between recovery rehearsal and release.
+- Deploy the prebuilt artifact as a production-target, non-aliased candidate using the pinned Vercel CLI and `--skip-domain` or equivalent current behavior before migration so its runtime identity can be attested safely.
+- Keep the attested application write fence active through migration, promotion, and canonical smoke. Release it only after success, then reconcile both scheduled endpoints. On any post-promotion failure, retain or idempotently reacquire the same fence before alias rollback; Vercel cron disablement remains defense in depth rather than the proof of quiescence.
 - Run only non-mutating, unauthenticated/bearer-safe production checks against the non-aliased candidate. Do not attempt cookie-authenticated browser smoke there: canonical auth would redirect to the current `app.kinresolve.com` deployment and produce a false result.
 - Promote that exact deployment with `vercel promote`; do not rebuild.
 - Re-run non-mutating smoke plus canonical login rendering against `app.kinresolve.com`. The full mutating journey remains a B6 staging-cell proof for every release after real pilot data exists.
 - Publish the stable GitHub Release only after promotion and post-promotion smoke succeed.
-- Capture expected Vercel cron definitions with the release; reconcile and verify them explicitly after promotion or rollback because alias rollback alone does not restore cron schedules.
+- Capture expected Vercel cron definitions with the release. B2 reconciles the signed endpoints after promotion and records mandatory provider-dashboard cron verification after rollback while the durable write fence stays active; B4/B8 must turn that reviewer check into retained launch evidence because Vercel's current rollback documentation is contradictory and alias state alone is not accepted as cron proof.
 - Record staging evidence, production deployment URL, SHA, version, migration ledger, database backup ID, object manifests, cron manifest, approver, previous deployment, and timestamps in the job summary.
 - Add maintenance, kill-switch, forward-fix, and restore-to-new-cell runbooks. Refuse code rollback to `v0.17.4`; the first successful hosted `v0.18.x` release becomes the earliest possible future rollback anchor after its own compatibility evidence. Never automate down-migrations.
 
@@ -541,13 +559,13 @@ Run DB-backed mode/provisioning tests against a disposable Postgres instance wit
 
 - `/api/health` is JSON, status `ok`, expected version, database connected, private storage configured.
 - `/app` points or redirects to the canonical login boundary without pretending the candidate-host cookie flow was exercised.
-- Anonymous protected API returns `401`; invalid methods return `405` with `Allow`.
+- Anonymous protected API returns `401`. B6 extends the probe to invalid methods returning `405` with `Allow`; B2 does not claim that future assertion from its smaller base probe.
 - Unsigned cron returns `401`; candidate smoke never invokes the signed production worker because it can clean up or process jobs.
 - Open signup configuration is closed; the candidate does not create an account/invite.
 - Once B5/B6 land, API `/meta` and empty-list behavior may be read with a pre-provisioned least-privilege operator token; only its expected last-used/security audit metadata may change—no person, source, case, artifact, run, snapshot, or backup state is created. B2's base probe does not depend on this future route.
 - Disabled DNA, external AI, binary media, and public publishing calls fail closed.
-- Product headers/noindex/TLS are correct and logs contain no fixture content or credentials.
-- Captured cron definitions are present, disabled for first candidate creation, and match the release manifest. B4 later supplies the read-only worker-heartbeat probe.
+- Product headers/noindex/TLS are correct. B4/B6 supply deployed log-redaction evidence rather than inferring it from an HTTP response.
+- Captured cron definitions match the release manifest. Staging scheduled writers are explicitly disabled, production writes remain fenced through candidate proof, and a reviewer separately confirms provider dashboard schedule state. B4 later supplies the read-only worker-heartbeat probe.
 - Pilot mode rejects demo reset and synthetic-canary provisioning.
 
 #### Verification
@@ -571,7 +589,7 @@ DB commands use disposable CI databases. The first production workflow rehearsal
 
 #### Exit / rollback
 
-- Exit: the workflow proves source/environment policy, staging and production artifact deployment, base non-mutating probes, state-digest comparison, exact-ID promotion, post-promotion release publication, and cron disable/reconcile hooks in non-pilot rehearsal. B4/B6 hooks may still be test doubles here; B8 is the first full recovery plus golden-path execution.
+- Exit: the workflow proves source/environment policy, staging and production artifact deployment, base non-mutating probes, state-digest comparison, exact-ID promotion, post-promotion release publication, and cron disable/reconcile hooks in non-pilot rehearsal. A rollback retains the write fence and emits an explicit provider cron follow-up rather than claiming alias rollback proves schedule state. B4/B6 hooks may still be test doubles here; B8 is the first full recovery plus golden-path execution.
 - First-cutover recovery: `v0.17.4` code rollback is forbidden. Disable crons/capabilities, enter maintenance, forward-fix, or restore into a new database/object cell. After a compatible hosted rollback anchor exists, a protected rollback may promote it and must explicitly reconcile/verify crons.
 
 ### B3 — Secure invitation, claim, verification, recovery, and terms
@@ -791,7 +809,7 @@ Run a deployed link check across both origins, keyboard/screen-reader spot check
 - Freeze non-launch merges for the dress-rehearsal window.
 - Run all repository, database, upgrade, both large-import suites, site, E2E, API contract, audit, and build checks.
 - Deploy the exact SHA to the isolated staging/demo custom origin; complete the authenticated/mutating founder journey and rollback rehearsal there.
-- Create/verify production database and object recovery evidence, migrate the pilot cell, deploy the production artifact as a non-aliased candidate, complete non-mutating smoke, then promote that artifact.
+- Create/verify production database and object recovery evidence from the exact migration-013-or-later source prefix, prove restore equality before applying the candidate suffix on the target, require production still matches that evidenced prefix, migrate the pilot cell, deploy the production artifact as a non-aliased candidate, complete non-mutating smoke, then promote that artifact.
 - Verify DNS/TLS/cookies/email/status/application/API from an external network.
 - Invite the founder/internal account first; verify canonical auth, recovery, empty pilot state, API meta/empty reads, token revocation, and logout without adding synthetic archive records.
 - Switch marketing status to live only after app-domain post-promotion checks pass.
@@ -888,10 +906,10 @@ Engineering cannot complete these by inference. Each item needs a named owner an
 2. Verify source provenance and build/test/audit the repository, including the 50,000-person integration suite.
 3. Deploy the exact SHA to the isolated staging custom origin and run the full authenticated/mutating browser and API journey there.
 4. Build one immutable production prebuilt artifact.
-5. Create the production provider recovery point, encrypted off-provider logical database backup, and manifests/copies for both retained object prefixes.
-6. Restore database plus objects to a fresh staging cell, verify checksums, and migrate it.
-7. Inspect the production migration ledger and apply the checked-in first-cutover migration policy plus expansion-first new migrations through the protected direct/session connection under the acknowledged maintenance/forward-only cutover.
-8. Disable Vercel crons, capture their state, then deploy the production artifact as production-target but non-aliased.
+5. Confirm the fresh production cell was provisioned through migration 013 before any real data, then create the provider recovery point, encrypted off-provider logical database backup, and manifests/copies for both retained object prefixes.
+6. Restore database plus objects to a fresh recovery cell, prove the database and ledger exactly match the checksum-bound source prefix before migration, then apply only the remaining candidate migrations and prove the exact final ledger, candidate semantics, and timings. The full-ledger first cutover is an expected no-op.
+7. Re-prove production still has the exact attested source prefix, then apply the checked-in remaining migration suffix through the protected direct/session connection under the acknowledged maintenance/forward-only cutover.
+8. Confirm the checked-in cron manifest and provider dashboard schedule state, keep the durable production write fence active, then deploy the production artifact as production-target but non-aliased.
 9. Run only non-mutating production-candidate checks; do not follow canonical auth redirects as evidence for the candidate and do not create synthetic archive state.
 10. Review errors, logs, job heartbeat, database/storage metrics, captured cron manifest, and designated operational-token audit metadata.
 11. Record approver and go/no-go decision.
@@ -901,7 +919,7 @@ Engineering cannot complete these by inference. Each item needs a named owner an
 1. Promote the same candidate artifact; never rebuild between smoke and alias.
 2. Verify `app.kinresolve.com` DNS, TLS, canonical redirects, secure cookies, headers, robots, and exact product version from an external network.
 3. Repeat non-mutating health, canonical auth rendering, API denial/meta/empty-read, signed empty-worker, and disabled-capability checks at the canonical domain. Do not upload/import synthetic data into the pilot cell.
-4. Reconcile deployed cron schedules to the captured release manifest, explicitly re-enable them, and verify signed invocation/worker freshness.
+4. Confirm deployed cron schedules still match the captured release manifest, release the exact attested fence only after canonical smoke, then verify signed invocation and worker freshness.
 5. Verify transactional email links resolve to the canonical domain.
 6. Verify alerting by sending one marked test event.
 7. Publish the stable GitHub release and launch note.

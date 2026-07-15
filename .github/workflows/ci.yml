@@ -126,6 +126,43 @@ jobs:
           TEST_RELEASE_UPGRADE_DATABASE_URL: postgres://kinresolve:kinresolve@localhost:5432/kinresolve_release_upgrade
         run: npm run test:release-upgrade
 
+  release-compatibility:
+    name: Forward-only legacy compatibility proof
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
+        env:
+          POSTGRES_DB: kinresolve_release_compatibility
+          POSTGRES_USER: kinresolve
+          POSTGRES_PASSWORD: kinresolve
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kinresolve -d kinresolve_release_compatibility"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prove the pinned legacy release is forward-only incompatible
+        env:
+          TEST_RELEASE_UPGRADE_DATABASE_URL: postgres://kinresolve:kinresolve@localhost:5432/kinresolve_release_compatibility
+        run: npm run test:release-compatibility
+
   large-import:
     name: Large GEDCOM persistence
     runs-on: ubuntu-latest
@@ -163,9 +200,23 @@ jobs:
           TEST_DATABASE_URL: postgres://kinresolve:kinresolve@localhost:5432/kinresolve_large_import
         run: npm run test:db:large
 
-  release-contract:
-    name: Release contract fixtures
+  large-integration-import:
+    name: Large hosted integration refresh
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
+        env:
+          POSTGRES_DB: kinresolve_large_integration
+          POSTGRES_USER: kinresolve
+          POSTGRES_PASSWORD: kinresolve
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kinresolve -d kinresolve_large_integration"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out full history
         uses: actions/checkout@v4
@@ -181,19 +232,47 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run large hosted integration refresh
+        env:
+          TEST_DATABASE_URL: postgres://kinresolve:kinresolve@localhost:5432/kinresolve_large_integration
+        run: npm run test:db:integration-large
+
+  release-contract:
+    name: Release contract fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate the checked-in Vercel deployment bypass guard
+        run: npm run vercel:config:validate
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Verify release and workflow contracts
         run: npx vitest run tests/release-contract.test.ts tests/workflow-contract.test.ts tests/migration-history.test.ts tests/release-workflow-history.test.ts
 
   gate:
     name: Product release contract
     if: always()
-    needs: [static, database, release-upgrade, large-import, release-contract]
+    needs: [static, database, release-upgrade, release-compatibility, large-import, large-integration-import, release-contract]
     runs-on: ubuntu-latest
     env:
       STATIC_RESULT: ${{ needs.static.result }}
       DATABASE_RESULT: ${{ needs.database.result }}
       UPGRADE_RESULT: ${{ needs['release-upgrade'].result }}
+      COMPATIBILITY_RESULT: ${{ needs['release-compatibility'].result }}
       LARGE_IMPORT_RESULT: ${{ needs['large-import'].result }}
+      LARGE_INTEGRATION_IMPORT_RESULT: ${{ needs['large-integration-import'].result }}
       RELEASE_CONTRACT_RESULT: ${{ needs['release-contract'].result }}
     steps:
       - name: Require every product check
@@ -201,5 +280,7 @@ jobs:
           test "$STATIC_RESULT" = "success"
           test "$DATABASE_RESULT" = "success"
           test "$UPGRADE_RESULT" = "success"
+          test "$COMPATIBILITY_RESULT" = "success"
           test "$LARGE_IMPORT_RESULT" = "success"
+          test "$LARGE_INTEGRATION_IMPORT_RESULT" = "success"
           test "$RELEASE_CONTRACT_RESULT" = "success"

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   allowedApiMethods,
   apiRouteAccessRegistry,
+  isApiWriteBlockedByReleaseFence,
   resolveApiAccess,
   resolveApiMethodPolicy,
   resolveApiRoute,
@@ -78,7 +79,8 @@ describe("API access registry", () => {
       "read-only": 0,
       "same-origin-cookie": 0,
       "better-auth-managed": 0,
-      "service-bearer": 0
+      "service-bearer": 0,
+      "release-fence-control": 0
     };
 
     for (const route of apiRouteAccessRegistry) {
@@ -92,7 +94,8 @@ describe("API access registry", () => {
       "read-only": 17,
       "same-origin-cookie": 33,
       "better-auth-managed": 2,
-      "service-bearer": 2
+      "service-bearer": 2,
+      "release-fence-control": 4
     });
   });
 
@@ -101,6 +104,10 @@ describe("API access registry", () => {
     expect(resolveApiAccess("/api/auth/session", "GET")).toEqual({ kind: "public" });
     expect(resolveApiAccess("/api/setup/claim", "POST")).toEqual({ kind: "bootstrap" });
     expect(resolveApiAccess("/api/cron/import-uploads", "GET")).toEqual({ kind: "service" });
+    expect(resolveApiAccess("/api/release/fence/acquire", "POST")).toEqual({ kind: "service" });
+    expect(resolveApiAccess("/api/release/fence/assert", "POST")).toEqual({ kind: "service" });
+    expect(resolveApiAccess("/api/release/fence/reacquire", "POST")).toEqual({ kind: "service" });
+    expect(resolveApiAccess("/api/release/fence/release", "POST")).toEqual({ kind: "service" });
     expect(resolveApiAccess("/api/cases/case-1/tasks", "POST")).toEqual({
       kind: "permission",
       permission: "cases:write"
@@ -122,6 +129,8 @@ describe("API access registry", () => {
     expect(resolveApiMethodPolicy("/api/auth/session", "POST")).toBe("better-auth-managed");
     expect(resolveApiMethodPolicy("/api/auth/logout", "POST")).toBe("same-origin-cookie");
     expect(resolveApiMethodPolicy("/api/cron/import-uploads", "GET")).toBe("service-bearer");
+    expect(resolveApiMethodPolicy("/api/release/fence/acquire", "POST")).toBe("release-fence-control");
+    expect(resolveApiMethodPolicy("/api/release/fence/assert", "POST")).toBe("release-fence-control");
     expect(resolveApiMethodPolicy("/api/not-registered", "GET")).toBeNull();
 
     const healthRoute = resolveApiRoute("/api/health");
@@ -143,5 +152,54 @@ describe("API access registry", () => {
     expect(resolveApiAccess("/api/auth/session", "HEAD")).toBeNull();
     expect(resolveApiMethodPolicy("/api/auth/session", "HEAD")).toBeNull();
     expect(allowedApiMethods(authRoute!)).toEqual(["GET", "POST"]);
+  });
+
+  it("centrally fences every registered write while exempting only reads and fence control", () => {
+    for (const route of apiRouteAccessRegistry) {
+      for (const [method, registration] of Object.entries(route.methods)) {
+        const expected = registration.requestPolicy !== "read-only"
+          && registration.requestPolicy !== "release-fence-control"
+          && registration.requestPolicy !== "service-bearer"
+          && !(registration.requestPolicy === "better-auth-managed" && method === "GET");
+        expect(isApiWriteBlockedByReleaseFence(route.path, method), `${method} ${route.path}`).toBe(expected);
+      }
+    }
+
+    expect(isApiWriteBlockedByReleaseFence("/api/not-registered", "POST")).toBe(false);
+  });
+
+  it("keeps Better Auth GET session checks read-only while fencing every Better Auth POST", async () => {
+    const authConfiguration = await readFile(path.join(process.cwd(), "lib", "auth.ts"), "utf8");
+    expect(authConfiguration).toContain("deferSessionRefresh: true");
+    expect(isApiWriteBlockedByReleaseFence("/api/auth/session", "GET")).toBe(false);
+    expect(isApiWriteBlockedByReleaseFence("/api/auth/session", "POST")).toBe(true);
+  });
+
+  it("keeps service-bearer access limited to cron handlers that authenticate before fencing", async () => {
+    const serviceRegistrations = apiRouteAccessRegistry.flatMap((route) =>
+      Object.entries(route.methods)
+        .filter(([, registration]) => registration.requestPolicy === "service-bearer")
+        .map(([method]) => ({ method, path: route.path }))
+    );
+    expect(serviceRegistrations).toEqual([
+      { method: "GET", path: "/api/cron/integration-jobs" },
+      { method: "GET", path: "/api/cron/import-uploads" }
+    ]);
+
+    for (const registration of serviceRegistrations) {
+      const routeFile = path.join(
+        apiRoot,
+        registration.path.replace(/^\/api\//, ""),
+        "route.ts"
+      );
+      const source = await readFile(routeFile, "utf8");
+      const authentication = source.indexOf('request.headers.get("authorization")');
+      const fence = source.indexOf("getActiveReleaseFence()");
+      expect(authentication, routeFile).toBeGreaterThan(0);
+      expect(fence, routeFile).toBeGreaterThan(authentication);
+      expect(source, routeFile).toContain(
+        "releaseFenceLockedResponse(activeFence, { discloseControlIdentity: true })"
+      );
+    }
   });
 });
