@@ -47,6 +47,14 @@ describe("operator archive provisioning documentation", () => {
       expect(service).toMatch(/provision:\s*\n\s+condition:\s+service_completed_successfully/);
     }
   });
+
+  it("keeps the opt-in large integration fixture on explicit provisioning", async () => {
+    const source = await readFile("tests/integration-large-refresh.test.ts", "utf8");
+
+    expect(source).toContain('import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";');
+    expect(source).toContain("await provisionTestArchive(options);");
+    expect(source).not.toMatch(/beforeEach\([\s\S]*?readWorkspace\(options\)/);
+  });
 });
 
 function serviceSection(compose: string, service: string): string {
