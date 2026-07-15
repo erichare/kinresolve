@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   getIntegrationFeatureFlags,
   getProviderCapabilities,
-  isIntegrationProviderEnabled
+  isIntegrationProviderEnabled,
+  resolveIntegrationFeatureFlags
 } from "@/lib/integrations/feature-flags";
 
 describe("integration rollout gates", () => {
@@ -89,7 +90,7 @@ describe("integration rollout gates", () => {
   });
 
   it("allows only plain GEDCOM for the hosted private beta", () => {
-    const flags = getIntegrationFeatureFlags({
+    const hostedEnvironment = {
       KINRESOLVE_DEPLOYMENT_MODE: "hosted",
       KINRESOLVE_DATASET_MODE: "pilot",
       KINRESOLVE_DNA_ENABLED: "false",
@@ -102,7 +103,8 @@ describe("integration rollout gates", () => {
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true",
       KINRESOLVE_DESKTOP_MEDIA_ENABLED: "true",
       KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "true"
-    });
+    } as const;
+    const flags = getIntegrationFeatureFlags(hostedEnvironment);
 
     expect(flags).toMatchObject({
       exportRefresh: true,
@@ -116,5 +118,35 @@ describe("integration rollout gates", () => {
     expect(isIntegrationProviderEnabled("rootsmagic", flags)).toBe(false);
     expect(getProviderCapabilities("ancestry_export", flags).snapshotImport).toBe(false);
     expect(getProviderCapabilities("gedcom", flags).snapshotImport).toBe(true);
+  });
+
+  it("does not let injected flags loosen hosted policy", () => {
+    const flags = resolveIntegrationFeatureFlags({
+      exportRefresh: true,
+      desktopMedia: true,
+      desktopMediaLegalReviewApproved: true,
+      ancestryPartnerApi: true,
+      packageMedia: true,
+      plainGedcomOnly: false
+    }, {
+      KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+      KINRESOLVE_DATASET_MODE: "pilot",
+      KINRESOLVE_DNA_ENABLED: "false",
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+      KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+      KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+      KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+      KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+      KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+    });
+
+    expect(flags).toEqual({
+      exportRefresh: true,
+      desktopMedia: false,
+      desktopMediaLegalReviewApproved: false,
+      ancestryPartnerApi: false,
+      packageMedia: false,
+      plainGedcomOnly: true
+    });
   });
 });
