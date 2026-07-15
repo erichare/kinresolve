@@ -34,6 +34,10 @@ describe("operator archive provisioning documentation", () => {
     expect(provisioner).toMatch(/KINRESOLVE_DEPLOYMENT_MODE:\s*self-hosted/);
     expect(provisioner).toMatch(/KINRESOLVE_DATASET_MODE:\s*demo/);
     expect(provisioner).toMatch(/KINSLEUTH_ARCHIVE_ID:\s*archive-default/);
+    expect(provisioner).toMatch(/postgres:\s*\n\s+condition:\s+service_healthy/);
+
+    const postgres = serviceSection(compose, "postgres");
+    expect(postgres).toMatch(/healthcheck:[\s\S]*pg_isready -U kinsleuth -d kinsleuth/);
 
     for (const name of ["app", "worker"] as const) {
       const service = serviceSection(compose, name);
