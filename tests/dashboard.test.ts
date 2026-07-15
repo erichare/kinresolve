@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isDnaEvidence, isDnaResearchCase } from "@/lib/case-search";
 import { buildDashboardSummary } from "@/lib/dashboard";
 import { createSeedWorkspace } from "@/lib/workspace-store";
 
@@ -18,10 +19,24 @@ describe("dashboard summary", () => {
 
   it("omits disabled DNA and publication work from the hosted summary", () => {
     const workspace = createSeedWorkspace(new Date("2026-07-08T12:00:00.000Z"));
-    const summary = buildDashboardSummary(workspace, {
+    const fixtureCase = workspace.cases.find((researchCase) =>
+      researchCase.evidence.some((item) => item.id === "ev-fictional-dna-range-overlap")
+    );
+    expect(fixtureCase).toBeDefined();
+    const mixedCase = {
+      ...fixtureCase!,
+      id: "case-documentary-with-private-evidence",
+      title: "Northstar Cove documentary trail",
+      question: "Which household records connect the two branches?",
+      focus: "Parish and census records"
+    };
+    const hostedWorkspace = { ...workspace, cases: [...workspace.cases, mixedCase] };
+    const summary = buildDashboardSummary(hostedWorkspace, {
+      caseLimit: 500,
       dnaEnabled: false,
       publicPublishingEnabled: false
     });
+    const fixtureRow = summary.caseRows.find((researchCase) => researchCase.id === mixedCase.id);
 
     expect(summary.metrics.dnaMatches).toBe(0);
     expect(summary.metrics.triagedDnaMatches).toBe(0);
@@ -31,5 +46,16 @@ describe("dashboard summary", () => {
       expect.objectContaining({ href: "/app/dna" })
     ]));
     expect(summary.actions.some((action) => action.id.startsWith("publishing-"))).toBe(false);
+    expect(summary.caseRows.some((researchCase) => researchCase.id === fixtureCase?.id)).toBe(false);
+    expect(summary.metrics.activeCases).toBe(
+      hostedWorkspace.cases.filter((researchCase) => (
+        !isDnaResearchCase(researchCase)
+        && (researchCase.status === "active" || researchCase.status === "planning")
+      )).length
+    );
+    expect(fixtureRow).toMatchObject({
+      evidenceCount: mixedCase.evidence.filter((item) => !isDnaEvidence(item)).length,
+      dnaEvidenceCount: 0
+    });
   });
 });

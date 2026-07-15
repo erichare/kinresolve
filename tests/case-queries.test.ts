@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   caseEvidenceQueue,
+  isDnaEvidence,
+  isDnaResearchCase,
   searchCasesPage,
   type CaseSearchFilters,
   type EvidenceQueueItem
@@ -55,6 +57,51 @@ async function seededWorkspace(): Promise<WorkspaceData> {
       tasks: [
         { id: "task-cq-open", title: "Request segment data", status: "todo" },
         { id: "task-cq-done", title: "Chart the cluster centroid", status: "done" }
+      ]
+    },
+    storeOptions
+  );
+  await createCase(
+    {
+      id: "case-cq-mixed",
+      title: "Northstar Cove documentary trail",
+      question: "Which household records connect the two branches?",
+      focus: "Parish and census records",
+      status: "active",
+      privacy: "private",
+      hypotheses: [
+        {
+          id: "hyp-cq-mixed-dna",
+          statement: "SECRET_CLUSTER_HYPOTHESIS_TEXT",
+          confidence: 0.4,
+          status: "open"
+        },
+        {
+          id: "hyp-cq-mixed-doc",
+          statement: "The city directory households describe the same family.",
+          confidence: 0.6,
+          status: "open"
+        }
+      ],
+      evidence: [
+        {
+          id: "ev-cq-mixed-dna",
+          title: "Private cluster worksheet",
+          type: "  DNA analysis",
+          summary: "The relationship-range worksheet is private.",
+          confidence: 0.2
+        },
+        {
+          id: "ev-cq-mixed-doc",
+          title: "City directory row",
+          type: "Directory",
+          summary: "A documentary harbor address remains visible.",
+          confidence: 0.65
+        }
+      ],
+      tasks: [
+        { id: "task-cq-mixed-dna", title: "SECRET_CLUSTER_TASK_TEXT", status: "todo" },
+        { id: "task-cq-mixed-doc", title: "Check the documentary address", status: "todo" }
       ]
     },
     storeOptions
@@ -207,6 +254,74 @@ describeIfDatabase("SQL case search", () => {
     expect(noEvidence.items[0].weakestEvidenceConfidence).toBeUndefined();
   });
 
+  it("excludes disabled DNA evidence and whole DNA cases from search, counts, and confidence", async () => {
+    const workspace = await seededWorkspace();
+    const capabilityOptions = { ...storeOptions, includeDnaEvidence: false };
+    const documentaryEvidence = workspace.cases
+      .filter((researchCase) => !isDnaResearchCase(researchCase))
+      .flatMap((researchCase) => researchCase.evidence)
+      .filter((item) => !isDnaEvidence(item));
+
+    const hiddenMatch = await searchCasesPageFromDb(
+      { query: "73%" },
+      { page: 1, pageSize: 10 },
+      capabilityOptions
+    );
+    const documentaryMatch = await searchCasesPageFromDb(
+      { query: "documentary harbor address" },
+      { page: 1, pageSize: 10 },
+      capabilityOptions
+    );
+    const hiddenTypedDna = await searchCasesPageFromDb(
+      { query: "relationship-range worksheet" },
+      { page: 1, pageSize: 10 },
+      capabilityOptions
+    );
+    const disabledFilter = await searchCasesPageFromDb(
+      { evidence: "dna" },
+      { page: 1, pageSize: 10 },
+      capabilityOptions
+    );
+    const hiddenWholeCase = await searchCasesPageFromDb(
+      { query: "bellandi moonwake cluster" },
+      { page: 1, pageSize: 10 },
+      capabilityOptions
+    );
+    const hiddenChildText = await searchCasesPageFromDb(
+      { query: "secret cluster hypothesis text" },
+      { page: 1, pageSize: 10 },
+      capabilityOptions
+    );
+    const withheldDocumentaryChildText = await searchCasesPageFromDb(
+      { query: "check the documentary address" },
+      { page: 1, pageSize: 10 },
+      capabilityOptions
+    );
+
+    expect(hiddenMatch.total).toBe(0);
+    expect(hiddenTypedDna.total).toBe(0);
+    expect(hiddenWholeCase.total).toBe(0);
+    expect(hiddenChildText.total).toBe(0);
+    expect(withheldDocumentaryChildText.total).toBe(0);
+    expect(documentaryMatch.items[0]).toMatchObject({
+      id: "case-cq-mixed",
+      hypothesisCount: 0,
+      evidenceCount: 1,
+      dnaEvidenceCount: 0,
+      taskCount: 0,
+      openTaskCount: 0,
+      weakestEvidenceConfidence: 0.65
+    });
+    expect(documentaryMatch.stats).toMatchObject({
+      evidenceItems: documentaryEvidence.length,
+      dnaEvidence: 0,
+      lowConfidenceEvidence: documentaryEvidence.filter((item) => item.confidence < 0.5).length
+    });
+    expect(disabledFilter.total).toBe(
+      workspace.cases.filter((researchCase) => !isDnaResearchCase(researchCase)).length
+    );
+  });
+
   it("treats ILIKE wildcards as literals", async () => {
     const workspace = await seededWorkspace();
 
@@ -261,10 +376,30 @@ describeIfDatabase("SQL case evidence queue", () => {
     const actual = await caseEvidenceQueueFromDb(storeOptions, 50);
 
     expect(actual.map(toQueueProjection)).toEqual(expected.map(toQueueProjection));
-    expect(actual[0].linkedDnaMatchId).toBeDefined();
+    expect(actual.some((item) => item.linkedDnaMatchId)).toBe(true);
 
     const limited = await caseEvidenceQueueFromDb(storeOptions, 2);
     expect(limited.map((item) => item.id)).toEqual(expected.slice(0, 2).map((item) => item.id));
+  });
+
+  it("excludes disabled linked-DNA evidence before projecting the queue", async () => {
+    await seededWorkspace();
+
+    const actual = await caseEvidenceQueueFromDb(
+      { ...storeOptions, includeDnaEvidence: false },
+      50
+    );
+
+    expect(actual.map((item) => item.id)).not.toContain("ev-cq-dna");
+    expect(actual.map((item) => item.id)).not.toContain("ev-cq-weak");
+    expect(actual.map((item) => item.id)).not.toContain("ev-cq-mixed-dna");
+    expect(actual.map((item) => item.id)).not.toContain("ev-fictional-dna-range-overlap");
+    expect(actual.map((item) => item.id)).toEqual(expect.arrayContaining([
+      "ev-cq-mixed-doc",
+      "ev-cq-mid",
+      "ev-cq-strong"
+    ]));
+    expect(actual.every((item) => !isDnaEvidence(item))).toBe(true);
   });
 
   it("breaks confidence and case-title ties by flatten order, not id order", async () => {

@@ -246,4 +246,24 @@ describeIfDatabase("source link options", () => {
     const actualCases = await listCaseLinkOptions(storeOptions);
     expect(actualCases).toEqual(expectedCases);
   });
+
+  it("omits whole DNA cases from hosted case-link options", async () => {
+    await seededWorkspace();
+    await createCase(
+      {
+        id: "case-source-dna-cluster",
+        title: "Fictional DNA cluster for source linking",
+        question: "Which branch explains the invented matches?",
+        focus: "Invented match cluster"
+      },
+      storeOptions
+    );
+
+    const selfHosted = await listCaseLinkOptions(storeOptions);
+    const hosted = await listCaseLinkOptions({ ...storeOptions, includeDnaCases: false });
+
+    expect(selfHosted.map((item) => item.id)).toContain("case-source-dna-cluster");
+    expect(hosted.map((item) => item.id)).not.toContain("case-source-dna-cluster");
+    expect(hosted.map((item) => item.id)).toContain("case-sq-test");
+  });
 });
