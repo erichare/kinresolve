@@ -2131,6 +2131,47 @@ textarea {
   min-height: 120px;
 }
 
+.api-token-scopes {
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.api-token-scopes legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.field .api-token-scope,
+.field.api-token-export-confirmation > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.field .api-token-scope {
+  margin-top: 8px;
+}
+
+.field .api-token-checkbox {
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
 .check-row {
   min-height: 40px;
   display: flex;

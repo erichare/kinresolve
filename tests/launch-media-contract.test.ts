@@ -55,6 +55,10 @@ describe("synthetic launch-media contract", () => {
     expect(capture).toContain('hasText: "Changes are ready to review."');
     expect(capture).toContain('name: "Reopen review", exact: true');
     expect(capture).toContain('locator(".sync-change-groups")');
+    expect(capture).toContain("scrollBelowStickyHeader(page, queuedStatus)");
+    expect(capture).toContain("scrollBelowStickyHeader(page, changeGroups)");
+    expect(capture).toContain("scrollBelowStickyHeader(page, hypothesesHeading)");
+    expect(capture).toContain("element.getBoundingClientRect().top + window.scrollY - 120");
     expect(capture).toContain("did not observe the GEDCOM connection response");
     expect(capture).toContain("did not observe the GEDCOM refresh-queue response");
     expect(capture).toContain('url.pathname === "/api/sources"');

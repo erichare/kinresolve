@@ -148,7 +148,9 @@ async function main(): Promise<void> {
     const queued = await boundedJson(await runResponse, 32 * 1024);
     const connectionId = nestedIdentifier(connection, "connection");
     const runId = nestedIdentifier(queued, "run");
-    await gedcomCard.getByRole("status").filter({ hasText: "Refresh queued" }).waitFor();
+    const queuedStatus = gedcomCard.getByRole("status").filter({ hasText: "Refresh queued" });
+    await queuedStatus.waitFor();
+    await scrollBelowStickyHeader(page, queuedStatus);
     captures.push(await capture(page, outputDirectory, captureMetadata("02-durable-gedcom-source.webp")));
 
     const processed = await processIntegrationSyncRun(runId, {
@@ -172,11 +174,15 @@ async function main(): Promise<void> {
     await changeGroups.waitFor();
     await changeGroups.getByRole("heading", { level: 3, name: /Incoming changes/ }).waitFor();
     await page.getByText("Loading proposed changes…", { exact: true }).waitFor({ state: "detached" });
+    await scrollBelowStickyHeader(page, changeGroups);
     captures.push(await capture(page, outputDirectory, captureMetadata("03-review-before-apply.webp")));
 
     await exactGoto(page, configuration.origin, "/app/cases/case-mercer-march-identity");
     await page.getByRole("heading", { level: 1 }).waitFor();
     await page.getByRole("heading", { level: 2, name: "Evidence", exact: true }).waitFor();
+    const hypothesesHeading = page.getByRole("heading", { level: 2, name: "Working hypotheses", exact: true });
+    await hypothesesHeading.waitFor();
+    await scrollBelowStickyHeader(page, hypothesesHeading);
     captures.push(await capture(page, outputDirectory, captureMetadata("04-evidence-and-hypotheses.webp")));
 
     const sourceRegisterResponse = page.waitForResponse((response) => {
@@ -320,8 +326,11 @@ async function exactGoto(page: Page, origin: string, pathname: string): Promise<
 }
 
 async function scrollBelowStickyHeader(page: Page, locator: ReturnType<Page["locator"]>): Promise<void> {
-  await locator.scrollIntoViewIfNeeded();
-  await page.evaluate(() => window.scrollBy(0, -120));
+  await locator.evaluate((element) => {
+    const top = element.getBoundingClientRect().top + window.scrollY - 120;
+    window.scrollTo(0, Math.max(0, top));
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 }
 
 async function capture(

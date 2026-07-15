@@ -184,11 +184,12 @@ export function ApiTokenControl() {
             <option value={90}>90 days</option>
           </select>
         </label>
-        <fieldset className="field" style={{ gridColumn: "1 / -1" }}>
+        <fieldset className="field api-token-scopes" style={{ gridColumn: "1 / -1" }}>
           <legend>Scopes</legend>
           {apiV1Scopes.map((scope) => (
-            <label key={scope} style={{ alignItems: "center", display: "flex", gap: 10, marginTop: 8 }}>
+            <label className="api-token-scope" key={scope}>
               <input
+                className="api-token-checkbox"
                 checked={scopes.includes(scope)}
                 onChange={() => toggleScope(scope)}
                 type="checkbox"
@@ -198,9 +199,10 @@ export function ApiTokenControl() {
           ))}
         </fieldset>
         {includesExport ? (
-          <label className="field" style={{ gridColumn: "1 / -1" }}>
-            <span style={{ alignItems: "center", display: "flex", gap: 10 }}>
+          <label className="field api-token-export-confirmation" style={{ gridColumn: "1 / -1" }}>
+            <span>
               <input
+                className="api-token-checkbox"
                 checked={confirmArchiveExport}
                 onChange={(event) => setConfirmArchiveExport(event.target.checked)}
                 type="checkbox"
