@@ -43,6 +43,7 @@ export default async function ImportsPage() {
         }
         exportRefreshEnabled={integrationFlags.exportRefresh}
         initialConnections={connections}
+        plainGedcomOnly={integrationFlags.plainGedcomOnly === true}
       />
 
       <div className="app-grid data-source-history">
