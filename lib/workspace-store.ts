@@ -5,7 +5,11 @@ import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoFictionNotice, demoPeople } from "./demo-data";
 import { prepareGedcomImport, type PreparedGedcomImport } from "./gedcom/apply";
 import { buildFamilyRelationshipMap, parseGedcom } from "./gedcom/parser";
-import { requireHostedCapability } from "./hosted-capabilities";
+import {
+  requireHostedCapability,
+  resolveHostedCapabilities,
+  validateHostedGedcomPeople
+} from "./hosted-capabilities";
 import { datasetModes, resolveDatasetConfiguration, type DatasetMode } from "./hosted-config";
 import { buildResearchGuide } from "./research-guide";
 import {
@@ -1312,6 +1316,16 @@ export async function applyPreparedGedcomImportInTransaction(
   // the import actually touches — cases, DNA matches, and AI runs are not
   // rewritten anymore.
   const workspace = await loadWorkspace(client, archiveId);
+  // mergeImportedPeople returns the merged imports first, then untouched
+  // existing people; only the imported slice needs to be written.
+  const mergedPeople = mergeImportedPeople(
+    workspace.people,
+    prepared.people,
+    options.preserveCurationByStableId === true
+  );
+  if (resolveHostedCapabilities().deploymentMode === "hosted") {
+    validateHostedGedcomPeople(mergedPeople.length);
+  }
   const backup = await persistWorkspaceBackupInTransaction(
     client,
     archiveId,
@@ -1323,13 +1337,6 @@ export async function applyPreparedGedcomImportInTransaction(
     backupId: backup.id
   };
 
-  // mergeImportedPeople returns the merged imports first, then untouched
-  // existing people; only the imported slice needs to be written.
-  const mergedPeople = mergeImportedPeople(
-    workspace.people,
-    prepared.people,
-    options.preserveCurationByStableId === true
-  );
   const mergedImported = mergedPeople.slice(0, prepared.people.length);
   const peopleStart = await prependSortOrderRange(client, "people", archiveId, mergedImported.length);
   await upsertPeopleRows(client, archiveId, mergedImported, peopleStart);

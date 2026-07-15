@@ -25,14 +25,15 @@ describe("hosted GEDCOM processing contract", () => {
     const processSection = source.slice(processStart, applyStart);
     const applySection = source.slice(applyStart, source.indexOf("export async function rollbackAppliedIntegrationSyncRun"));
 
-    for (const [label, section, commitMarker] of [
-      ["process", processSection, "commitIntegrationPreparation("],
-      ["apply", applySection, "applySyncRun("]
+    for (const [label, section, commitMarker, commitIndex] of [
+      ["process", processSection, "commitIntegrationPreparation(", processSection.indexOf("commitIntegrationPreparation(")],
+      ["apply", applySection, "applySyncRun(", applySection.lastIndexOf("applySyncRun(")]
     ] as const) {
       expect(section, label).toContain("validateHostedGedcomPeople(unnamespaced.people.length)");
       expect(section.indexOf("validateHostedGedcomPeople(unnamespaced.people.length)"), label).toBeLessThan(
-        section.indexOf(commitMarker)
+        commitIndex
       );
+      expect(commitIndex, `${label}:${commitMarker}`).toBeGreaterThanOrEqual(0);
     }
   });
 
