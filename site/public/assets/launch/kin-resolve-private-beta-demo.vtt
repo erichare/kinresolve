@@ -1,0 +1,100 @@
+WEBVTT
+
+NOTE Fictional Hartwell-Mercer demonstration. No real family data appears.
+
+00:00:00.000 --> 00:00:03.613
+Family trees preserve conclusions. Kin
+Resolve preserves
+
+00:00:03.613 --> 00:00:06.710
+questions, records, uncertainty, and next
+steps.
+
+00:00:06.710 --> 00:00:10.000
+This tour uses only fictional
+Hartwell–Mercer data.
+
+00:00:10.000 --> 00:00:13.959
+Bring in a plain GEDCOM as a named,
+durable source. The original
+
+00:00:13.959 --> 00:00:17.918
+export is staged privately, processing
+state survives a refresh,
+
+00:00:17.918 --> 00:00:22.000
+and nothing enters the archive merely
+because a file was selected.
+
+00:00:22.000 --> 00:00:26.264
+Incoming additions, edits, conflicts, and
+deletions become an explicit
+
+00:00:26.264 --> 00:00:30.223
+review. Safe changes can be approved
+together; ambiguity requires
+
+00:00:30.223 --> 00:00:34.000
+a decision; remote deletion keeps the
+local record by default.
+
+00:00:34.000 --> 00:00:37.234
+Research stays organized around a
+question, not just
+
+00:00:37.234 --> 00:00:40.531
+a person. Evidence can strengthen or
+weaken competing
+
+00:00:40.531 --> 00:00:43.766
+hypotheses, confidence remains visible,
+and the case
+
+00:00:43.766 --> 00:00:47.000
+keeps the next search tied to the reason
+it matters.
+
+00:00:47.000 --> 00:00:50.474
+Source transcripts remain close to the
+people and cases they
+
+00:00:50.474 --> 00:00:54.179
+inform. Cohort one deliberately excludes
+binary source media, so
+
+00:00:54.179 --> 00:00:58.000
+the hosted boundary stays narrow,
+understandable, and enforceable.
+
+00:00:58.000 --> 00:01:01.508
+Quality and privacy checks run
+deterministically inside Kin
+
+00:01:01.508 --> 00:01:05.373
+Resolve. They prioritize date conflicts,
+source gaps, and sharing
+
+00:01:05.373 --> 00:01:09.000
+risks without sending the archive to an
+external AI provider.
+
+00:01:09.000 --> 00:01:13.023
+The developer preview uses scoped,
+expiring, archive-bound
+
+00:01:13.023 --> 00:01:16.838
+tokens. A secret is shown once, only its
+prefix remains
+
+00:01:16.838 --> 00:01:21.000
+visible, and revocation denies the next
+request immediately.
+
+00:01:21.000 --> 00:01:25.565
+The exit path stays visible: download a
+GEDCOM, keep the review trail,
+
+00:01:25.565 --> 00:01:30.000
+and request verified deletion. Apply
+without sending family records.
+
