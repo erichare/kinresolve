@@ -7,6 +7,7 @@ import { insecureLoopbackCanaryOriginAcknowledgement } from "@/lib/insecure-loop
 import {
   assertFreshDisposableIdentityCounts,
   identityBrowserCanaryMutationAcknowledgement,
+  identityBrowserCanaryLegalEnvironment,
   passwordResetIdentifierDigest,
   resolveIdentityBrowserCanaryConfiguration,
   type DisposableIdentityCounts
@@ -14,6 +15,7 @@ import {
 
 const releaseSha = "a".repeat(40);
 const baseEnvironment = {
+  ...identityBrowserCanaryLegalEnvironment,
   NODE_ENV: "production",
   APP_BASE_URL: "http://127.0.0.1:3117",
   AUTH_SECRET: "auth-secret-distinct-0123456789abcdef",
@@ -88,6 +90,7 @@ describe("disposable identity browser canary configuration", () => {
     ["binary uploads enabled", { KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "true" }],
     ["development server", { NODE_ENV: "development" }],
     ["missing production runtime", { NODE_ENV: undefined }],
+    ["non-synthetic legal manifest", { KINRESOLVE_BETA_LEGAL_STATUS: "pending" }],
     ["missing insecure-loopback opt-in", { KINRESOLVE_INSECURE_LOOPBACK_CANARY_ORIGIN: undefined }],
     ["wrong insecure-loopback acknowledgement", { KINRESOLVE_INSECURE_LOOPBACK_CANARY_ACKNOWLEDGEMENT: "yes" }],
     ["short release SHA", { KINRESOLVE_CANARY_RELEASE_SHA: "a".repeat(39) }],
@@ -170,6 +173,9 @@ describe("identity canary artifact boundary", () => {
     expect(job).toContain("archive-identity-canary");
     expect(job).toContain("KINRESOLVE_BUILD_COMMIT_SHA=$release_sha");
     expect(job).toContain("KINRESOLVE_CANARY_RELEASE_SHA=$release_sha");
+    for (const [name, value] of Object.entries(identityBrowserCanaryLegalEnvironment)) {
+      expect(job).toContain(`${name}: "${value}"`);
+    }
     expect(job).toContain("npm ci --include=dev");
     expect(job).toContain("npm run build");
     expect(job).toContain("npm run start -- --hostname 127.0.0.1 --port 3117");

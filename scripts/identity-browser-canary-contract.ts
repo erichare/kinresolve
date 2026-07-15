@@ -10,6 +10,18 @@ export const identityBrowserCanaryMutationAcknowledgement =
 
 export const identityBrowserCanaryDatabaseName = "kinresolve_identity_canary";
 export const identityBrowserCanaryArchiveId = "archive-identity-canary";
+export const identityBrowserCanaryLegalEnvironment: Readonly<Record<string, string>> = Object.freeze({
+  KINRESOLVE_BETA_BOUNDARY_SHA256: "c".repeat(64),
+  KINRESOLVE_BETA_BOUNDARY_URL: "https://kinresolve.com/legal/identity-canary-boundary",
+  KINRESOLVE_BETA_BOUNDARY_VERSION: "synthetic-identity-boundary-v1",
+  KINRESOLVE_BETA_LEGAL_STATUS: "approved",
+  KINRESOLVE_BETA_PARTICIPATION_TERMS_SHA256: "a".repeat(64),
+  KINRESOLVE_BETA_PARTICIPATION_TERMS_URL: "https://kinresolve.com/legal/identity-canary-participation-terms",
+  KINRESOLVE_BETA_PARTICIPATION_TERMS_VERSION: "synthetic-identity-participation-v1",
+  KINRESOLVE_BETA_PRIVACY_NOTICE_SHA256: "b".repeat(64),
+  KINRESOLVE_BETA_PRIVACY_NOTICE_URL: "https://kinresolve.com/legal/identity-canary-privacy-notice",
+  KINRESOLVE_BETA_PRIVACY_NOTICE_VERSION: "synthetic-identity-privacy-v1"
+});
 
 type Environment = Record<string, string | undefined>;
 
@@ -41,6 +53,7 @@ export type DisposableIdentityCounts = Readonly<{
 }>;
 
 const exactHostedSettings: Readonly<Record<string, string>> = Object.freeze({
+  ...identityBrowserCanaryLegalEnvironment,
   DATABASE_AUTO_MIGRATE: "false",
   KINRESOLVE_API_V1_ENABLED: "true",
   KINRESOLVE_DATASET_MODE: "demo",

@@ -431,7 +431,17 @@ jobs:
       KINRESOLVE_API_CURSOR_SECRET: synthetic-identity-canary-cursor-secret-distinct-0000000000000000
       KINRESOLVE_API_V1_ENABLED: "true"
       KINRESOLVE_BETA_APPLICATIONS_ENABLED: "false"
+      KINRESOLVE_BETA_BOUNDARY_SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      KINRESOLVE_BETA_BOUNDARY_URL: "https://kinresolve.com/legal/identity-canary-boundary"
+      KINRESOLVE_BETA_BOUNDARY_VERSION: "synthetic-identity-boundary-v1"
+      KINRESOLVE_BETA_LEGAL_STATUS: "approved"
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_URL: "https://kinresolve.com/legal/identity-canary-participation-terms"
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_VERSION: "synthetic-identity-participation-v1"
       KINRESOLVE_BETA_PRIVACY_HMAC_SECRET: synthetic-identity-canary-privacy-secret-distinct-000000000000000
+      KINRESOLVE_BETA_PRIVACY_NOTICE_SHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      KINRESOLVE_BETA_PRIVACY_NOTICE_URL: "https://kinresolve.com/legal/identity-canary-privacy-notice"
+      KINRESOLVE_BETA_PRIVACY_NOTICE_VERSION: "synthetic-identity-privacy-v1"
       KINRESOLVE_DATASET_MODE: demo
       KINRESOLVE_DEPLOYMENT_MODE: hosted
       KINRESOLVE_DNA_ENABLED: "false"
