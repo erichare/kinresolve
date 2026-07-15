@@ -55,7 +55,6 @@ describe("hosted capability route contract", () => {
     ["dna", "app/api/dna/matches/route.ts", "searchDnaMatchesPageFromDb("],
     ["dna", "app/api/dna/[id]/route.ts", "request.json()"],
     ["dna", "app/api/cases/[id]/evidence/route.ts", "request.json()"],
-    ["externalAi", "app/api/ai/analyze/route.ts", "request.json()"],
     ["packageMedia", "app/api/integration-media/route.ts", "new URL(request.url)"],
     ["packageMedia", "app/api/integration-media/[id]/route.ts", "readJsonObject(request)"],
     ["packageMedia", "app/api/integration-media/[id]/download/route.ts", "context.params"]

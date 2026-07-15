@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { findStructuredAnomalies, runAIAnalysis } from "@/lib/ai";
 import { demoCases, demoDnaHypotheses, demoDnaMatches, demoPeople } from "@/lib/demo-data";
 
@@ -107,6 +107,44 @@ describe("AI analysis", () => {
       title: "Check Mercer harbor register",
       linkedCaseId: "case-northstar-dna-cluster"
     });
+  });
+
+  it("keeps deterministic analysis but never contacts a provider when external AI is disabled", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => new Response("should not be called"));
+    const hostedEnvironment = {
+      KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+      KINRESOLVE_DATASET_MODE: "pilot",
+      KINRESOLVE_DNA_ENABLED: "false",
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+      KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+      KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+      KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+      KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+      KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+    } as const;
+    for (const [name, value] of Object.entries(hostedEnvironment)) vi.stubEnv(name, value);
+
+    try {
+      const result = await runAIAnalysis({
+        role: "owner",
+        ...baseRequest,
+        provider: {
+          baseUrl: "https://api.openai.com/v1",
+          apiKey: "configured-but-disabled",
+          chatModel: "gpt-5-mini",
+          embeddingModel: "text-embedding-3-small",
+          fetcher
+        }
+      });
+
+      expect(result.status).toBe("configuration_required");
+      expect(result.providerStatus).toBe("not_configured");
+      expect(result.answer).toContain("Recommendation:");
+      expect(result.uncertainty.join(" ")).toMatch(/disabled.*deployment/i);
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("returns provider_error with local fallback when provider calls fail", async () => {
