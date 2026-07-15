@@ -93,6 +93,11 @@ describeIfDatabase("workspace store", () => {
       await expect(updatePersonCuration("p-amalia-bellandi", { published: true }, storeOptions)).rejects.toMatchObject({
         code: "CAPABILITY_DISABLED"
       });
+      await expect(updatePersonCuration(
+        "p-amalia-bellandi",
+        { published: "true" as unknown as boolean },
+        storeOptions
+      )).rejects.toThrow(/published.*boolean/i);
       await expect(saveSourceDocument({
         title: "Forbidden binary",
         fileName: "record.pdf",
