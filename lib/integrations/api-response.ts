@@ -61,8 +61,17 @@ export function integrationErrorResponse(
   if (code === "UPLOAD_EXPIRED") {
     return NextResponse.json({ error: "The private upload authorization expired" }, { status: 410 });
   }
-  if (code === "FEATURE_DISABLED") {
+  if (code === "FEATURE_DISABLED" || code === "CAPABILITY_DISABLED") {
     return NextResponse.json({ error: "This data-source import is not enabled" }, { status: 404 });
+  }
+  if (code === "PLAIN_GEDCOM_REQUIRED") {
+    return NextResponse.json({ error: "Only a plain GEDCOM file is accepted" }, { status: 415 });
+  }
+  if (code === "GEDCOM_FILE_INVALID" || code === "GEDCOM_PERSON_COUNT_INVALID") {
+    return NextResponse.json({ error: "The GEDCOM import metadata is invalid" }, { status: 400 });
+  }
+  if (code === "GEDCOM_FILE_TOO_LARGE" || code === "GEDCOM_PERSON_LIMIT_EXCEEDED") {
+    return NextResponse.json({ error: "The GEDCOM exceeds this deployment's import limit" }, { status: 413 });
   }
   if (code === "DESKTOP_MEDIA_DISABLED") {
     return NextResponse.json(
