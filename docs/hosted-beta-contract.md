@@ -39,17 +39,31 @@ Approval must record the approver, date, and any deviation here before a policy-
 - Invitation-only and founder-operated.
 - One genealogist or one trusted household in one isolated real-data cell.
 - A separate resettable deployment contains the synthetic Hartwell–Mercer demo.
-- Plain GEDCOM only, initially limited to 10 MB and 40,000 people. The 50,000-person fixture is a proof target, not the admitted limit.
+- Plain GEDCOM only, initially limited to 10 MiB (10,485,760 bytes) and 40,000 people. ZIP and package uploads are outside the admitted boundary. The 50,000-person fixture is a proof target, not the admitted limit.
 - One-business-day support acknowledgement target, weekly check-in, announced maintenance, and no uptime SLA.
 - Participant begins in the synthetic demo. Real family data is accepted only after every real-data gate passes.
+
+### Proposed cohort-one capability manifest
+
+All seven values must be present together in a hosted deployment. They are recommended settings pending owner and counsel sign-off; this table does not approve production enablement.
+
+| Capability flag | Cohort-one value | Enforced boundary |
+| --- | --- | --- |
+| `KINRESOLVE_DNA_ENABLED` | `false` | DNA disabled |
+| `KINRESOLVE_EXTERNAL_AI_ENABLED` | `false` | External-provider AI disabled |
+| `KINRESOLVE_PUBLIC_ARCHIVE_ENABLED` | `false` | Public archive disabled |
+| `KINRESOLVE_PUBLIC_PUBLISHING_ENABLED` | `false` | Real-data public publishing disabled |
+| `KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED` | `false` | Binary source and evidence uploads disabled |
+| `KINRESOLVE_PACKAGE_MEDIA_ENABLED` | `false` | ZIP and package media disabled |
+| `KINRESOLVE_PLAIN_GEDCOM_ENABLED` | `true` | Plain `.ged` and `.gedcom` imports enabled within the fixed limits |
 
 ### Included in the proposed pilot
 
 - Private account and archive access.
 - GEDCOM upload, durable processing, review, apply, rollback, and export.
-- People and source search.
+- People and source search; source creation is transcript-only, limited to metadata, links, and pasted text/transcripts.
 - Cases, evidence, hypotheses, tasks, and next-step workflow.
-- Deterministic quality and privacy checks that make no external AI call.
+- Deterministic local analysis and quality/privacy checks that make no external provider call.
 - Publication-readiness review without publishing the real archive.
 - Owner-scoped, read-only API access after the API gate passes.
 - Founder-assisted export, recovery, and deletion.
