@@ -9,6 +9,7 @@ import type {
   Role,
   SourceDocument
 } from "./models";
+import { resolveHostedCapabilities } from "./hosted-capabilities";
 import { assertPermission } from "./rbac";
 
 export type AIProviderMode = "responses" | "chat";
@@ -118,6 +119,7 @@ export function findStructuredAnomalies(people: PersonSummary[]): StructuredAnom
 
 export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnalysisResult> {
   assertPermission(request.role, "ai:whole-tree");
+  const externalAiEnabled = resolveHostedCapabilities().externalAi;
 
   const anomalies = findStructuredAnomalies(request.people);
   const localAnswer = buildLocalAnalysis({ ...request, anomalies });
@@ -126,7 +128,7 @@ export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnaly
   const provider = providerLabel(request.provider.baseUrl);
   const model = request.provider.chatModel;
 
-  if (!request.provider.apiKey) {
+  if (!externalAiEnabled || !request.provider.apiKey) {
     return {
       status: "configuration_required",
       providerStatus: "not_configured",
@@ -139,7 +141,9 @@ export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnaly
       contextReferences: promptPack.references,
       promptPreview: promptPack.preview,
       uncertainty: [
-        "No external AI call was made because AI_API_KEY or OPENAI_API_KEY is empty.",
+        externalAiEnabled
+          ? "No external AI call was made because AI_API_KEY or OPENAI_API_KEY is empty."
+          : "External AI is disabled for this deployment; no provider call was made.",
         "This local analysis uses structured workspace checks and ranked context, but no provider generation."
       ]
     };

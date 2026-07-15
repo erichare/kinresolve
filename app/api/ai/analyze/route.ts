@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { runAIAnalysis } from "@/lib/ai";
 import { withPermission } from "@/lib/api-authorization";
-import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import { createWorkspaceDnaHypotheses, readWorkspace, saveAIAnalysisRun } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -13,9 +12,6 @@ const analyzeSchema = z.object({
 });
 
 export const POST = withPermission("ai:whole-tree", async (request, authorization) => {
-  const unavailable = capabilityUnavailableResponse("externalAi");
-  if (unavailable) return unavailable;
-
   const parsed = analyzeSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "A research question is required." }, { status: 400 });
