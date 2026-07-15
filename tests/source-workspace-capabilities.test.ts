@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSourceSubmission,
+  sourceSaveFailureLabel,
   SourceWorkspace
 } from "@/components/source-workspace";
 
@@ -69,5 +70,10 @@ describe("source workspace capabilities", () => {
     expect(submission.headers).toBeUndefined();
     expect(submission.body).toBeInstanceOf(FormData);
     expect((submission.body as FormData).get("file")).toBe(file);
+  });
+
+  it("uses save language for transcript-only failures", () => {
+    expect(sourceSaveFailureLabel(false)).toBe("Save failed");
+    expect(sourceSaveFailureLabel(true)).toBe("Upload failed");
   });
 });

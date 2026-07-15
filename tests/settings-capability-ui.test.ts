@@ -2,7 +2,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/archive-branding-form", () => ({
-  ArchiveBrandingForm: () => null
+  ArchiveBrandingForm: ({ publicArchiveEnabled }: { publicArchiveEnabled: boolean }) => (
+    publicArchiveEnabled ? "branding-public" : "branding-private"
+  )
 }));
 
 import SettingsPage from "@/app/app/settings/page";
@@ -30,6 +32,7 @@ describe("settings capability UI", () => {
     expect(html).not.toMatch(/<span>Base URL<\/span>|<span>Chat model<\/span>|<span>Embedding model<\/span>/i);
     expect(html).not.toMatch(/API key stored server-side only/i);
     expect(html).not.toMatch(/name and tagline appear[^<]*public archive/i);
+    expect(html).toMatch(/branding-private/i);
   });
 
   it("preserves provider details for a self-hosted deployment", async () => {
@@ -41,6 +44,7 @@ describe("settings capability UI", () => {
     expect(html).toMatch(/AI provider/i);
     expect(html).toMatch(/<span>Base URL<\/span>/i);
     expect(html).toMatch(/Provider key configured/i);
+    expect(html).toMatch(/branding-public/i);
   });
 });
 

@@ -83,6 +83,8 @@ describe("Data Sources page", () => {
       );
     }
     expect(html).not.toMatch(/Imported package media/i);
+    expect(html).toMatch(/Choose GEDCOM file/i);
+    expect(html).not.toMatch(/Choose import package/i);
   });
 
   it("presents four honest import paths instead of one generic upload", async () => {

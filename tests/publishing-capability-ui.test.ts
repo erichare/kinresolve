@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   workspaceMocks.readWorkspace.mockResolvedValue({
     archiveName: "Synthetic private archive",
-    people: [{ ...demoPeople[0], published: false }]
+    people: [{ ...demoPeople[0], published: true }]
   });
 });
 
@@ -30,6 +30,8 @@ describe("publishing readiness capability UI", () => {
     expect(html).toMatch(/public preview disabled/i);
     expect(html).not.toMatch(/href="\/people(?:\/|\")/i);
     expect(html).not.toMatch(/safe to publish/i);
+    expect(html).not.toMatch(/>Published</i);
+    expect(html).not.toMatch(/Keep published|Already public and ready|before publishing/i);
   });
 
   it("preserves the public index action for self-hosted deployments", async () => {
