@@ -130,6 +130,82 @@ describe("integration artifact downloads", () => {
     })).rejects.toMatchObject({ code: "STORAGE_UNAVAILABLE" });
     expect(storage.stream).not.toHaveBeenCalled();
   });
+
+  it("rejects a preexisting ready ZIP under current hosted policy before storage access", async () => {
+    const bytes = Buffer.from("PK synthetic private export");
+    const storage = objectStorageReturning(bytes);
+    mockArtifactRow(bytes, bytes.length, {
+      fileName: "family.zip",
+      contentType: "application/zip",
+      provider: "gedcom"
+    });
+    stubHostedPrivateBetaEnvironment();
+
+    await expect(streamIntegrationArtifact("connection-1", "artifact-1", {
+      archiveId: "archive-synthetic",
+      objectStorage: storage as never,
+      featureFlags: permissiveFeatureFlags()
+    })).rejects.toMatchObject({ code: "PLAIN_GEDCOM_REQUIRED" });
+
+    expect(storage.stat).not.toHaveBeenCalled();
+    expect(storage.stream).not.toHaveBeenCalled();
+  });
+
+  it("rejects a ready artifact whose provider is currently disabled before storage access", async () => {
+    const bytes = Buffer.from("0 HEAD\n0 TRLR\n");
+    const storage = objectStorageReturning(bytes);
+    mockArtifactRow(bytes, bytes.length, { provider: "ancestry_export" });
+    stubHostedPrivateBetaEnvironment();
+
+    await expect(streamIntegrationArtifact("connection-1", "artifact-1", {
+      archiveId: "archive-synthetic",
+      objectStorage: storage as never,
+      featureFlags: permissiveFeatureFlags()
+    })).rejects.toMatchObject({ code: "FEATURE_DISABLED" });
+
+    expect(storage.stat).not.toHaveBeenCalled();
+    expect(storage.stream).not.toHaveBeenCalled();
+  });
+
+  it("keeps an allowed hosted GEDCOM artifact readable", async () => {
+    const bytes = Buffer.from("0 HEAD\n0 TRLR\n");
+    const storage = objectStorageReturning(bytes);
+    mockArtifactRow(bytes, bytes.length, { provider: "gedcom" });
+    stubHostedPrivateBetaEnvironment();
+
+    const result = await streamIntegrationArtifact("connection-1", "artifact-1", {
+      archiveId: "archive-synthetic",
+      objectStorage: storage as never,
+      featureFlags: permissiveFeatureFlags()
+    });
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of result.body) chunks.push(Buffer.from(chunk));
+    expect(Buffer.concat(chunks)).toEqual(bytes);
+    expect(storage.stream).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an allowed self-hosted ZIP artifact readable", async () => {
+    const bytes = Buffer.from("PK synthetic private export");
+    const storage = objectStorageReturning(bytes);
+    mockArtifactRow(bytes, bytes.length, {
+      fileName: "family.zip",
+      contentType: "application/zip",
+      provider: "ancestry_export"
+    });
+    vi.stubEnv("KINRESOLVE_DEPLOYMENT_MODE", "self-hosted");
+
+    const result = await streamIntegrationArtifact("connection-1", "artifact-1", {
+      archiveId: "archive-synthetic",
+      objectStorage: storage as never,
+      featureFlags: permissiveFeatureFlags()
+    });
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of result.body) chunks.push(Buffer.from(chunk));
+    expect(Buffer.concat(chunks)).toEqual(bytes);
+    expect(storage.stream).toHaveBeenCalledOnce();
+  });
 });
 
 describe("integration artifact deletion", () => {
@@ -358,22 +434,56 @@ describe("integration artifact creation cleanup", () => {
   });
 });
 
-function mockArtifactRow(bytes: Uint8Array, size = bytes.length): void {
+function mockArtifactRow(
+  bytes: Uint8Array,
+  size = bytes.length,
+  overrides: {
+    fileName?: string;
+    contentType?: string;
+    provider?: "ancestry_export" | "gedcom";
+  } = {}
+): void {
   dbMocks.query.mockResolvedValue({
     rowCount: 1,
     rows: [{
       id: "artifact-1",
       connection_id: "connection-1",
-      file_name: "tree.ged",
+      file_name: overrides.fileName ?? "tree.ged",
       artifact_key: "archives/archive-synthetic/integration-artifacts/sha",
       sha256: createHash("sha256").update(bytes).digest("hex"),
-      content_type: "application/x-gedcom",
+      content_type: overrides.contentType ?? "application/x-gedcom",
       size_bytes: size,
       state: "ready",
+      provider: overrides.provider ?? "gedcom",
       created_at: "2026-07-14T20:00:00.000Z",
       updated_at: "2026-07-14T20:00:00.000Z"
     }]
   });
+}
+
+function stubHostedPrivateBetaEnvironment(): void {
+  for (const [name, value] of Object.entries({
+    KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+    KINRESOLVE_DATASET_MODE: "pilot",
+    KINRESOLVE_DNA_ENABLED: "false",
+    KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+    KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+    KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+    KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+    KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+  })) vi.stubEnv(name, value);
+}
+
+function permissiveFeatureFlags() {
+  return {
+    exportRefresh: true,
+    desktopMedia: true,
+    desktopMediaLegalReviewApproved: true,
+    ancestryPartnerApi: true,
+    packageMedia: true,
+    plainGedcomOnly: false
+  };
 }
 
 function mockDeletionTransaction(input: { usedBySnapshot: boolean; referenceTotal?: number }) {

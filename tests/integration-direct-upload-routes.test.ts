@@ -172,6 +172,17 @@ describe("direct integration upload routes", () => {
     await expect(response.json()).resolves.toEqual({ error: "This data-source import is not enabled" });
   });
 
+  it("maps a completed replay denied by current hosted policy to 415", async () => {
+    uploadMocks.completeDirectIntegrationUpload.mockRejectedValueOnce(
+      Object.assign(new Error("private hosted replay denial detail"), { code: "PLAIN_GEDCOM_REQUIRED" })
+    );
+
+    const response = await completeUpload(jsonRequest("complete", { intentId: "completed-zip-intent" }), context());
+
+    expect(response.status).toBe(415);
+    await expect(response.json()).resolves.toEqual({ error: "Only a plain GEDCOM file is accepted" });
+  });
+
   it.each([
     ["CAPABILITY_DISABLED", 404],
     ["PLAIN_GEDCOM_REQUIRED", 415],

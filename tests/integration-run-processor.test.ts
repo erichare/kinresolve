@@ -247,6 +247,40 @@ describeIfDatabase("repeatable integration refresh processor", () => {
     expect(await getSyncRun(run.id, options)).toMatchObject({ status: "review_ready" });
   });
 
+  it("rechecks current provider policy before replaying an applied run while allowing rollback", async () => {
+    const connection = await createIntegrationConnection(
+      {
+        provider: "ancestry_export",
+        authority: "ancestry",
+        displayName: "Applied provider-flip export"
+      },
+      options
+    );
+    const artifact = await stage(connection.id, syntheticGedcom("14 APR 1884"));
+    const run = await startSyncRun(connection.id, { artifactId: artifact.id }, options);
+    await processIntegrationSyncRun(run.id, options);
+    const applyInput = {
+      idempotencyKey: "apply-before-hosted-provider-flip",
+      resolutions: [],
+      acceptAllSafeIncoming: true
+    };
+    await applyPreparedIntegrationSyncRun(run.id, applyInput, options);
+    backend.read.mockClear();
+    stubHostedPrivateBeta();
+
+    await expect(applyPreparedIntegrationSyncRun(run.id, applyInput, options))
+      .rejects.toMatchObject({ code: "FEATURE_DISABLED" });
+    expect(backend.read).not.toHaveBeenCalled();
+
+    const rolledBack = await rollbackAppliedIntegrationSyncRun(
+      run.id,
+      { idempotencyKey: "rollback-after-hosted-provider-flip", actorId: "synthetic-owner" },
+      options
+    );
+    expect(rolledBack.run).toMatchObject({ status: "rolled_back", rolledBackBy: "synthetic-owner" });
+    expect(backend.read).not.toHaveBeenCalled();
+  });
+
   it("stages, reviews, atomically applies, repeats as a no-op, and rolls back a synthetic tree", async () => {
     const connection = await createIntegrationConnection(
       {

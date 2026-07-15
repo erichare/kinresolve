@@ -121,6 +121,80 @@ describeIfDatabase("direct private integration uploads", () => {
     });
   });
 
+  it("rechecks hosted plain-GEDCOM policy before replaying a completed ZIP intent", async () => {
+    const connection = await ancestryConnection(firstOptions, "Completed ZIP replay source");
+    const bytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
+    const staged = await stageDirectIntegrationUpload(
+      connection.id,
+      { fileName: "completed-before-hosting.zip", contentType: "application/zip", size: bytes.length },
+      firstOptions
+    );
+    backend.set(issuedKey!, bytes, "application/zip", "etag-completed-before-hosting");
+    const completed = await completeDirectIntegrationUpload(connection.id, staged.intent.id, firstOptions);
+    backend.stat.mockClear();
+    backend.stream.mockClear();
+    backend.read.mockClear();
+
+    for (const [name, value] of Object.entries(hostedPrivateBetaEnvironment())) {
+      vi.stubEnv(name, value);
+    }
+    const hostedOptions = {
+      ...firstOptions,
+      featureFlags: {
+        exportRefresh: true,
+        desktopMedia: true,
+        desktopMediaLegalReviewApproved: true,
+        ancestryPartnerApi: true,
+        packageMedia: true,
+        plainGedcomOnly: false
+      }
+    };
+
+    try {
+      await expect(completeDirectIntegrationUpload(connection.id, staged.intent.id, hostedOptions))
+        .rejects.toMatchObject({ code: "PLAIN_GEDCOM_REQUIRED" });
+      expect(backend.stat).not.toHaveBeenCalled();
+      expect(backend.stream).not.toHaveBeenCalled();
+      expect(backend.read).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    await expect(completeDirectIntegrationUpload(connection.id, staged.intent.id, firstOptions))
+      .resolves.toEqual({ ...completed, replayed: true });
+  });
+
+  it("rechecks the current provider before replaying a completed plain GEDCOM intent", async () => {
+    const connection = await ancestryConnection(firstOptions, "Completed provider-flip source");
+    const bytes = Buffer.from("0 HEAD\n1 SOUR PROVIDER_FLIP\n0 TRLR", "utf8");
+    const staged = await stageDirectIntegrationUpload(
+      connection.id,
+      { fileName: "completed-before-provider-flip.ged", contentType: "text/plain", size: bytes.length },
+      firstOptions
+    );
+    backend.set(issuedKey!, bytes, "text/plain", "etag-completed-before-provider-flip");
+    const completed = await completeDirectIntegrationUpload(connection.id, staged.intent.id, firstOptions);
+    backend.stat.mockClear();
+    backend.stream.mockClear();
+    backend.read.mockClear();
+
+    for (const [name, value] of Object.entries(hostedPrivateBetaEnvironment())) {
+      vi.stubEnv(name, value);
+    }
+    try {
+      await expect(completeDirectIntegrationUpload(connection.id, staged.intent.id, firstOptions))
+        .rejects.toMatchObject({ code: "FEATURE_DISABLED" });
+      expect(backend.stat).not.toHaveBeenCalled();
+      expect(backend.stream).not.toHaveBeenCalled();
+      expect(backend.read).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    await expect(completeDirectIntegrationUpload(connection.id, staged.intent.id, firstOptions))
+      .resolves.toEqual({ ...completed, replayed: true });
+  });
+
   it("enforces plain GEDCOM bytes before tickets and after a hosted capability flip", async () => {
     const connection = await createIntegrationConnection(
       { provider: "gedcom", authority: "another_genealogy_app", displayName: "Hosted GEDCOM" },
@@ -654,6 +728,20 @@ function desktopConnection(
     { provider, authority: provider, displayName },
     options
   );
+}
+
+function hostedPrivateBetaEnvironment() {
+  return {
+    KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+    KINRESOLVE_DATASET_MODE: "demo",
+    KINRESOLVE_DNA_ENABLED: "false",
+    KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+    KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+    KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+    KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+    KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+  } as const;
 }
 
 async function acknowledgementAudit(
