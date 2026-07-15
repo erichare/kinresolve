@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { closeDatabasePools, query } from "@/lib/db";
+import { hostedGedcomFileLimitBytes, hostedGedcomPersonLimit } from "@/lib/hosted-capabilities";
 import {
   applyPreparedIntegrationSyncRun,
   processIntegrationSyncRun,
@@ -55,6 +56,7 @@ describeIfDatabase("repeatable integration refresh processor", () => {
     await query("DELETE FROM archives WHERE id = $1", [archiveId], options);
     objects.clear();
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   afterAll(async () => {
@@ -98,6 +100,151 @@ describeIfDatabase("repeatable integration refresh processor", () => {
       incoming_snapshot_id: null,
       job_state: "queued"
     }]);
+  });
+
+  it("rechecks the current provider policy before reading a queued artifact", async () => {
+    const connection = await createIntegrationConnection(
+      {
+        provider: "ancestry_export",
+        authority: "ancestry",
+        displayName: "Queued provider-flip export"
+      },
+      options
+    );
+    const artifact = await stage(connection.id, syntheticGedcom("14 APR 1884"));
+    const run = await startSyncRun(connection.id, { artifactId: artifact.id }, options);
+    stubHostedPrivateBeta();
+
+    await expect(processIntegrationSyncRun(run.id, options)).rejects.toMatchObject({
+      code: "FEATURE_DISABLED"
+    });
+
+    expect(backend.read).not.toHaveBeenCalled();
+    expect(await getSyncRun(run.id, options)).toMatchObject({
+      status: "queued",
+      incomingSnapshotId: undefined
+    });
+  });
+
+  it("rechecks the hosted file limit before reading a queued artifact", async () => {
+    const connection = await createIntegrationConnection(
+      {
+        provider: "gedcom",
+        authority: "another_genealogy_app",
+        displayName: "Queued oversized GEDCOM"
+      },
+      options
+    );
+    const artifact = await stage(connection.id, syntheticGedcom("14 APR 1884"));
+    const run = await startSyncRun(connection.id, { artifactId: artifact.id }, options);
+    await query(
+      "UPDATE integration_artifacts SET size_bytes = $3 WHERE archive_id = $1 AND id = $2",
+      [archiveId, artifact.id, hostedGedcomFileLimitBytes + 1],
+      options
+    );
+    stubHostedPrivateBeta();
+
+    await expect(processIntegrationSyncRun(run.id, options)).rejects.toMatchObject({
+      code: "GEDCOM_FILE_TOO_LARGE"
+    });
+
+    expect(backend.read).not.toHaveBeenCalled();
+    expect(await getSyncRun(run.id, options)).toMatchObject({ status: "queued" });
+  });
+
+  it("rejects a queued GEDCOM above the hosted person limit before preparing a snapshot", async () => {
+    const connection = await createIntegrationConnection(
+      {
+        provider: "gedcom",
+        authority: "another_genealogy_app",
+        displayName: "Queued oversized family tree"
+      },
+      options
+    );
+    const artifact = await stage(
+      connection.id,
+      syntheticGedcomWithPeople(hostedGedcomPersonLimit + 1)
+    );
+    const run = await startSyncRun(connection.id, { artifactId: artifact.id }, options);
+    stubHostedPrivateBeta();
+
+    await expect(processIntegrationSyncRun(run.id, options)).rejects.toMatchObject({
+      code: "GEDCOM_PERSON_LIMIT_EXCEEDED"
+    });
+
+    expect(backend.read).toHaveBeenCalledTimes(1);
+    expect(await getSyncRun(run.id, options)).toMatchObject({
+      status: "parsing",
+      incomingSnapshotId: undefined
+    });
+    const snapshots = await query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM integration_snapshots WHERE archive_id = $1 AND connection_id = $2",
+      [archiveId, connection.id],
+      options
+    );
+    expect(snapshots.rows[0]?.count).toBe("0");
+  });
+
+  it("rechecks the projected hosted archive limit before applying a reviewed GEDCOM", async () => {
+    const connection = await createIntegrationConnection(
+      {
+        provider: "gedcom",
+        authority: "another_genealogy_app",
+        displayName: "Reviewed archive-limit GEDCOM"
+      },
+      options
+    );
+    const artifact = await stage(connection.id, syntheticGedcom("14 APR 1884"));
+    const run = await startSyncRun(connection.id, { artifactId: artifact.id }, options);
+    await processIntegrationSyncRun(run.id, options);
+
+    const currentPeople = await query<{ count: number }>(
+      "SELECT count(*)::integer AS count FROM people WHERE archive_id = $1",
+      [archiveId],
+      options
+    );
+    const padding = hostedGedcomPersonLimit - currentPeople.rows[0].count;
+    expect(padding).toBeGreaterThan(0);
+    await query(
+      `INSERT INTO people (archive_id, id, slug, display_name)
+       SELECT $1, $1 || '-limit-' || ordinal, 'limit-' || ordinal, 'Limit Person ' || ordinal
+       FROM generate_series(1, $2::integer) AS ordinal`,
+      [archiveId, padding],
+      options
+    );
+    const before = await query<{ people: number; backups: number }>(
+      `SELECT
+         (SELECT count(*)::integer FROM people WHERE archive_id = $1) AS people,
+         (SELECT count(*)::integer FROM workspace_backups WHERE archive_id = $1) AS backups`,
+      [archiveId],
+      options
+    );
+    stubHostedPrivateBeta();
+
+    await expect(applyPreparedIntegrationSyncRun(
+      run.id,
+      {
+        idempotencyKey: "reject-projected-hosted-limit",
+        resolutions: [],
+        acceptAllSafeIncoming: true
+      },
+      options
+    )).rejects.toMatchObject({ code: "GEDCOM_PERSON_LIMIT_EXCEEDED" });
+
+    const after = await query<{ people: number; backups: number; imports: number }>(
+      `SELECT
+         (SELECT count(*)::integer FROM people WHERE archive_id = $1) AS people,
+         (SELECT count(*)::integer FROM workspace_backups WHERE archive_id = $1) AS backups,
+         (SELECT count(*)::integer FROM import_snapshots WHERE archive_id = $1) AS imports`,
+      [archiveId],
+      options
+    );
+    expect(after.rows[0]).toMatchObject({
+      people: before.rows[0].people,
+      backups: before.rows[0].backups,
+      imports: 0
+    });
+    expect(await getSyncRun(run.id, options)).toMatchObject({ status: "review_ready" });
   });
 
   it("stages, reviews, atomically applies, repeats as a no-op, and rolls back a synthetic tree", async () => {
@@ -1016,6 +1163,36 @@ function syntheticGedcom(birthDate: string): string {
     "2 PLAC Lantern Bay, Wisconsin",
     "0 TRLR"
   ].join("\n");
+}
+
+function syntheticGedcomWithPeople(count: number): string {
+  const people = Array.from({ length: count }, (_, index) => [
+    `0 @I${index + 1}@ INDI`,
+    `1 NAME Person ${index + 1} /Limit/`
+  ].join("\n"));
+  return [
+    "0 HEAD",
+    "1 SOUR KIN_RESOLVE_SYNTHETIC_LIMIT_FIXTURE",
+    "1 GEDC",
+    "2 VERS 5.5.1",
+    ...people,
+    "0 TRLR"
+  ].join("\n");
+}
+
+function stubHostedPrivateBeta(): void {
+  const environment = {
+    KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+    KINRESOLVE_DATASET_MODE: "demo",
+    KINRESOLVE_DNA_ENABLED: "false",
+    KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+    KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+    KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+    KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+    KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+  } as const;
+  for (const [name, value] of Object.entries(environment)) vi.stubEnv(name, value);
 }
 
 function syntheticCurationGedcom(note: string): string {
