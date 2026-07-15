@@ -170,6 +170,7 @@ describe("identity canary artifact boundary", () => {
     expect(job).toContain("archive-identity-canary");
     expect(job).toContain("KINRESOLVE_BUILD_COMMIT_SHA=$release_sha");
     expect(job).toContain("KINRESOLVE_CANARY_RELEASE_SHA=$release_sha");
+    expect(job).toContain("npm ci --include=dev");
     expect(job).toContain("npm run build");
     expect(job).toContain("npm run start -- --hostname 127.0.0.1 --port 3117");
     expect(job).toContain("npm run test:identity-e2e");
