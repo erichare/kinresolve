@@ -1602,10 +1602,10 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
 
   const updated = await client.query(
     `UPDATE archives
-     SET name = $2, tagline = $3, slug = $4, updated_at = $5
+     SET name = $2, tagline = $3, updated_at = $4
      WHERE id = $1
      RETURNING id`,
-    [archiveId, normalized.archiveName, normalized.archiveTagline, slugifyArchive(`${normalized.archiveName}-${archiveId}`), normalized.updatedAt]
+    [archiveId, normalized.archiveName, normalized.archiveTagline, normalized.updatedAt]
   );
   if (updated.rowCount === 0) {
     throw archiveNotProvisionedError(archiveId);
