@@ -4,14 +4,19 @@ import { Icons } from "@/components/icons";
 import { Confidence, Metric, Status, TableScroll } from "@/components/ui";
 import { buildDashboardSummary } from "@/lib/dashboard";
 import { isGuidedResearchEnabled } from "@/lib/guided-research-config";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { buildResearchGuide } from "@/lib/research-guide";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppDashboardPage() {
+  const capabilities = resolveHostedCapabilities();
   const workspace = await readWorkspace();
-  const dashboard = buildDashboardSummary(workspace);
+  const dashboard = buildDashboardSummary(workspace, {
+    dnaEnabled: capabilities.dna,
+    publicPublishingEnabled: capabilities.publicPublishing
+  });
   const guidedResearchEnabled = isGuidedResearchEnabled();
   const guideCandidates = guidedResearchEnabled
     ? workspace.cases
@@ -48,8 +53,15 @@ export default async function AppDashboardPage() {
       <div className="metric-row">
         <Metric icon={<Icons.Users size={18} aria-hidden />} label="Imported people" value={dashboard.metrics.people.toLocaleString()} detail="from private workspace" />
         <Metric icon={<Icons.Database size={18} aria-hidden />} label="Source refs" value={dashboard.metrics.sourceReferences.toLocaleString()} detail={`${dashboard.metrics.sourceDocuments.toLocaleString()} source docs`} />
-        <Metric icon={<Icons.Dna size={18} aria-hidden />} label="DNA matches" value={dashboard.metrics.dnaMatches.toLocaleString()} detail={`${dashboard.metrics.triagedDnaMatches.toLocaleString()} triaged`} />
-        <Metric icon={<Icons.FileSearch size={18} aria-hidden />} label="Active cases" value={dashboard.metrics.activeCases.toLocaleString()} detail={`${dashboard.metrics.highPriorityDnaMatches.toLocaleString()} high-priority DNA`} />
+        {capabilities.dna ? (
+          <Metric icon={<Icons.Dna size={18} aria-hidden />} label="DNA matches" value={dashboard.metrics.dnaMatches.toLocaleString()} detail={`${dashboard.metrics.triagedDnaMatches.toLocaleString()} triaged`} />
+        ) : null}
+        <Metric
+          icon={<Icons.FileSearch size={18} aria-hidden />}
+          label="Active cases"
+          value={dashboard.metrics.activeCases.toLocaleString()}
+          detail={capabilities.dna ? `${dashboard.metrics.highPriorityDnaMatches.toLocaleString()} high-priority DNA` : "private research in progress"}
+        />
       </div>
 
       <div className="dashboard-columns">
@@ -80,7 +92,7 @@ export default async function AppDashboardPage() {
                       <td>{researchCase.focus}</td>
                       <td data-numeric>
                         {researchCase.evidenceCount}
-                        {researchCase.dnaEvidenceCount ? <div className="muted">{researchCase.dnaEvidenceCount} DNA</div> : null}
+                        {capabilities.dna && researchCase.dnaEvidenceCount ? <div className="muted">{researchCase.dnaEvidenceCount} DNA</div> : null}
                       </td>
                     </tr>
                   ))}
@@ -147,7 +159,7 @@ export default async function AppDashboardPage() {
             {dashboard.actions.length === 0 ? <p className="muted empty-state">No urgent review items found.</p> : null}
           </aside>
 
-          <section className="app-card dashboard-dna">
+          {capabilities.dna ? <section className="app-card dashboard-dna">
             <div className="app-card-header">
               <div>
                 <span className="card-kicker">Recent signals</span>
@@ -169,7 +181,7 @@ export default async function AppDashboardPage() {
                 </Link>
               ))}
             </div>
-          </section>
+          </section> : null}
         </div>
       </div>
     </AppShell>

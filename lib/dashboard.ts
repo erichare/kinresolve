@@ -32,11 +32,20 @@ export type DashboardSummary = {
   actions: DashboardActionItem[];
 };
 
-export function buildDashboardSummary(workspace: WorkspaceData, options: { caseLimit?: number; dnaLimit?: number; actionLimit?: number } = {}): DashboardSummary {
+export function buildDashboardSummary(workspace: WorkspaceData, options: {
+  caseLimit?: number;
+  dnaLimit?: number;
+  actionLimit?: number;
+  dnaEnabled?: boolean;
+  publicPublishingEnabled?: boolean;
+} = {}): DashboardSummary {
   const caseLimit = options.caseLimit ?? 6;
   const dnaLimit = options.dnaLimit ?? 10;
   const actionLimit = options.actionLimit ?? 6;
-  const dnaLeads = workspace.dnaMatches
+  const dnaEnabled = options.dnaEnabled ?? true;
+  const publicPublishingEnabled = options.publicPublishingEnabled ?? true;
+  const enabledDnaMatches = dnaEnabled ? workspace.dnaMatches : [];
+  const dnaLeads = enabledDnaMatches
     .map((match) => ({ ...match, helpfulnessScore: scoreDnaMatch(match) }))
     .sort((left, right) => right.helpfulnessScore - left.helpfulnessScore || right.totalCm - left.totalCm)
     .slice(0, dnaLimit);
@@ -46,21 +55,25 @@ export function buildDashboardSummary(workspace: WorkspaceData, options: { caseL
       people: workspace.people.length,
       sourceDocuments: workspace.sources.length,
       sourceReferences: countSourceReferences(workspace),
-      dnaMatches: workspace.dnaMatches.length,
-      triagedDnaMatches: workspace.dnaMatches.filter((match) => match.triageStatus === "triaged" || match.triageStatus === "high_priority").length,
-      highPriorityDnaMatches: workspace.dnaMatches.filter((match) => match.triageStatus === "high_priority").length,
+      dnaMatches: enabledDnaMatches.length,
+      triagedDnaMatches: enabledDnaMatches.filter((match) => match.triageStatus === "triaged" || match.triageStatus === "high_priority").length,
+      highPriorityDnaMatches: enabledDnaMatches.filter((match) => match.triageStatus === "high_priority").length,
       activeCases: workspace.cases.filter((researchCase) => researchCase.status === "active" || researchCase.status === "planning").length
     },
     caseRows: searchCasesPage(workspace.cases, { sort: "status" }, { page: 1, pageSize: caseLimit }).items,
     dnaLeads,
-    actions: buildDashboardActions(workspace).slice(0, actionLimit)
+    actions: buildDashboardActions(workspace, { dnaEnabled, publicPublishingEnabled }).slice(0, actionLimit)
   };
 }
 
-function buildDashboardActions(workspace: WorkspaceData): DashboardActionItem[] {
-  const qualityReport = buildQualityReportPage(workspace.people, workspace.dnaMatches, workspace.cases, { page: 1, pageSize: 4 });
+function buildDashboardActions(
+  workspace: WorkspaceData,
+  capabilities: { dnaEnabled: boolean; publicPublishingEnabled: boolean }
+): DashboardActionItem[] {
+  const enabledDnaMatches = capabilities.dnaEnabled ? workspace.dnaMatches : [];
+  const qualityReport = buildQualityReportPage(workspace.people, enabledDnaMatches, workspace.cases, { page: 1, pageSize: 4 });
   const publishingReview = buildPublicationReview(workspace.people, { profilePage: 1, blockerPage: 1, pageSize: 4 });
-  const dnaActions = workspace.dnaMatches
+  const dnaActions = enabledDnaMatches
     .filter((match) => match.triageStatus === "high_priority" || (match.totalCm >= 150 && match.side === "unknown"))
     .sort((left, right) => right.totalCm - left.totalCm)
     .map<DashboardActionItem>((match) => ({
@@ -73,7 +86,9 @@ function buildDashboardActions(workspace: WorkspaceData): DashboardActionItem[] 
 
   return [
     ...qualityReport.issues.items.map(actionFromQualityIssue),
-    ...publishingReview.blockers.items.map(actionFromPublicationBlocker),
+    ...(capabilities.publicPublishingEnabled
+      ? publishingReview.blockers.items.map(actionFromPublicationBlocker)
+      : []),
     ...dnaActions
   ].sort((left, right) => toneRank(right.tone) - toneRank(left.tone));
 }

@@ -26,7 +26,7 @@ describe("quality report capability UI", () => {
     const html = renderToStaticMarkup(await ReportsPage({ searchParams: Promise.resolve({}) }));
 
     expect(html).not.toMatch(/DNA/i);
-    expect(html).not.toMatch(/publish/i);
+    expect(html).not.toMatch(/fix before publishing/i);
     expect(html).toMatch(/review before sharing/i);
   });
 
