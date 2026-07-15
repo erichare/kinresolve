@@ -16,7 +16,7 @@ import {
   createArchiveObjectStorage,
   type PrivateObjectStorageBackend
 } from "@/lib/storage/object-storage";
-import { readWorkspace } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const largeTestEnabled = process.env.RUN_LARGE_INTEGRATION_TEST === "true";
@@ -50,7 +50,7 @@ describeIfLargeDatabase("50,000-person repeatable integration refresh", () => {
   const options = { archiveId, databaseUrl: databaseUrl!, objectStorage };
 
   beforeEach(async () => {
-    await readWorkspace(options);
+    await provisionTestArchive(options);
   });
 
   afterEach(async () => {
