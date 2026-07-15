@@ -4,7 +4,7 @@ import { site } from "@/lib/site";
 export function CtaStrip({
   eyebrow = "Private beta",
   title = "Bring a real research question to Kin Resolve.",
-  body = "We’re looking for family historians willing to test realistic GEDCOM, source, case, publishing, and DNA-triage workflows.",
+  body = "We’re looking for family historians willing to test GEDCOM review, source, research-case, deterministic-check, and export workflows. Apply with the workflow—not private records.",
   primaryLabel = "Apply for the private beta",
   primaryHref = "/beta",
   secondaryLabel = "View on GitHub",

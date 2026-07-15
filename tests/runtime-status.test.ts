@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import packageJson from "../package.json";
 import { APP_VERSION } from "@/lib/app-version";
 import { hostedGedcomFileLimitBytes, hostedGedcomPersonLimit } from "@/lib/hosted-capabilities";
-import { getAIStatus, getRuntimeStatus, getStorageStatus } from "@/lib/runtime-status";
+import { getAIStatus, getRuntimeStatus, getStorageStatus, isRuntimeReady } from "@/lib/runtime-status";
 
 const originalEnv = { ...process.env };
 
@@ -70,7 +70,20 @@ describe("runtime status", () => {
       gedcomPersonLimit: hostedGedcomPersonLimit
     });
     expect(status.ai).toMatchObject({ enabled: false, configured: false });
+    expect(status.api).toEqual({ enabled: false, configured: true });
     expect(status.scheduledWrites).toEqual({ valid: true, configured: true, enabled: true });
+  });
+
+  it("fails readiness closed when API v1 is enabled without a usable cursor secret", async () => {
+    setPrivateBetaEnvironment();
+    process.env.KINRESOLVE_API_V1_ENABLED = "true";
+    delete process.env.KINRESOLVE_API_CURSOR_SECRET;
+    delete process.env.DATABASE_URL;
+
+    const status = await getRuntimeStatus();
+
+    expect(status.api).toEqual({ enabled: true, configured: false });
+    expect(isRuntimeReady(status)).toBe(false);
   });
 
   it("exposes an explicit disabled staging value without treating it as invalid", async () => {

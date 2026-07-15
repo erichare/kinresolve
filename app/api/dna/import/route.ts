@@ -8,7 +8,7 @@ import { saveDnaMatches } from "@/lib/workspace-store";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export const POST = withPermission("dna:write", async (request: Request) => {
+export const POST = withPermission("dna:write", async (request: Request, authorization) => {
   const unavailable = capabilityUnavailableResponse("dna");
   if (unavailable) return unavailable;
 
@@ -24,7 +24,7 @@ export const POST = withPermission("dna:write", async (request: Request) => {
     return NextResponse.json({ error: "No importable DNA matches found", skipped: mapped.skipped }, { status: 400 });
   }
 
-  const results = await saveDnaMatches(mapped.matches);
+  const results = await saveDnaMatches(mapped.matches, { archiveId: authorization.archiveId });
 
   return NextResponse.json(
     {

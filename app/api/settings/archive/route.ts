@@ -10,7 +10,7 @@ const brandingSchema = z.object({
   tagline: z.string().trim().max(200, "Tagline must be 200 characters or fewer").default("")
 });
 
-export const PATCH = withPermission("settings:manage", async (request) => {
+export const PATCH = withPermission("settings:manage", async (request, authorization) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -25,7 +25,9 @@ export const PATCH = withPermission("settings:manage", async (request) => {
   }
 
   try {
-    return NextResponse.json(await updateArchiveBranding(parsed.data));
+    return NextResponse.json(await updateArchiveBranding(parsed.data, {
+      archiveId: authorization.archiveId
+    }));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update archive branding" }, { status: 500 });
   }

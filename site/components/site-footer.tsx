@@ -10,7 +10,11 @@ export function SiteFooter() {
         <div className="footer-intro">
           <Brand footer />
           <p>Built for the work between a clue and a conclusion.</p>
-          <span className="status-chip" data-beta-status-surface="footer"><i aria-hidden="true" /> {betaStatus.summary}</span>
+          <span
+            className="status-chip"
+            data-beta-status-surface="footer"
+            data-marketing-release-mode={betaStatus.releaseMode}
+          ><i aria-hidden="true" /> {betaStatus.summary}</span>
         </div>
         <div>
           <h2>Explore</h2>
@@ -35,7 +39,9 @@ export function SiteFooter() {
       </div>
       <div className="shell footer-bottom">
         <span>© {new Date().getFullYear()} Kin Resolve</span>
-        <span>Source available under AGPL-3.0-only.</span>
+        <a href={site.sourceUrl}>
+          Source for this build <code>{site.sourceCommit.slice(0, 12)}</code> · AGPL-3.0-only
+        </a>
       </div>
     </footer>
   );

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { apiV1ConfigurationStatus, type ApiV1ConfigurationStatus } from "./beta-api-tokens";
 import { getPool, query } from "./db";
 import { isDatabaseTransportVerified } from "./connection-string";
 import {
@@ -44,6 +45,7 @@ export type RuntimeStatus = {
     embeddingModel: string;
     mode: "responses" | "chat";
   };
+  api: ApiV1ConfigurationStatus;
   storage: {
     configured: boolean;
     identityConfigured: boolean;
@@ -69,6 +71,7 @@ export type RuntimeStatus = {
 export function isRuntimeReady(status: RuntimeStatus): boolean {
   return status.capabilities.valid
     && status.scheduledWrites.valid
+    && status.api.configured
     && status.database.connected
     && status.database.provisioned
     && status.database.datasetModeMatches
@@ -89,6 +92,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   const capabilityResolution = resolveRuntimeCapabilities();
   const capabilities = capabilityResolution.status;
   const ai = getAIStatus(capabilities);
+  const api = apiV1ConfigurationStatus();
   const storage = await getStorageIdentityStatus(archiveId);
   const scheduledWrites = getScheduledWritesStatus();
   const expectedDatasetMode = capabilities.valid && (
@@ -103,6 +107,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       product: "KinSleuth",
       version: APP_VERSION,
       ai,
+      api,
       storage,
       scheduledWrites,
       capabilities,
@@ -134,6 +139,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       product: "KinSleuth",
       version: APP_VERSION,
       ai,
+      api,
       storage,
       scheduledWrites,
       capabilities,
@@ -199,6 +205,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       product: "KinSleuth",
       version: APP_VERSION,
       ai,
+      api,
       storage,
       scheduledWrites,
       capabilities,
@@ -226,6 +233,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
       product: "KinSleuth",
       version: APP_VERSION,
       ai,
+      api,
       storage,
       scheduledWrites,
       capabilities,

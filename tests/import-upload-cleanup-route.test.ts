@@ -32,9 +32,12 @@ beforeEach(() => {
   operationMocks.recordWorkerStarted.mockResolvedValue(undefined);
   operationMocks.recordWorkerSucceeded.mockResolvedValue(true);
   invitationMocks.cleanupExpiredBetaStateForSystem.mockResolvedValue({
+    expiredApplications: 0,
+    expiredApiRateLimits: 0,
     expiredInvitations: 0,
-    expiredVerifications: 0,
-    staleRateLimits: 0
+    expiredRateLimits: 0,
+    expiredVerificationTokens: 0,
+    removedOperatorNonces: 0
   });
   process.env.KINRESOLVE_DEPLOYMENT_MODE = "self-hosted";
   delete process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED;
@@ -138,9 +141,12 @@ describe("scheduled GEDCOM upload cleanup", () => {
     await expect(response.json()).resolves.toEqual({
       deleted: 2,
       retention: {
+        expiredApplications: 0,
+        expiredApiRateLimits: 0,
         expiredInvitations: 0,
-        expiredVerifications: 0,
-        staleRateLimits: 0
+        expiredRateLimits: 0,
+        expiredVerificationTokens: 0,
+        removedOperatorNonces: 0
       }
     });
     expect(invitationMocks.cleanupExpiredBetaStateForSystem).toHaveBeenCalledWith(

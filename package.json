@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "api:openapi:validate": "node --experimental-strip-types scripts/validate-openapi.mjs",
     "beta:legal:validate": "node --experimental-strip-types scripts/validate-beta-legal-documents.mjs",
     "beta:operator": "node --experimental-strip-types scripts/beta-operator.mjs",
+    "api:tokens:revoke-all": "node --import tsx scripts/revoke-api-tokens.mjs",
     "beta:alert:test": "node --experimental-strip-types scripts/observability-test-alert.mjs",
     "start": "next start",
     "lint": "eslint .",
@@ -16,6 +18,10 @@
     "test:db": "node --experimental-strip-types scripts/require-test-database.mjs && vitest run --no-file-parallelism",
     "test:release-upgrade": "node --experimental-strip-types scripts/require-release-upgrade-database.mjs && vitest run tests/release-upgrade.test.ts",
     "test:release-compatibility": "node --experimental-strip-types scripts/require-release-upgrade-database.mjs && vitest run --no-file-parallelism tests/release-compatibility.test.ts",
+    "test:identity-e2e": "node --import tsx scripts/identity-browser-canary.ts",
+    "test:e2e": "node --import tsx scripts/browser-canary.ts disposable",
+    "test:staging-smoke": "node --env-file=.vercel/.env.production.local --import tsx scripts/browser-canary.ts staging",
+    "test:production-smoke": "node --import tsx scripts/browser-canary.ts production",
     "db:migrate": "node --experimental-strip-types scripts/migrate.mjs",
     "db:migrate:production": "node --experimental-strip-types scripts/migrate-production.mjs",
     "db:migrations:verify-production": "node --experimental-strip-types scripts/verify-production-migrations.mjs",
@@ -38,10 +44,11 @@
     "test:db:integration-large": "node --experimental-strip-types scripts/require-test-database.mjs && RUN_LARGE_INTEGRATION_TEST=true vitest run --no-file-parallelism tests/integration-large-refresh.test.ts",
     "test:watch": "vitest",
     "worker": "node scripts/worker.mjs",
+    "launch:media:validate": "node scripts/validate-launch-media.mjs",
     "site:dev": "npm --prefix site run dev",
     "site:build": "npm --prefix site run build",
     "site:check": "npm --prefix site run check",
-    "site:verify": "npm --prefix site run verify"
+    "site:verify": "npm run launch:media:validate && npm --prefix site run verify"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
@@ -58,13 +65,17 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.20.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "axe-core": "^4.12.1",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.0.0",
+    "mp4box": "2.4.1",
     "playwright": "^1.61.1",
+    "sharp": "0.34.5",
     "tsx": "^4.23.1",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"

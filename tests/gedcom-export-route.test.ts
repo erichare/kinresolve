@@ -41,6 +41,7 @@ describe("GEDCOM export route", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body.startsWith("0 HEAD")).toBe(true);
     expect(body.trimEnd().endsWith("0 TRLR")).toBe(true);
+    expect(workspaceMocks.readWorkspace).toHaveBeenCalledWith({ archiveId: "archive-default" });
   });
 
   it("returns a friendly error when the workspace cannot be read", async () => {

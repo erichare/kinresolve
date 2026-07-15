@@ -235,6 +235,14 @@ describeIfDatabase("row-level workspace persistence", () => {
   it("preserves curation flags and avoids duplicates on re-import", async () => {
     await applyGedcomImport({ sourceName: "row-test.ged", content: smallGedcom }, storeOptions);
     await updatePersonCuration("@I1@", { privacy: "public", livingStatus: "deceased" }, storeOptions);
+    const apiIdsBefore = await query<{ id: string; api_id: string }>(
+      `SELECT id, api_id::text AS api_id
+       FROM person_facts
+       WHERE archive_id = $1 AND person_id = '@I1@'
+       ORDER BY id`,
+      [storeOptions.archiveId],
+      { databaseUrl: databaseUrl! }
+    );
 
     await applyGedcomImport({ sourceName: "row-test.ged", content: smallGedcom }, storeOptions);
 
@@ -243,6 +251,14 @@ describeIfDatabase("row-level workspace persistence", () => {
     expect(imported).toHaveLength(1);
     expect(imported[0].privacy).toBe("public");
     expect(imported[0].livingStatus).toBe("deceased");
+    await expect(query<{ id: string; api_id: string }>(
+      `SELECT id, api_id::text AS api_id
+       FROM person_facts
+       WHERE archive_id = $1 AND person_id = '@I1@'
+       ORDER BY id`,
+      [storeOptions.archiveId],
+      { databaseUrl: databaseUrl! }
+    )).resolves.toMatchObject({ rows: apiIdsBefore.rows });
 
     const rawRecords = await query<{ count: string }>(
       "SELECT count(*)::text AS count FROM raw_records WHERE archive_id = $1 AND xref = '@I1@'",

@@ -60,5 +60,10 @@ describe("research archive export", () => {
     expect(source).not.toContain("remote_tree_id");
     expect(source).not.toContain("object_key AS");
     expect(source).not.toContain("storage_key AS");
+    expect(source).toContain("api-token-digests-prefixes-rate-buckets-and-security-events");
+    expect(source).toContain("global-beta-application-contact-consent-and-delivery-state");
+    expect(source).not.toMatch(
+      /FROM public\.(?:api_tokens|api_rate_limit_buckets|security_events|beta_applications)/
+    );
   });
 });

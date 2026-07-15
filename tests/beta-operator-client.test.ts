@@ -74,6 +74,10 @@ describe("beta operator command parsing", () => {
       { action: "revoke", invitationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }
     ],
     [["revoke-all"], { action: "revoke-all" }],
+    [
+      ["application-delete", "pilot@example.test"],
+      { action: "application-delete", email: "pilot@example.test" }
+    ],
     [["control", "paused", "maintenance"], { action: "control", reasonCode: "maintenance", state: "paused" }],
     [["cleanup"], { action: "cleanup" }],
     [["cleanup", "250"], { action: "cleanup", limit: 250 }]
@@ -88,6 +92,9 @@ describe("beta operator command parsing", () => {
     ["issue", "private-person@example.test", "viewer", "member", "0900"],
     ["revoke", "not-a-private-id"],
     ["revoke-all", "extra-private-value"],
+    ["application-delete", "pilot@例え.test"],
+    ["application-delete", " pilot@example.test"],
+    ["application-delete"],
     ["control", "active", "unknown-private-reason"],
     ["cleanup", "10000.0"]
   ].map((argv) => [argv]))("rejects malformed arguments without retaining their values: %j", (argv) => {
@@ -269,6 +276,11 @@ describe("signed beta operator HTTP transport", () => {
       "{\"action\":\"revoke-all\",\"revokedCount\":12}"
     ],
     [
+      { action: "application-delete", email: "pilot@example.test" } as const,
+      { deletedCount: 2, unexpectedPrivateValue: "must-not-print" },
+      "{\"action\":\"application-delete\",\"deletedCount\":2}"
+    ],
+    [
       { action: "control", reasonCode: "maintenance", state: "paused" } as const,
       { generation: 4, state: "paused", unexpectedPrivateValue: "must-not-print" },
       "{\"action\":\"control\",\"generation\":4,\"state\":\"paused\"}"
@@ -276,13 +288,15 @@ describe("signed beta operator HTTP transport", () => {
     [
       { action: "cleanup", limit: 50 } as const,
       {
+        expiredApplications: 6,
+        expiredApiRateLimits: 5,
         expiredInvitations: 1,
         expiredRateLimits: 2,
         expiredVerificationTokens: 3,
         removedOperatorNonces: 4,
         unexpectedPrivateValue: "must-not-print"
       },
-      "{\"action\":\"cleanup\",\"expiredInvitations\":1,\"expiredRateLimits\":2,\"expiredVerificationTokens\":3,\"removedOperatorNonces\":4}"
+      "{\"action\":\"cleanup\",\"expiredApplications\":6,\"expiredApiRateLimits\":5,\"expiredInvitations\":1,\"expiredRateLimits\":2,\"expiredVerificationTokens\":3,\"removedOperatorNonces\":4}"
     ]
   ])("allowlists only expected %s success fields", async (command, body, expected) => {
     const result = await executeBetaOperatorCommand(command, config(), {

@@ -83,7 +83,7 @@ describeIfDatabase("demo purge destructive database rehearsal", () => {
     const archiveId = "demo-purge-rehearsal";
     await provisionArchive("demo", { archiveId, databaseUrl: scratchDatabaseUrl });
     await seedCyclicIntegrationGraph(scratchPool, archiveId);
-    await seedMutableCapabilities(scratchPool);
+    await seedMutableCapabilities(scratchPool, archiveId);
 
     const fenceIdentity = {
       fenceId: `fence-demo-purge-${randomBytes(12).toString("hex")}`,
@@ -99,11 +99,21 @@ describeIfDatabase("demo purge destructive database rehearsal", () => {
     expect(demoPurgeProductManifestSha256(productTables)).toMatch(/^[a-f0-9]{64}$/);
     expect(mutableGlobalTables.every((table) => table.rowCount === 1)).toBe(true);
 
-    const preservedBefore = await scratchPool.query<{ archives: number; fences: number; users: number }>(
+    const preservedBefore = await scratchPool.query<{
+      api_tokens: number;
+      archives: number;
+      fences: number;
+      memberships: number;
+      security_events: number;
+      users: number;
+    }>(
       `SELECT
          (SELECT count(*)::integer FROM public.archives) AS archives,
          (SELECT count(*)::integer FROM public.release_write_fences) AS fences,
-         (SELECT count(*)::integer FROM public."user") AS users`
+         (SELECT count(*)::integer FROM public."user") AS users,
+         (SELECT count(*)::integer FROM public.memberships) AS memberships,
+         (SELECT count(*)::integer FROM public.api_tokens) AS api_tokens,
+         (SELECT count(*)::integer FROM public.security_events) AS security_events`
     );
     let validationCalls = 0;
     await purgeDemoDatabaseTransaction({
@@ -130,7 +140,10 @@ describeIfDatabase("demo purge destructive database rehearsal", () => {
       `SELECT
          (SELECT count(*)::integer FROM public.archives) AS archives,
          (SELECT count(*)::integer FROM public.release_write_fences) AS fences,
-         (SELECT count(*)::integer FROM public."user") AS users`
+         (SELECT count(*)::integer FROM public."user") AS users,
+         (SELECT count(*)::integer FROM public.memberships) AS memberships,
+         (SELECT count(*)::integer FROM public.api_tokens) AS api_tokens,
+         (SELECT count(*)::integer FROM public.security_events) AS security_events`
     )).resolves.toMatchObject({ rows: preservedBefore.rows });
   });
 });
@@ -157,7 +170,7 @@ async function seedCyclicIntegrationGraph(pool: Pool, archiveId: string): Promis
   );
 }
 
-async function seedMutableCapabilities(pool: Pool): Promise<void> {
+async function seedMutableCapabilities(pool: Pool, archiveId: string): Promise<void> {
   await pool.query(
     `INSERT INTO public."user" ("id", "name", "email")
      VALUES ('purge-user', 'Purge User', 'purge-user@example.test')`
@@ -178,10 +191,61 @@ async function seedMutableCapabilities(pool: Pool): Promise<void> {
     ["b".repeat(64)]
   );
   await pool.query(
+    `WITH submitted AS (SELECT clock_timestamp() AS at)
+     INSERT INTO public.beta_applications (
+       id, submission_day, submission_digest, email_digest, name, email,
+       researcher_type, workflow, archive_size_band, current_tool,
+       consent_version, consented_at, created_at, updated_at,
+       retention_expires_at
+     )
+     SELECT
+       $1::uuid, (submitted.at AT TIME ZONE 'UTC')::date, $2, $3,
+       'Synthetic Applicant', 'synthetic-applicant@example.test',
+       'family-historian', 'gedcom-review', 'under-1000', NULL,
+       'beta-communications-v1', submitted.at, submitted.at, submitted.at,
+       submitted.at + interval '90 days'
+     FROM submitted`,
+    [randomUUID(), "1".repeat(64), "2".repeat(64)]
+  );
+  await pool.query(
     `INSERT INTO public.beta_operator_nonces
        (operator_key_digest, nonce, request_timestamp, request_digest, expires_at)
      VALUES ($1, $2, now(), $3, now() + interval '1 hour')`,
     ["c".repeat(64), randomUUID(), "e".repeat(64)]
+  );
+  await pool.query(
+    `INSERT INTO public.memberships (archive_id, user_id, role)
+     VALUES ($1, 'purge-user', 'owner')`,
+    [archiveId]
+  );
+  const tokenId = randomUUID();
+  const requestId = randomUUID();
+  await pool.query(
+    `INSERT INTO public.api_tokens (
+       id, archive_id, user_id, name, prefix, digest, scopes,
+       created_at, expires_at
+     )
+     VALUES (
+       $1, $2, 'purge-user', 'Expired purge evidence', 'kr_beta_ABCDEFGH', $3,
+       ARRAY['archive:read'], now() - interval '2 hours', now() - interval '1 hour'
+     )`,
+    [tokenId, archiveId, "f".repeat(64)]
+  );
+  await pool.query(
+    `INSERT INTO public.api_rate_limit_buckets (
+       token_id, bucket_kind, request_count, window_started_at, expires_at
+     )
+     VALUES (
+       $1, 'standard-minute', 1, now() - interval '2 hours', now() - interval '1 hour'
+     )`,
+    [tokenId]
+  );
+  await pool.query(
+    `INSERT INTO public.security_events (
+       id, archive_id, actor_kind, actor_user_id, token_id, event_type, request_id
+     )
+     VALUES ($1, $2, 'owner', 'purge-user', $3, 'api-token-created', $4::uuid)`,
+    [randomUUID(), archiveId, tokenId, requestId]
   );
 }
 

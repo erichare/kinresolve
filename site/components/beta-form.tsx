@@ -1,152 +1,102 @@
-"use client";
-
-import { FormEvent, useMemo, useState } from "react";
+import { betaApplicationMode } from "@/lib/beta-application-mode";
 import { site } from "@/lib/site";
 
-function field(form: FormData, name: string) {
-  return String(form.get(name) ?? "").trim();
-}
+const applicationEndpoint = "https://app.kinresolve.com/api/public/beta-applications";
+const consentVersion = "beta-communications-v1";
 
 export function BetaForm() {
-  const [status, setStatus] = useState<"idle" | "copied" | "copy-failed" | "routing-pending">("idle");
-  const mailSubject = useMemo(() => encodeURIComponent("Kin Resolve private beta interest"), []);
-
-  function applicationBody(form: FormData) {
-    return [
-      "Kin Resolve private beta interest",
-      "",
-      `Name: ${field(form, "name")}`,
-      `Email: ${field(form, "email")}`,
-      `Research role: ${field(form, "role")}`,
-      `Current software: ${field(form, "software") || "Not provided"}`,
-      `Approximate archive size: ${field(form, "archiveSize") || "Not provided"}`,
-      `Interested in: ${field(form, "interest")}`,
-      "",
-      "Primary research problem:",
-      field(form, "problem"),
-      "",
-      `Feedback sessions: ${field(form, "feedback")}`,
-      "",
-      `Consent to beta communications: ${field(form, "consent") ? "Yes" : "No"}`
-    ].join("\n");
-  }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!site.betaIntakeReady) {
-      setStatus("routing-pending");
-      return;
-    }
-    const form = new FormData(event.currentTarget);
-    const body = encodeURIComponent(applicationBody(form));
-    window.location.href = `mailto:${site.betaEmail}?subject=${mailSubject}&body=${body}`;
-  }
-
-  async function copyApplication() {
-    const form = document.querySelector<HTMLFormElement>("#beta-interest-form");
-    if (!form) return;
-    if (!form.reportValidity()) {
-      setStatus("idle");
-      return;
-    }
-    const body = applicationBody(new FormData(form));
-    try {
-      await navigator.clipboard.writeText(body);
-      setStatus("copied");
-    } catch {
-      setStatus("copy-failed");
-    }
-  }
-
+  const applicationMode = betaApplicationMode === "application";
   return (
     <form
-      action={`mailto:${site.betaEmail}?subject=${mailSubject}`}
+      action={applicationMode
+        ? applicationEndpoint
+        : `mailto:${site.betaEmail}?subject=${encodeURIComponent("Kin Resolve private beta interest")}`}
       className="beta-form"
-      encType="text/plain"
+      encType={applicationMode ? "application/x-www-form-urlencoded" : "text/plain"}
       id="beta-interest-form"
       method="post"
-      onSubmit={handleSubmit}
     >
+      <input name="consent_version" type="hidden" value={consentVersion} />
+      <div aria-hidden="true" className="form-honeypot">
+        <label htmlFor="beta-application-website">Website</label>
+        <input autoComplete="off" id="beta-application-website" name="website" tabIndex={-1} />
+      </div>
       <div className="form-grid">
         <label>
           <span>Name</span>
-          <input autoComplete="name" name="name" required />
+          <input autoComplete="name" maxLength={100} name="name" required />
         </label>
         <label>
           <span>Email</span>
-          <input autoComplete="email" name="email" required type="email" />
+          <input autoComplete="email" maxLength={254} name="email" required type="email" />
         </label>
         <label>
           <span>I’m a…</span>
-          <select defaultValue="" name="role" required>
+          <select defaultValue="" name="researcher_type" required>
             <option disabled value="">Select one</option>
-            <option>Family historian</option>
-            <option>Professional genealogist</option>
-            <option>Genealogical society member</option>
-            <option>Developer or self-hoster</option>
-            <option>Other researcher</option>
+            <option value="family-historian">Family historian</option>
+            <option value="professional-genealogist">Professional genealogist</option>
+            <option value="society-member">Genealogical society member</option>
+            <option value="developer-self-hoster">Developer or self-hoster</option>
+            <option value="other-researcher">Other researcher</option>
           </select>
         </label>
         <label>
-          <span>Current genealogy software</span>
-          <input name="software" placeholder="Optional" />
+          <span>Current genealogy tool</span>
+          <select defaultValue="" name="current_tool">
+            <option value="">Prefer not to say</option>
+            <option value="ancestry">Ancestry</option>
+            <option value="family-tree-maker">Family Tree Maker</option>
+            <option value="rootsmagic">RootsMagic</option>
+            <option value="gramps">Gramps</option>
+            <option value="familysearch">FamilySearch</option>
+            <option value="legacy-family-tree">Legacy Family Tree</option>
+            <option value="other">Other</option>
+          </select>
         </label>
         <label>
           <span>Approximate archive size</span>
-          <select defaultValue="" name="archiveSize">
-            <option value="">Prefer not to say</option>
-            <option>Under 1,000 people</option>
-            <option>1,000–10,000 people</option>
-            <option>10,000–50,000 people</option>
-            <option>More than 50,000 people</option>
+          <select defaultValue="prefer-not-to-say" name="archive_size_band" required>
+            <option value="prefer-not-to-say">Prefer not to say</option>
+            <option value="under-1000">Under 1,000 people</option>
+            <option value="1000-10000">1,000–10,000 people</option>
+            <option value="10000-50000">10,000–50,000 people</option>
+            <option value="over-50000">More than 50,000 people</option>
           </select>
         </label>
         <label>
-          <span>Most interested in</span>
-          <select defaultValue="" name="interest" required>
+          <span>Primary workflow to test</span>
+          <select defaultValue="" name="workflow" required>
             <option disabled value="">Select one</option>
-            <option>Hosted private beta</option>
-            <option>Self-hosting</option>
-            <option>Both hosted and self-hosted</option>
+            <option value="gedcom-review">GEDCOM review and change control</option>
+            <option value="source-research">Source and transcript research</option>
+            <option value="research-cases">Research cases and hypotheses</option>
+            <option value="deterministic-quality">Deterministic quality and privacy checks</option>
+            <option value="developer-api">Developer API and portability</option>
           </select>
         </label>
       </div>
-      <label>
-        <span>What research problem would you bring to the beta?</span>
-        <textarea name="problem" required rows={5} placeholder="Describe the workflow or unresolved question—not personal records or DNA details." />
-      </label>
-      <fieldset>
-        <legend>Would you participate in an occasional feedback session?</legend>
-        <label className="radio-label"><input defaultChecked name="feedback" type="radio" value="Yes" /> Yes</label>
-        <label className="radio-label"><input name="feedback" type="radio" value="Maybe" /> Maybe</label>
-        <label className="radio-label"><input name="feedback" type="radio" value="No" /> No</label>
-      </fieldset>
       <label className="consent-label">
-        <input name="consent" required type="checkbox" />
-        <span>I agree to receive Kin Resolve beta communications. I understand this page opens my email app and does not store this form on the website.</span>
+        <input name="consent" required type="checkbox" value="accepted" />
+        <span>
+          {applicationMode
+            ? "I agree to receive Kin Resolve beta communications and understand that the product service stores these application fields for up to 90 days."
+            : "I agree to receive Kin Resolve beta communications and understand that submitting opens my email application; my email providers and the Kin Resolve beta mailbox handle the message."}
+        </span>
       </label>
       <div className="form-warning">
         <strong>Keep family data out of this application.</strong>
-        <span>Do not include names of living people, record images, GEDCOM files, DNA files, or genetic information.</span>
+        <span>Beyond your own contact name, do not include relatives’ names or details, record images, GEDCOM files, DNA files, genetic information, credentials, or API tokens.</span>
       </div>
       <div className="form-actions">
-        <button className="button" disabled={!site.betaIntakeReady} type="submit">
-          {site.betaIntakeReady ? "Open email application" : "Email routing pending"}
-        </button>
-        <button className="button button-secondary" onClick={copyApplication} type="button">
-          {status === "copied" ? "Application copied" : status === "copy-failed" ? "Copy unavailable" : "Copy application"}
+        <button className="button" type="submit">
+          {applicationMode ? "Submit application" : "Open email application"}
         </button>
       </div>
-      <p className="form-note" aria-live="polite">
-        {status === "copied"
-          ? "Application copied to your clipboard."
-          : status === "copy-failed"
-            ? "The browser could not copy the application. Select the form text manually or try a secure browser context."
-            : status === "routing-pending"
-              ? "Email routing is not active yet."
-              : site.betaIntakeReady
-                ? `Submitting opens your email application with the completed form addressed to ${site.betaEmail}. Nothing is stored on this site.`
-                : "Email routing is not active in this protected preview. You can review and copy the application format; sending stays disabled until the mailbox is verified."}
+      <p className="form-note">
+        {applicationMode
+          ? "This no-JavaScript form sends only the fixed fields above to the Kin Resolve product endpoint. A receipt is sent to your email; applying does not create an account or guarantee access."
+          : `Submitting opens your email application with the form addressed to ${site.betaEmail}. The marketing site does not store it; sending still depends on your email provider.`}
       </p>
     </form>
   );

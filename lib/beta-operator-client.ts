@@ -62,9 +62,12 @@ type BetaOperatorSuccess =
   }>
   | Readonly<{ action: "revoke"; revoked: boolean }>
   | Readonly<{ action: "revoke-all"; revokedCount: number }>
+  | Readonly<{ action: "application-delete"; deletedCount: number }>
   | Readonly<{ action: "control"; generation: number; state: "active" | "paused" }>
   | Readonly<{
     action: "cleanup";
+    expiredApplications: number;
+    expiredApiRateLimits: number;
     expiredInvitations: number;
     expiredRateLimits: number;
     expiredVerificationTokens: number;
@@ -89,11 +92,14 @@ const issueResponseSchema = z.object({
 });
 const revokeResponseSchema = z.object({ revoked: z.boolean() });
 const revokeAllResponseSchema = z.object({ revokedCount: safeCountSchema });
+const applicationDeleteResponseSchema = z.object({ deletedCount: safeCountSchema });
 const controlResponseSchema = z.object({
   generation: safeCountSchema,
   state: z.enum(["active", "paused"])
 });
 const cleanupResponseSchema = z.object({
+  expiredApplications: safeCountSchema,
+  expiredApiRateLimits: safeCountSchema,
   expiredInvitations: safeCountSchema,
   expiredRateLimits: safeCountSchema,
   expiredVerificationTokens: safeCountSchema,
@@ -121,6 +127,10 @@ export function parseBetaOperatorCommand(argv: readonly string[]): OperatorInvit
       if (argv.length !== 1) throw new BetaOperatorClientError("USAGE");
       candidate = { action: "revoke-all" };
       break;
+    case "application-delete":
+      if (argv.length !== 2) throw new BetaOperatorClientError("USAGE");
+      candidate = { action: "application-delete", email: argv[1] };
+      break;
     case "control":
       if (argv.length !== 3) throw new BetaOperatorClientError("USAGE");
       candidate = { action: "control", reasonCode: argv[2], state: argv[1] };
@@ -141,7 +151,10 @@ export function parseBetaOperatorCommand(argv: readonly string[]): OperatorInvit
 
   const parsed = operatorInvitationCommandSchema.safeParse(candidate);
   if (!parsed.success) throw new BetaOperatorClientError("USAGE");
-  if (parsed.data.action === "issue" && parsed.data.email !== argv[1]) {
+  if (
+    (parsed.data.action === "issue" || parsed.data.action === "application-delete")
+    && parsed.data.email !== argv[1]
+  ) {
     throw new BetaOperatorClientError("USAGE");
   }
   return parsed.data;
@@ -399,6 +412,10 @@ function allowlistedSuccess(
       const parsed = revokeAllResponseSchema.parse(responseBody);
       return { action: "revoke-all", revokedCount: parsed.revokedCount };
     }
+    case "application-delete": {
+      const parsed = applicationDeleteResponseSchema.parse(responseBody);
+      return { action: "application-delete", deletedCount: parsed.deletedCount };
+    }
     case "control": {
       const parsed = controlResponseSchema.parse(responseBody);
       return { action: "control", generation: parsed.generation, state: parsed.state };
@@ -407,6 +424,8 @@ function allowlistedSuccess(
       const parsed = cleanupResponseSchema.parse(responseBody);
       return {
         action: "cleanup",
+        expiredApplications: parsed.expiredApplications,
+        expiredApiRateLimits: parsed.expiredApiRateLimits,
         expiredInvitations: parsed.expiredInvitations,
         expiredRateLimits: parsed.expiredRateLimits,
         expiredVerificationTokens: parsed.expiredVerificationTokens,

@@ -103,6 +103,7 @@ describe("GET /api/internal/health", () => {
         identityConfigured: true,
         identityVerified: true
       },
+      api: { enabled: true, configured: true },
       workers: [
         {
           workerKind: "integration-jobs",
@@ -184,6 +185,7 @@ function runtimeStatus() {
       embeddingModel: "private-embedding-model",
       mode: "responses"
     },
+    api: { enabled: true, configured: true },
     capabilities: {
       valid: true,
       deploymentMode: "hosted",

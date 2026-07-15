@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
   cleanup: vi.fn(),
+  consumeOperator: vi.fn(),
   createEmail: vi.fn(),
+  deleteApplications: vi.fn(),
   fence: vi.fn(),
   issue: vi.fn(),
   revoke: vi.fn(),
@@ -15,11 +17,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/operator-request", () => ({ authenticateOperatorRequest: mocks.authenticate }));
 vi.mock("@/lib/release-fence", () => ({ getActiveReleaseFence: mocks.fence }));
 vi.mock("@/lib/beta-email-delivery", () => ({ createBetaEmailDeliveries: mocks.createEmail }));
+vi.mock("@/lib/beta-applications", () => ({
+  deleteBetaApplicationsForEmail: mocks.deleteApplications
+}));
 vi.mock("@/lib/beta-invitations", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/beta-invitations")>();
   return {
     ...original,
     cleanupBetaInvitationState: mocks.cleanup,
+    consumeBetaOperatorRequest: mocks.consumeOperator,
     issueBetaInvitation: mocks.issue,
     revokeAllPendingBetaInvitations: mocks.revokeAll,
     revokeBetaInvitation: mocks.revoke,
@@ -56,6 +62,8 @@ beforeEach(() => {
     claim
   }));
   mocks.fence.mockResolvedValue(null);
+  mocks.consumeOperator.mockResolvedValue(undefined);
+  mocks.deleteApplications.mockResolvedValue({ deletedCount: 0 });
   mocks.createEmail.mockReturnValue({
     appBaseUrl: "https://app.kinresolve.com",
     deliverInvitation: vi.fn(),
@@ -111,6 +119,36 @@ describe("signed beta operator invitation route", () => {
     const response = await POST(request({ action: "revoke-all" }));
     expect(response.status).toBe(409);
     expect(await response.text()).not.toMatch(/private body|key$/i);
+  });
+
+  it("consumes the signed operator nonce before deleting matching applications", async () => {
+    mocks.deleteApplications.mockResolvedValue({ deletedCount: 2 });
+    const response = await POST(request({
+      action: "application-delete",
+      email: "pilot@example.test"
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deletedCount: 2 });
+    expect(mocks.consumeOperator).toHaveBeenCalledWith(claim, { archiveId: "pilot-archive" });
+    expect(mocks.deleteApplications).toHaveBeenCalledWith(
+      "pilot@example.test",
+      { archiveId: "pilot-archive" }
+    );
+    expect(mocks.consumeOperator.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.deleteApplications.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("rejects non-transport email addresses before consuming or deleting", async () => {
+    const response = await POST(request({
+      action: "application-delete",
+      email: "pilot@例え.test"
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.consumeOperator).not.toHaveBeenCalled();
+    expect(mocks.deleteApplications).not.toHaveBeenCalled();
   });
 
   it("never reaches a mutation while a release fence is active", async () => {

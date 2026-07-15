@@ -82,7 +82,8 @@ export async function upsertCaseRow(
   archiveId: string,
   researchCase: ResearchCase,
   sortOrder: number,
-  writeMode: RowWriteMode = "upsert"
+  writeMode: RowWriteMode = "upsert",
+  apiId?: string
 ): Promise<void> {
   const conflictClause = writeMode === "insert"
     ? ""
@@ -90,10 +91,22 @@ export async function upsertCaseRow(
        title = EXCLUDED.title, question = EXCLUDED.question, status = EXCLUDED.status,
        focus = EXCLUDED.focus, privacy = EXCLUDED.privacy, sort_order = EXCLUDED.sort_order`;
   await client.query(
-    `INSERT INTO research_cases (id, archive_id, title, question, status, focus, privacy, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO research_cases (
+       id, archive_id, title, question, status, focus, privacy, sort_order, api_id
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::uuid, gen_random_uuid()))
      ${conflictClause}`,
-    [researchCase.id, archiveId, researchCase.title, researchCase.question, researchCase.status, researchCase.focus, researchCase.privacy, sortOrder]
+    [
+      researchCase.id,
+      archiveId,
+      researchCase.title,
+      researchCase.question,
+      researchCase.status,
+      researchCase.focus,
+      researchCase.privacy,
+      sortOrder,
+      apiId ?? null
+    ]
   );
 }
 
@@ -583,10 +596,12 @@ export async function upsertPeopleRows(
   client: PoolClient,
   archiveId: string,
   people: PersonSummary[],
-  startSortOrder: number
+  startSortOrder: number,
+  apiIds: ReadonlyMap<string, string> = new Map()
 ): Promise<void> {
   const personRows = people.map((person, index) => ({
     id: person.id,
+    api_id: apiIds.get(person.id) ?? null,
     slug: person.slug,
     display_name: person.displayName,
     given_name: person.givenName,
@@ -607,14 +622,15 @@ export async function upsertPeopleRows(
   await insertJsonBatches(personRows, async (rows) => {
     await client.query(
       `INSERT INTO people (
-        id, archive_id, slug, display_name, given_name, surname, sex, birth_date, birth_place,
+        id, archive_id, api_id, slug, display_name, given_name, surname, sex, birth_date, birth_place,
         death_date, death_place, living_status, privacy, published, relatives, notes, confidence, sort_order
       )
-      SELECT row.id, $1::text, row.slug, row.display_name, row.given_name, row.surname, row.sex,
+      SELECT row.id, $1::text, COALESCE(row.api_id, gen_random_uuid()),
+        row.slug, row.display_name, row.given_name, row.surname, row.sex,
         row.birth_date, row.birth_place, row.death_date, row.death_place, row.living_status,
         row.privacy, row.published, row.relatives, row.notes, 0.5, row.sort_order
       FROM jsonb_to_recordset($2::jsonb) AS row(
-        id text, slug text, display_name text, given_name text, surname text, sex text,
+        id text, api_id uuid, slug text, display_name text, given_name text, surname text, sex text,
         birth_date text, birth_place text, death_date text, death_place text, living_status text,
         privacy text, published boolean, relatives text[], notes text, sort_order integer
       )
@@ -632,7 +648,22 @@ export async function upsertPeopleRows(
 
 // Facts have no stable identity across imports (their ids derive from file
 // line numbers), so each person's facts are replaced wholesale.
-export async function replacePersonFacts(client: PoolClient, archiveId: string, people: PersonSummary[]): Promise<void> {
+export async function replacePersonFacts(
+  client: PoolClient,
+  archiveId: string,
+  people: PersonSummary[],
+  apiIds: ReadonlyMap<string, string> = new Map()
+): Promise<void> {
+  const preservedApiIds = new Map(apiIds);
+  const existingApiIds = await client.query<{ id: string; api_id: string }>(
+    `SELECT id, api_id::text AS api_id
+     FROM person_facts
+     WHERE archive_id = $1 AND person_id = ANY($2::text[])`,
+    [archiveId, people.map((person) => person.id)]
+  );
+  for (const row of existingApiIds.rows) {
+    if (!preservedApiIds.has(row.id)) preservedApiIds.set(row.id, row.api_id);
+  }
   // Postgres caches each foreign key's referenced-row lookup plan per session.
   // If that plan was first built while `people` was tiny (e.g. the demo seed),
   // it can be a sequential scan — and a bulk fact insert right after a bulk
@@ -648,6 +679,7 @@ export async function replacePersonFacts(client: PoolClient, archiveId: string, 
   const factRows = people.flatMap((person) =>
     person.facts.map((fact, sortOrder) => ({
       id: fact.id,
+      api_id: preservedApiIds.get(fact.id) ?? null,
       person_id: person.id,
       fact_type: fact.type,
       date_text: fact.date,
@@ -663,12 +695,14 @@ export async function replacePersonFacts(client: PoolClient, archiveId: string, 
   await insertJsonBatches(factRows, async (rows) => {
     await client.query(
       `INSERT INTO person_facts (
-        id, archive_id, person_id, fact_type, date_text, place_text, value_text, source_text, privacy, confidence, sort_order
+        id, archive_id, api_id, person_id, fact_type, date_text, place_text, value_text,
+        source_text, privacy, confidence, sort_order
       )
-      SELECT row.id, $1::text, row.person_id, row.fact_type, row.date_text, row.place_text,
+      SELECT row.id, $1::text, COALESCE(row.api_id, gen_random_uuid()),
+        row.person_id, row.fact_type, row.date_text, row.place_text,
         row.value_text, row.source_text, row.privacy, row.confidence, row.sort_order
       FROM jsonb_to_recordset($2::jsonb) AS row(
-        id text, person_id text, fact_type text, date_text text, place_text text, value_text text,
+        id text, api_id uuid, person_id text, fact_type text, date_text text, place_text text, value_text text,
         source_text text, privacy text, confidence numeric, sort_order integer
       )
       ON CONFLICT (archive_id, id) DO UPDATE SET
@@ -684,10 +718,12 @@ export async function upsertSourceRows(
   client: PoolClient,
   archiveId: string,
   sources: SourceDocument[],
-  startSortOrder: number
+  startSortOrder: number,
+  apiIds: ReadonlyMap<string, string> = new Map()
 ): Promise<void> {
   const sourceRows = sources.map((source, index) => ({
     id: source.id,
+    api_id: apiIds.get(source.id) ?? null,
     title: source.title,
     source_type: source.sourceType,
     import_id: source.importId,
@@ -713,16 +749,17 @@ export async function upsertSourceRows(
   await insertJsonBatches(sourceRows, async (rows) => {
     await client.query(
       `INSERT INTO sources (
-        id, archive_id, title, source_type, import_id, raw_record_id, file_name, storage_key,
+        id, archive_id, api_id, title, source_type, import_id, raw_record_id, file_name, storage_key,
         mime_type, size_bytes, repository, url, ancestry_apid, citation_date, linked_person_id,
         linked_case_id, transcript, notes, privacy, confidence, created_at, sort_order
       )
-      SELECT row.id, $1::text, row.title, row.source_type, row.import_id, row.raw_record_id,
+      SELECT row.id, $1::text, COALESCE(row.api_id, gen_random_uuid()),
+        row.title, row.source_type, row.import_id, row.raw_record_id,
         row.file_name, row.storage_key, row.mime_type, row.size_bytes, row.repository, row.url,
         row.ancestry_apid, row.citation_date, row.linked_person_id, row.linked_case_id,
         row.transcript, row.notes, row.privacy, row.confidence, row.created_at, row.sort_order
       FROM jsonb_to_recordset($2::jsonb) AS row(
-        id text, title text, source_type text, import_id text, raw_record_id text, file_name text,
+        id text, api_id uuid, title text, source_type text, import_id text, raw_record_id text, file_name text,
         storage_key text, mime_type text, size_bytes bigint, repository text, url text,
         ancestry_apid text, citation_date text, linked_person_id text, linked_case_id text,
         transcript text, notes text, privacy text, confidence numeric, created_at timestamptz, sort_order integer

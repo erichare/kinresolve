@@ -8,6 +8,14 @@ on:
         required: true
         type: boolean
         default: false
+      beta_application_mode:
+        description: Explicit static beta form mode; production application activation belongs to the product release gate
+        required: true
+        type: choice
+        default: mailto
+        options:
+          - mailto
+          - application
 
 permissions:
   contents: read
@@ -20,54 +28,98 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: ${{ inputs.production && 'production' || 'preview' }}
     defaults:
       run:
         working-directory: site
     env:
       DEPLOY_ENV: ${{ inputs.production && 'production' || 'preview' }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ inputs.beta_application_mode }}
+      KINRESOLVE_MARKETING_RELEASE_MODE: prelaunch
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            site/package-lock.json
 
-      - name: Install dependencies
+      - name: Install launch-media validator dependencies
+        working-directory: .
         run: npm ci
+
+      - name: Install marketing dependencies
+        run: npm ci
+
+      - name: Validate the committed synthetic launch media
+        working-directory: .
+        run: npm run launch:media:validate
+
+      - name: Refuse out-of-band production application activation
+        if: inputs.production && inputs.beta_application_mode == 'application'
+        run: |
+          echo "Production application-mode activation requires the product release workflow evidence gate." >&2
+          exit 1
+
+      - name: Verify the explicitly selected static site mode
+        run: rm -rf .next out
 
       - name: Verify static site
         run: npm run verify
 
+      - name: Install the pinned Vercel CLI before loading deploy credentials
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
       - name: Pull Vercel project settings
-        run: npx vercel@56.1.0 pull --yes --environment="$DEPLOY_ENV"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment="$DEPLOY_ENV"
 
       - name: Build preview
         if: env.DEPLOY_ENV == 'preview'
-        run: npx vercel@56.1.0 build
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build
 
       - name: Build production release
         if: env.DEPLOY_ENV == 'production'
-        run: npx vercel@56.1.0 build --prod
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod
 
       - name: Deploy preview
         if: env.DEPLOY_ENV == 'preview'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          DEPLOYMENT_URL="$(npx vercel@56.1.0 deploy --prebuilt --target=preview --yes)"
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --target=preview --yes)"
           echo "### Marketing preview" >> "$GITHUB_STEP_SUMMARY"
           echo "$DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Deploy production release
         if: env.DEPLOY_ENV == 'production'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          DEPLOYMENT_URL="$(npx vercel@56.1.0 deploy --prebuilt --prod --yes)"
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --yes)"
           echo "### Marketing production deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "$DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"

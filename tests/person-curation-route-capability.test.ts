@@ -6,9 +6,13 @@ const workspaceMocks = vi.hoisted(() => ({
 const authMocks = vi.hoisted(() => ({
   getSessionContext: vi.fn()
 }));
+const capabilityMocks = vi.hoisted(() => ({
+  resolveHostedCapabilities: vi.fn()
+}));
 
 vi.mock("@/lib/workspace-store", () => workspaceMocks);
 vi.mock("@/lib/auth-session", () => authMocks);
+vi.mock("@/lib/hosted-capabilities", () => capabilityMocks);
 
 import { PATCH } from "@/app/api/people/[id]/curation/route";
 
@@ -23,6 +27,7 @@ const ownerSession = {
 beforeEach(() => {
   vi.resetAllMocks();
   authMocks.getSessionContext.mockResolvedValue(ownerSession);
+  capabilityMocks.resolveHostedCapabilities.mockReturnValue({ publicPublishing: true });
 });
 
 describe("person curation route validation", () => {
@@ -43,6 +48,33 @@ describe("person curation route validation", () => {
     expect(workspaceMocks.updatePersonCuration).toHaveBeenCalledWith(
       "person-1",
       { published: false },
+      { archiveId: "archive-private-beta" }
+    );
+  });
+
+  it("fails closed before mutation when hosted public publishing is disabled", async () => {
+    capabilityMocks.resolveHostedCapabilities.mockReturnValue({ publicPublishing: false });
+
+    const response = await PATCH(request({ published: true }), routeContext());
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Person not found" });
+    expect(workspaceMocks.updatePersonCuration).not.toHaveBeenCalled();
+  });
+
+  it("still allows unpublishing and non-publishing curation while publishing is disabled", async () => {
+    capabilityMocks.resolveHostedCapabilities.mockReturnValue({ publicPublishing: false });
+    workspaceMocks.updatePersonCuration.mockResolvedValue({ id: "person-1", published: false });
+
+    const response = await PATCH(
+      request({ published: false, privacy: "sensitive", livingStatus: "living" }),
+      routeContext()
+    );
+
+    expect(response.status).toBe(200);
+    expect(workspaceMocks.updatePersonCuration).toHaveBeenCalledWith(
+      "person-1",
+      { published: false, privacy: "sensitive", livingStatus: "living" },
       { archiveId: "archive-private-beta" }
     );
   });

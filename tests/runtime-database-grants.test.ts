@@ -28,13 +28,14 @@ afterEach(() => {
 });
 
 function privilegeRow(tableName: string, overrides: Record<string, unknown> = {}) {
-  const managed = betaOperationsRuntimeGrantContract.some(({ table }) => table === tableName);
+  const managed = betaOperationsRuntimeGrantContract.find(({ table }) => table === tableName);
+  const privileges: readonly string[] = managed?.privileges ?? [];
   return {
     table_name: tableName,
-    select: true,
-    insert: managed,
-    update: managed,
-    delete: false,
+    select: managed ? privileges.includes("SELECT") : true,
+    insert: privileges.includes("INSERT"),
+    update: privileges.includes("UPDATE"),
+    delete: privileges.includes("DELETE"),
     truncate: false,
     references: false,
     trigger: false,
@@ -80,24 +81,49 @@ describe("beta operations runtime database grants", () => {
 
   it("contains only the exact required DML and never builds protected-table statements", () => {
     expect(betaOperationsRuntimeGrantContract).toEqual([
+      { table: "auth_rate_limit_buckets", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "beta_applications", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
       { table: "beta_data_operations", privileges: ["SELECT", "INSERT", "UPDATE"] },
-      { table: "beta_worker_heartbeats", privileges: ["SELECT", "INSERT", "UPDATE"] }
+      { table: "beta_worker_heartbeats", privileges: ["SELECT", "INSERT", "UPDATE"] },
+      { table: "api_tokens", privileges: ["SELECT", "INSERT", "UPDATE"] },
+      { table: "api_rate_limit_buckets", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "security_events", privileges: ["INSERT"] }
     ]);
     const statements = buildBetaOperationsGrantStatements('runtime "role"');
     expect(statements).toEqual([
+      'REVOKE ALL PRIVILEGES ON TABLE public."auth_rate_limit_buckets" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."auth_rate_limit_buckets" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."beta_applications" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."beta_applications" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."beta_data_operations" FROM "runtime ""role"""',
       'GRANT SELECT, INSERT, UPDATE ON TABLE public."beta_data_operations" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."beta_worker_heartbeats" FROM "runtime ""role"""',
-      'GRANT SELECT, INSERT, UPDATE ON TABLE public."beta_worker_heartbeats" TO "runtime ""role"""'
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public."beta_worker_heartbeats" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."api_tokens" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public."api_tokens" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."api_rate_limit_buckets" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."security_events" FROM "runtime ""role"""',
+      'GRANT INSERT ON TABLE public."security_events" TO "runtime ""role"""'
     ]);
     expect(statements.join("\n")).not.toMatch(/release_write_fences|schema_migrations/);
-    expect(statements.join("\n")).not.toMatch(/\bDELETE\b|\bTRUNCATE\b|\bREFERENCES\b|\bTRIGGER\b|\bMAINTAIN\b/);
+    expect(statements.filter((statement) => /\bDELETE\b/.test(statement))).toEqual([
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."auth_rate_limit_buckets" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."beta_applications" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""'
+    ]);
+    expect(statements.join("\n")).not.toMatch(/\bTRUNCATE\b|\bREFERENCES\b|\bTRIGGER\b|\bMAINTAIN\b/);
   });
 
   it("accepts only the exact managed and protected privilege posture", () => {
     expect(validateBetaOperationsPrivilegeRows(validPrivilegeRows())).toEqual([
+      expect.objectContaining({ table: "auth_rate_limit_buckets", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "beta_applications", select: true, insert: true, update: true, delete: true }),
       expect.objectContaining({ table: "beta_data_operations", select: true, insert: true, update: true }),
       expect.objectContaining({ table: "beta_worker_heartbeats", select: true, insert: true, update: true }),
+      expect.objectContaining({ table: "api_tokens", select: true, insert: true, update: true, delete: false }),
+      expect.objectContaining({ table: "api_rate_limit_buckets", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "security_events", select: false, insert: true, update: false, delete: false }),
       expect.objectContaining({ table: "release_write_fences", select: true, insert: false, update: false }),
       expect.objectContaining({ table: "schema_migrations", select: true, insert: false, update: false })
     ]);
@@ -162,7 +188,7 @@ describe("beta operations runtime database grants", () => {
 });
 
 describeIfDatabase("beta operations runtime grants against PostgreSQL", () => {
-  it("repairs only the two post-migration tables and re-attests exact effective access", async () => {
+  it("repairs only the five post-migration tables and re-attests exact effective access", async () => {
     const suffix = `${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
     const roleName = `kr_runtime_grant_${suffix}`;
     const extraRoleName = `kr_extra_${suffix}`;
@@ -254,7 +280,7 @@ describeIfDatabase("beta operations runtime grants against PostgreSQL", () => {
         representativeAppWriteRolledBack: true,
         persistentDataMutation: false
       });
-      expect(receipt.managedTablePrivileges).toHaveLength(2);
+      expect(receipt.managedTablePrivileges).toHaveLength(7);
       expect(receipt.protectedTablePrivileges).toHaveLength(2);
 
       const runtimePool = new Pool({ connectionString: runtimeUrl.toString(), max: 1 });

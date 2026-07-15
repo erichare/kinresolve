@@ -75,6 +75,7 @@ describe("Data Sources page", () => {
 
     expect(fileInputs).toHaveLength(1);
     expect(fileInputs[0]).toContain('data-provider="gedcom"');
+    expect(fileInputs[0]).toContain('aria-label="Choose GEDCOM source file"');
     expect(fileInputs[0]).toMatch(/accept="[^"]*\.ged(?:,|\b)/i);
     expect(fileInputs[0]).not.toMatch(/\.zip|application\/zip/i);
     for (const unavailableProvider of ["Ancestry", "Family Tree Maker", "RootsMagic"]) {

@@ -38,7 +38,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               Showing {report.issues.start.toLocaleString()}-{report.issues.end.toLocaleString()} of {report.issues.total.toLocaleString()}
             </p>
           </div>
-          <PaginationLinks ariaLabel="Quality report issue pages" page={report.issues.page} pageCount={report.issues.pageCount} pageParam="issuesPage" pathname="/app/reports" searchParams={params} />
+          <div className="report-controls">
+            <Status tone="private">Deterministic checks · No external AI used</Status>
+            <PaginationLinks ariaLabel="Quality report issue pages" page={report.issues.page} pageCount={report.issues.pageCount} pageParam="issuesPage" pathname="/app/reports" searchParams={params} />
+          </div>
         </div>
         <table className="data-table">
           <thead>

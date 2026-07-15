@@ -97,8 +97,8 @@ second manual action; concurrent alias or pause changes make evidence ambiguous.
 
 When the hosted product is unpublished, marketing must return to the prelaunch truth:
 
-> Private beta applications are open. Hosted access is rolling out in small invitation
-> cohorts.
+> Private beta applications are open. Hosted access is temporarily unavailable; no new
+> invitations or private-data uploads are being admitted.
 
 Do not say the hosted beta is live, currently available, or accepting participant data
 while canonical traffic is on holding. Remove or disable API availability claims if the

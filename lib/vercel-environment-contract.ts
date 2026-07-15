@@ -5,12 +5,16 @@ export const requiredSensitiveProductionEnvironmentNames = [
   "BLOB_READ_WRITE_TOKEN",
   "CRON_SECRET",
   "DATABASE_URL",
+  "KINRESOLVE_API_CURSOR_SECRET",
   "KINRESOLVE_BETA_PRIVACY_HMAC_SECRET",
   "KINRESOLVE_OBSERVABILITY_INGEST_SECRET",
   "KINRESOLVE_OBSERVABILITY_PROBE_SECRET",
   "RELEASE_FENCE_SECRET",
   "RESEND_API_KEY"
 ] as const;
+
+export const betaApplicationSensitiveEnvironmentName =
+  "KINRESOLVE_BETA_APPLICATION_HMAC_SECRET" as const;
 
 export const requiredReadableProductionEnvironmentNames = [
   "APP_BASE_URL",
@@ -29,6 +33,8 @@ export const requiredReadableProductionEnvironmentNames = [
   "KINRESOLVE_BETA_PRIVACY_NOTICE_SHA256",
   "KINRESOLVE_BETA_PRIVACY_NOTICE_URL",
   "KINRESOLVE_BETA_PRIVACY_NOTICE_VERSION",
+  "KINRESOLVE_BETA_APPLICATIONS_ENABLED",
+  "KINRESOLVE_API_V1_ENABLED",
   "KINRESOLVE_DEPLOYMENT_MODE",
   "KINRESOLVE_DATASET_MODE",
   "KINRESOLVE_DATABASE_IDENTITY",
@@ -90,16 +96,34 @@ type EnvironmentMetadata = {
   customEnvironmentIds: string[];
 };
 
-const requiredNames = new Set<string>([
-  ...requiredSensitiveProductionEnvironmentNames,
-  ...requiredReadableProductionEnvironmentNames
-]);
 const forbiddenNames = new Set<string>(forbiddenWorkflowOnlyEnvironmentNames);
 
-export function validateVercelEnvironmentContract(value: unknown): {
+export type VercelEnvironmentContractOptions = Readonly<{
+  expectedBetaApplicationsEnabled?: boolean;
+}>;
+
+export function validateVercelEnvironmentContract(
+  value: unknown,
+  options: VercelEnvironmentContractOptions = {}
+): {
   readableSettings: number;
   sensitiveSettings: number;
 } {
+  const expectedBetaApplicationsEnabled = options.expectedBetaApplicationsEnabled ?? false;
+  if (typeof expectedBetaApplicationsEnabled !== "boolean") {
+    throw new Error("The expected beta-application setting must be boolean.");
+  }
+  const requiredSensitiveNames: readonly string[] = expectedBetaApplicationsEnabled
+    ? [...requiredSensitiveProductionEnvironmentNames, betaApplicationSensitiveEnvironmentName]
+    : requiredSensitiveProductionEnvironmentNames;
+  const requiredNames = new Set<string>([
+    ...requiredSensitiveNames,
+    ...requiredReadableProductionEnvironmentNames
+  ]);
+  const inspectedNames = new Set<string>([
+    ...requiredNames,
+    betaApplicationSensitiveEnvironmentName
+  ]);
   const entries = parseEntries(value);
   const requiredEntries = new Map<string, EnvironmentMetadata>();
 
@@ -113,7 +137,7 @@ export function validateVercelEnvironmentContract(value: unknown): {
     if (forbiddenNames.has(key)) {
       throw new Error(`Vercel environment metadata contains forbidden workflow-only setting ${key}.`);
     }
-    if (!requiredNames.has(key)) continue;
+    if (!inspectedNames.has(key)) continue;
     if (requiredEntries.has(key)) {
       throw new Error(`Vercel environment metadata contains a duplicate ${key} assignment.`);
     }
@@ -125,8 +149,14 @@ export function validateVercelEnvironmentContract(value: unknown): {
     throw new Error(`Vercel environment metadata is missing required production settings: ${missing.join(", ")}.`);
   }
 
-  for (const name of requiredSensitiveProductionEnvironmentNames) {
-    const entry = requiredEntries.get(name)!;
+  for (const name of [
+    ...requiredSensitiveProductionEnvironmentNames,
+    ...(requiredEntries.has(betaApplicationSensitiveEnvironmentName)
+      ? [betaApplicationSensitiveEnvironmentName]
+      : [])
+  ]) {
+    const entry = requiredEntries.get(name);
+    if (!entry) continue;
     validateProductionOnly(entry);
     if (entry.type !== "sensitive") {
       throw new Error(`${name} must use the Vercel Sensitive environment-variable type.`);
@@ -147,6 +177,7 @@ export function validateVercelEnvironmentContract(value: unknown): {
   return {
     readableSettings: requiredReadableProductionEnvironmentNames.length,
     sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length
+      + Number(requiredEntries.has(betaApplicationSensitiveEnvironmentName))
   };
 }
 

@@ -1,3 +1,5 @@
+import { resolveInsecureLoopbackProductionCanaryProfile } from "./insecure-loopback-canary";
+
 type Environment = Record<string, string | undefined>;
 
 export type SameOriginRequestEvaluation = "allowed" | "forbidden" | "misconfigured";
@@ -18,7 +20,11 @@ export function evaluateSameOriginRequest(
 function resolveExpectedOrigin(requestUrl: string, environment: Environment): string | null {
   const configuredBaseUrl = environment.APP_BASE_URL;
   if (configuredBaseUrl) {
-    return parseCanonicalOrigin(configuredBaseUrl, environment.NODE_ENV === "production");
+    return parseCanonicalOrigin(
+      configuredBaseUrl,
+      environment.NODE_ENV === "production",
+      environment
+    );
   }
 
   if (environment.NODE_ENV === "production") return null;
@@ -30,11 +36,16 @@ function resolveExpectedOrigin(requestUrl: string, environment: Environment): st
   }
 }
 
-function parseCanonicalOrigin(value: string, requireHttps: boolean): string | null {
+function parseCanonicalOrigin(
+  value: string,
+  requireHttps: boolean,
+  environment: Environment
+): string | null {
   try {
     const url = new URL(value);
     const protocolAllowed = requireHttps
       ? url.protocol === "https:"
+        || resolveInsecureLoopbackProductionCanaryProfile(environment) !== null
       : url.protocol === "https:" || url.protocol === "http:";
 
     if (

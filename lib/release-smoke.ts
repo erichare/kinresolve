@@ -8,6 +8,7 @@ type HealthValidationInput = {
   expectedVersion: string;
   expectedDatasetMode: DatasetMode;
   expectedDatabaseIdentity: string;
+  expectedApiEnabled: boolean;
   expectedScheduledWritesEnabled?: boolean;
   requireOperationalDiagnostics?: boolean;
 };
@@ -18,11 +19,19 @@ type HtmlValidationInput = {
   body: string;
 };
 
+type ApiLaunchStateInput = {
+  status: number;
+  contentType: string | null;
+  body: string;
+  headers: Headers;
+};
+
 export const releaseSmokeRequests = [
   { path: "/login", method: "GET", expectation: "html" },
   { path: "/api/internal/health", method: "GET", expectation: "authenticated-health" },
   { path: "/app", method: "GET", expectation: "canonical-login-redirect" },
   { path: "/api/people", method: "GET", expectation: "anonymous-denial" },
+  { path: "/api/v1/meta", method: "GET", expectation: "api-launch-state" },
   { path: "/api/cron/integration-jobs", method: "GET", expectation: "unsigned-cron-denial" },
   { path: "/api/auth/session", method: "GET", expectation: "anonymous-session" }
 ] as const;
@@ -73,6 +82,40 @@ export function validateStaticHoldingHealth(input: { status: number }): void {
   }
 }
 
+export function validateApiLaunchState(input: ApiLaunchStateInput, expectedEnabled: boolean): void {
+  const expectedStatus = expectedEnabled ? 401 : 404;
+  const expectedCode = expectedEnabled ? "invalid_token" : "api_disabled";
+  if (input.status !== expectedStatus) {
+    throw new Error(`/api/v1/meta must return HTTP ${expectedStatus}; received ${input.status}.`);
+  }
+  if (!input.contentType?.toLowerCase().startsWith("application/json")) {
+    throw new Error("/api/v1/meta must return JSON.");
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(input.body);
+  } catch (error) {
+    throw new Error("/api/v1/meta did not return valid JSON.", { cause: error });
+  }
+  if (
+    !body || typeof body !== "object" || Array.isArray(body) ||
+    !("code" in body) || body.code !== expectedCode ||
+    !("message" in body) || typeof body.message !== "string" ||
+    !("requestId" in body) || typeof body.requestId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(body.requestId)
+  ) {
+    throw new Error("/api/v1/meta launch-state response is malformed.");
+  }
+  const challenge = input.headers.get("www-authenticate");
+  if (expectedEnabled) {
+    if (challenge !== 'Bearer realm="Kin Resolve API", error="invalid_token"') {
+      throw new Error("The enabled API launch-state response must include the exact bearer challenge.");
+    }
+  } else if (challenge !== null) {
+    throw new Error("The disabled API launch-state response must not advertise bearer authentication.");
+  }
+}
+
 export function validateReleaseHealth(input: HealthValidationInput): {
   version: string;
   datasetMode: DatasetMode;
@@ -116,6 +159,12 @@ export function validateReleaseHealth(input: HealthValidationInput): {
     || storage.identityVerified !== true
   ) {
     throw new Error("Release health private storage identity must be configured and verified.");
+  }
+
+  const api = record(health.api, "Release health API");
+  requireExactFields(api, new Set(["configured", "enabled"]), "Release health API");
+  if (api.configured !== true || api.enabled !== input.expectedApiEnabled) {
+    throw new Error("Release health API configuration does not match the release target.");
   }
 
   const capabilities = record(health.capabilities, "Release health capabilities");

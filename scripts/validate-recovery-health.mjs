@@ -26,6 +26,7 @@ try {
     expectedVersion: required("RELEASE_VERSION"),
     expectedDatasetMode: "pilot",
     expectedDatabaseIdentity: required("RECOVERY_TARGET_DATABASE_IDENTITY"),
+    expectedApiEnabled: strictBoolean(required("KINRESOLVE_API_V1_ENABLED")),
     requireOperationalDiagnostics: true
   });
   await writeFile(outputPath, `${JSON.stringify({ status: "pass", checkedAt: new Date().toISOString() }, null, 2)}\n`, {
@@ -71,4 +72,12 @@ function gitSha(value) {
     throw new Error("RELEASE_COMMIT must be a full lowercase Git SHA.");
   }
   return value;
+}
+
+function strictBoolean(value) {
+  const normalized = value.toLowerCase();
+  if (normalized !== "true" && normalized !== "false") {
+    throw new Error("KINRESOLVE_API_V1_ENABLED must be exactly true or false.");
+  }
+  return normalized === "true";
 }

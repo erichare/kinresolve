@@ -1,0 +1,992 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Kin Resolve API
+  version: 1.0.0-preview.1
+  summary: Read-only access to one private Kin Resolve archive.
+  description: |
+    The Kin Resolve API is a deliberately small, read-only Developer Preview for
+    invited private-beta archives. Every token is bound to one archive, one owner,
+    explicit scopes, an expiry, and revocation state.
+
+    Use this API from a trusted command-line or server environment. Browser CORS is
+    intentionally not enabled. Never embed a Kin Resolve token in client-side code,
+    source control, logs, URLs, or analytics.
+  termsOfService: https://kinresolve.com/developers/#preview-terms
+  contact:
+    name: Kin Resolve beta support
+    email: beta@kinresolve.com
+    url: https://kinresolve.com/developers/
+  license:
+    name: AGPL-3.0-only
+    identifier: AGPL-3.0-only
+externalDocs:
+  description: Developer guide, limits, changelog, and preview terms
+  url: https://kinresolve.com/developers/
+servers:
+  - url: https://app.kinresolve.com/api/v1
+    description: Hosted private beta
+security:
+  - bearerAuth: []
+tags:
+  - name: Archive
+    description: Archive metadata and people.
+  - name: Sources
+    description: Conservative source-record projections without files, transcripts, or storage identifiers.
+  - name: Cases
+    description: Bounded research-case summaries without nested evidence graphs.
+  - name: Reports
+    description: Deterministic aggregate quality checks.
+  - name: Exports
+    description: High-sensitivity, owner-authorized archive export.
+paths:
+  /meta:
+    get:
+      tags: [Archive]
+      summary: Read API and archive metadata
+      description: |
+        Returns the API and product versions, display metadata for the token's bound
+        archive, and the capabilities exposed by this contract. It never accepts an
+        archive identifier from the caller.
+      operationId: getMeta
+      x-kinresolve-scope: archive:read
+      x-kinresolve-rate-limit-profile: standard
+      x-codeSamples:
+        - lang: Shell
+          label: cURL
+          source: |
+            curl --fail-with-body \
+              -H "Authorization: Bearer $KINRESOLVE_TOKEN" \
+              https://app.kinresolve.com/api/v1/meta
+      responses:
+        "200":
+          description: Metadata for the token's archive.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaResponse"
+              examples:
+                archive:
+                  summary: Fictional private-beta archive
+                  value:
+                    data:
+                      apiVersion: v1
+                      productVersion: 0.18.0
+                      archive:
+                        id: 11111111-1111-4111-8111-111111111111
+                        name: Hartwell–Mercer Family Archive
+                        tagline: A fictional research archive
+                      capabilities:
+                        people: true
+                        sources: true
+                        cases: true
+                        qualityReport: true
+                        gedcomExport: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /people:
+    get:
+      tags: [Archive]
+      summary: List people
+      description: Returns a stable cursor page of conservative person summaries from the token's archive.
+      operationId: listPeople
+      x-kinresolve-scope: archive:read
+      x-kinresolve-rate-limit-profile: standard
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      x-codeSamples:
+        - lang: Shell
+          label: cURL
+          source: |
+            curl --fail-with-body \
+              -H "Authorization: Bearer $KINRESOLVE_TOKEN" \
+              "https://app.kinresolve.com/api/v1/people?limit=25"
+      responses:
+        "200":
+          description: A page of people. Pass `page.nextCursor` as `cursor` to continue.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Link:
+              $ref: "#/components/headers/NextLink"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeoplePage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /people/{id}:
+    get:
+      tags: [Archive]
+      summary: Read one person
+      description: |
+        Returns a bounded person projection with at most 100 structured facts. An
+        unknown identifier and an identifier belonging to another archive produce
+        the same private `404` response.
+      operationId: getPerson
+      x-kinresolve-scope: archive:read
+      x-kinresolve-rate-limit-profile: standard
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Stable non-content API surrogate returned by the people collection.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 36
+            format: uuid
+      x-codeSamples:
+        - lang: Shell
+          label: cURL
+          source: |
+            curl --fail-with-body \
+              -H "Authorization: Bearer $KINRESOLVE_TOKEN" \
+              "https://app.kinresolve.com/api/v1/people/$PERSON_ID"
+      responses:
+        "200":
+          description: The requested person and a bounded list of structured facts.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /sources:
+    get:
+      tags: [Sources]
+      summary: List sources
+      description: |
+        Returns source summaries without transcripts, notes, filenames, blob keys,
+        provider URLs, private download links, or nested evidence.
+      operationId: listSources
+      x-kinresolve-scope: sources:read
+      x-kinresolve-rate-limit-profile: standard
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      x-codeSamples:
+        - lang: Shell
+          label: cURL
+          source: |
+            curl --fail-with-body \
+              -H "Authorization: Bearer $KINRESOLVE_TOKEN" \
+              "https://app.kinresolve.com/api/v1/sources?limit=25"
+      responses:
+        "200":
+          description: A page of conservative source summaries.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Link:
+              $ref: "#/components/headers/NextLink"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourcesPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /cases:
+    get:
+      tags: [Cases]
+      summary: List research cases
+      description: Returns bounded case summaries without evidence, hypotheses, tasks, or nested workspace state.
+      operationId: listCases
+      x-kinresolve-scope: cases:read
+      x-kinresolve-rate-limit-profile: standard
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      x-codeSamples:
+        - lang: Shell
+          label: cURL
+          source: |
+            curl --fail-with-body \
+              -H "Authorization: Bearer $KINRESOLVE_TOKEN" \
+              "https://app.kinresolve.com/api/v1/cases?limit=25"
+      responses:
+        "200":
+          description: A page of research-case summaries.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Link:
+              $ref: "#/components/headers/NextLink"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CasesPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /reports/quality:
+    get:
+      tags: [Reports]
+      summary: Read the deterministic quality report
+      description: |
+        Returns aggregate counts and deterministic checks. It does not send archive
+        data to an AI provider and does not return names, source text, or record bodies.
+      operationId: getQualityReport
+      x-kinresolve-scope: reports:read
+      x-kinresolve-rate-limit-profile: standard
+      x-codeSamples:
+        - lang: Shell
+          label: cURL
+          source: |
+            curl --fail-with-body \
+              -H "Authorization: Bearer $KINRESOLVE_TOKEN" \
+              https://app.kinresolve.com/api/v1/reports/quality
+      responses:
+        "200":
+          description: Aggregate archive quality summary and checks.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QualityReportResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /exports/gedcom:
+    get:
+      tags: [Exports]
+      summary: Export the archive as GEDCOM
+      description: |
+        Downloads a full GEDCOM 5.5.1 export. The separately privileged
+        `archive:export` scope is owner-only; token creation and every use are audited.
+        The response is never cached and has stricter limits than other operations.
+      operationId: exportGedcom
+      x-kinresolve-scope: archive:export
+      x-kinresolve-rate-limit-profile: export
+      x-codeSamples:
+        - lang: Shell
+          label: cURL
+          source: |
+            curl --fail-with-body \
+              -H "Authorization: Bearer $KINRESOLVE_TOKEN" \
+              -o kinresolve-export.ged \
+              https://app.kinresolve.com/api/v1/exports/gedcom
+      responses:
+        "200":
+          description: Complete GEDCOM 5.5.1 archive export.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Content-Disposition:
+              description: Safe attachment filename ending in `.ged`.
+              schema:
+                type: string
+                example: attachment; filename="hartwell-mercer-family-archive-2026-07-15.ged"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            text/plain:
+              schema:
+                type: string
+                contentMediaType: text/plain
+              examples:
+                minimal:
+                  summary: Truncated fictional GEDCOM illustration
+                  value: |-
+                    0 HEAD
+                    1 SOUR KINSLEUTH
+                    0 TRLR
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: kr_beta_<256-bit-secret>
+      description: |
+        A one-time-display API token created by an archive owner in Settings. Store
+        it in `KINRESOLVE_TOKEN` and send it only in the Authorization header.
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size. Defaults to 25; the maximum is 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Opaque cursor from the preceding response. A cursor is bound to its route and
+        archive; do not inspect, edit, or reuse it for another collection.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 2048
+  headers:
+    RequestId:
+      description: Support-safe identifier for this request.
+      schema:
+        type: string
+        format: uuid
+    CacheControl:
+      description: Private API responses are never cacheable.
+      schema:
+        type: string
+        const: private, no-store, max-age=0
+    NextLink:
+      description: Present only when another page exists; equivalent to `page.nextCursor`.
+      schema:
+        type: string
+        example: </api/v1/people?limit=25&cursor=opaque>; rel="next"
+    RateLimitLimit:
+      description: Limit for the currently effective rate-limit window.
+      schema:
+        type: integer
+        minimum: 1
+    RateLimitRemaining:
+      description: Requests remaining in the currently effective window.
+      schema:
+        type: integer
+        minimum: 0
+    RateLimitReset:
+      description: Whole seconds until the currently effective window resets.
+      schema:
+        type: integer
+        minimum: 0
+    RetryAfter:
+      description: Whole seconds to wait before retrying.
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    InvalidRequest:
+      description: The query, limit, or cursor is invalid.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        RateLimit-Remaining:
+          $ref: "#/components/headers/RateLimitRemaining"
+        RateLimit-Reset:
+          $ref: "#/components/headers/RateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            invalidCursor:
+              value:
+                code: invalid_request
+                message: The cursor is invalid.
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+    Unauthorized:
+      description: The bearer token is absent, malformed, expired, revoked, or otherwise invalid.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        WWW-Authenticate:
+          description: Bearer authentication challenge. Token-state details are intentionally uniform.
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            invalidToken:
+              value:
+                code: invalid_token
+                message: The bearer token is invalid, expired, or revoked.
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+    Forbidden:
+      description: The token is valid but does not carry the operation's required scope.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        RateLimit-Remaining:
+          $ref: "#/components/headers/RateLimitRemaining"
+        RateLimit-Reset:
+          $ref: "#/components/headers/RateLimitReset"
+        WWW-Authenticate:
+          description: Bearer challenge with `error="insufficient_scope"` and the operation's required scope.
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            scope:
+              value:
+                code: insufficient_scope
+                message: The token does not grant the required scope.
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+    NotFound:
+      description: The preview is disabled, or the resource does not exist in the token's archive.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        RateLimit-Remaining:
+          $ref: "#/components/headers/RateLimitRemaining"
+        RateLimit-Reset:
+          $ref: "#/components/headers/RateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            privateNotFound:
+              value:
+                code: not_found
+                message: Not found
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+            previewDisabled:
+              value:
+                code: api_disabled
+                message: The API developer preview is not enabled.
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+    RateLimited:
+      description: The token exceeded a minute or daily limit.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        RateLimit-Remaining:
+          $ref: "#/components/headers/RateLimitRemaining"
+        RateLimit-Reset:
+          $ref: "#/components/headers/RateLimitReset"
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            exhausted:
+              value:
+                code: rate_limit_exceeded
+                message: The API rate limit has been exceeded. Retry after the indicated interval.
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+    ServiceUnavailable:
+      description: API v1 has an invalid configuration or a required dependency is temporarily unavailable.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            disabled:
+              value:
+                code: service_unavailable
+                message: The API is temporarily unavailable.
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+    InternalError:
+      description: A safe internal error with no implementation or archive details.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        RateLimit-Remaining:
+          $ref: "#/components/headers/RateLimitRemaining"
+        RateLimit-Reset:
+          $ref: "#/components/headers/RateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            internal:
+              value:
+                code: internal_error
+                message: The request could not be completed.
+                requestId: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+  schemas:
+    MetaResponse:
+      type: object
+      additionalProperties: true
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Meta"
+    Meta:
+      type: object
+      additionalProperties: true
+      required: [apiVersion, productVersion, archive, capabilities]
+      properties:
+        apiVersion:
+          type: string
+          const: v1
+        productVersion:
+          type: string
+          minLength: 1
+        archive:
+          $ref: "#/components/schemas/ArchiveMetadata"
+        capabilities:
+          $ref: "#/components/schemas/Capabilities"
+    ArchiveMetadata:
+      type: object
+      additionalProperties: true
+      required: [id, name, tagline]
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 240
+        tagline:
+          type: string
+          maxLength: 500
+    Capabilities:
+      type: object
+      additionalProperties: true
+      required: [people, sources, cases, qualityReport, gedcomExport]
+      properties:
+        people:
+          type: boolean
+        sources:
+          type: boolean
+        cases:
+          type: boolean
+        qualityReport:
+          type: boolean
+        gedcomExport:
+          type: boolean
+    PeoplePage:
+      type: object
+      additionalProperties: true
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Person"
+        page:
+          $ref: "#/components/schemas/Page"
+    SourcesPage:
+      type: object
+      additionalProperties: true
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Source"
+        page:
+          $ref: "#/components/schemas/Page"
+    CasesPage:
+      type: object
+      additionalProperties: true
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Case"
+        page:
+          $ref: "#/components/schemas/Page"
+    Page:
+      type: object
+      additionalProperties: true
+      required: [nextCursor]
+      properties:
+        nextCursor:
+          description: Opaque continuation cursor, or null when this is the final page.
+          type: [string, "null"]
+          maxLength: 2048
+    Person:
+      type: object
+      additionalProperties: true
+      required: [id, displayName, birth, death, livingStatus, privacy, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        displayName:
+          type: string
+        givenName:
+          type: string
+        surname:
+          type: string
+        sex:
+          type: string
+          enum: [M, F, U]
+        birth:
+          $ref: "#/components/schemas/LifeEvent"
+        death:
+          $ref: "#/components/schemas/LifeEvent"
+        livingStatus:
+          type: string
+          enum: [living, deceased, unknown]
+        privacy:
+          $ref: "#/components/schemas/Privacy"
+        updatedAt:
+          type: string
+          format: date-time
+    PersonDetail:
+      type: object
+      additionalProperties: true
+      required: [id, displayName, birth, death, livingStatus, privacy, updatedAt, facts, factsTruncated]
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        displayName:
+          type: string
+        givenName:
+          type: string
+        surname:
+          type: string
+        sex:
+          type: string
+          enum: [M, F, U]
+        birth:
+          $ref: "#/components/schemas/LifeEvent"
+        death:
+          $ref: "#/components/schemas/LifeEvent"
+        livingStatus:
+          type: string
+          enum: [living, deceased, unknown]
+        privacy:
+          $ref: "#/components/schemas/Privacy"
+        updatedAt:
+          type: string
+          format: date-time
+        facts:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Fact"
+        factsTruncated:
+          type: boolean
+          description: True when more than 100 structured facts exist.
+    PersonDetailResponse:
+      type: object
+      additionalProperties: true
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/PersonDetail"
+    LifeEvent:
+      type: object
+      additionalProperties: true
+      properties:
+        date:
+          type: string
+        place:
+          type: string
+    Fact:
+      type: object
+      additionalProperties: true
+      required: [id, type, confidence]
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        type:
+          type: string
+        date:
+          type: string
+        place:
+          type: string
+        value:
+          type: string
+        privacy:
+          $ref: "#/components/schemas/Privacy"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+    Source:
+      type: object
+      additionalProperties: true
+      required: [id, title, sourceType, privacy, confidence, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        title:
+          type: string
+        sourceType:
+          type: string
+        repository:
+          type: string
+        citationDate:
+          type: string
+        linkedPersonId:
+          $ref: "#/components/schemas/ResourceId"
+        linkedCaseId:
+          $ref: "#/components/schemas/ResourceId"
+        privacy:
+          $ref: "#/components/schemas/Privacy"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        createdAt:
+          type: string
+          format: date-time
+    Case:
+      type: object
+      additionalProperties: true
+      required: [id, title, question, status, focus, privacy, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        title:
+          type: string
+        question:
+          type: string
+        status:
+          type: string
+          enum: [active, planning, paused, resolved]
+        focus:
+          type: string
+        privacy:
+          $ref: "#/components/schemas/Privacy"
+        updatedAt:
+          type: string
+          format: date-time
+    QualityReportResponse:
+      type: object
+      additionalProperties: true
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/QualityReport"
+    QualityReport:
+      type: object
+      additionalProperties: true
+      required: [generatedAt, summary, checks]
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        summary:
+          type: object
+          additionalProperties: true
+          required: [people, sources, cases, issues]
+          properties:
+            people:
+              type: integer
+              minimum: 0
+            sources:
+              type: integer
+              minimum: 0
+            cases:
+              type: integer
+              minimum: 0
+            issues:
+              type: integer
+              minimum: 0
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/QualityCheck"
+    QualityCheck:
+      type: object
+      additionalProperties: true
+      required: [code, label, count, severity]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+        severity:
+          type: string
+          enum: [low, medium, high]
+    ResourceId:
+      type: string
+      format: uuid
+      description: Stable non-content API surrogate. Internal database and GEDCOM identifiers are never exposed.
+    Privacy:
+      type: string
+      enum: [public, private, sensitive]
+    Error:
+      type: object
+      additionalProperties: true
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable code. Clients must tolerate new codes under an already documented HTTP status.
+          x-extensible-enum:
+            - api_disabled
+            - invalid_request
+            - invalid_token
+            - insufficient_scope
+            - not_found
+            - method_not_allowed
+            - rate_limit_exceeded
+            - service_unavailable
+            - internal_error
+        message:
+          type: string
+          minLength: 1
+        requestId:
+          type: string
+          format: uuid

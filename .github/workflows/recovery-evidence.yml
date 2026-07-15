@@ -622,15 +622,20 @@ jobs:
             .publicSchemaUsage == true and
             .publicSchemaCreate == false and .exactPrivilegesAttested == true and
             .representativeAppWriteRolledBack == true and .persistentDataMutation == false and
-            (.managedTablePrivileges | map(.table)) == [
-              "beta_data_operations", "beta_worker_heartbeats"
+            (.managedTablePrivileges | map({table, select, insert, update, delete})) == [
+              {"table":"auth_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_applications","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_data_operations","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"beta_worker_heartbeats","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_tokens","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"security_events","select":false,"insert":true,"update":false,"delete":false}
             ] and
             all(.managedTablePrivileges[];
               (. | keys | sort) == ([
                 "delete", "grantOptions", "insert", "maintain", "references",
                 "select", "table", "trigger", "truncate", "update"
-              ] | sort) and .select == true and .insert == true and .update == true and
-              .delete == false and .truncate == false and .references == false and
+              ] | sort) and .truncate == false and .references == false and
               .trigger == false and .maintain == false and .grantOptions == false) and
             (.protectedTablePrivileges | map(.table)) == [
               "release_write_fences", "schema_migrations"
@@ -682,6 +687,7 @@ jobs:
           KINRESOLVE_OBJECT_STORAGE_BACKEND: vercel-blob
           KINRESOLVE_DEPLOYMENT_MODE: hosted
           KINRESOLVE_DATASET_MODE: pilot
+          KINRESOLVE_API_V1_ENABLED: "false"
           KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
           KINRESOLVE_BUILD_COMMIT_SHA: ${{ env.RELEASE_COMMIT }}
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}

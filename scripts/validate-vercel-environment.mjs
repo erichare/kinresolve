@@ -29,7 +29,10 @@ try {
     throw new Error("Pulled Vercel production environment file is missing or invalid.");
   }
 
-  const result = validateVercelEnvironmentContract(document);
+  const expectedBetaApplicationsEnabled = process.env.EXPECTED_BETA_APPLICATIONS_ENABLED === undefined
+    ? false
+    : requiredBoolean("EXPECTED_BETA_APPLICATIONS_ENABLED");
+  const result = validateVercelEnvironmentContract(document, { expectedBetaApplicationsEnabled });
   const pulledResult = validatePulledVercelEnvironmentContract(pulledEnvironment);
   console.log(
     `Vercel production environment verified: ${result.readableSettings} readable settings and `
@@ -39,4 +42,12 @@ try {
 } catch (error) {
   console.error(error instanceof Error ? error.message : "Vercel environment validation failed.");
   process.exitCode = 1;
+}
+
+function requiredBoolean(name) {
+  const value = process.env[name];
+  if (value !== "true" && value !== "false") {
+    throw new Error(`${name} must be exactly true or false.`);
+  }
+  return value === "true";
 }

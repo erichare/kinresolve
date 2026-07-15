@@ -7,8 +7,15 @@ import {
   resolveApiRoute
 } from "@/lib/api-access";
 import { apiErrorResponse } from "@/lib/api-response";
+import { evaluateBetaApplicationNativeFormRequest } from "@/lib/beta-application-http";
+import {
+  apiV1ErrorResponse,
+  createApiV1RequestId,
+  isApiV1Path
+} from "@/lib/api-v1-http";
 import { getSessionContext } from "@/lib/auth-session";
 import { ensureDatabaseSchema } from "@/lib/db";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import {
   isPublicArchivePath,
   publicArchiveEnabled
@@ -25,6 +32,29 @@ const protectedPagePrefixes = ["/app"];
 // route-handler traffic instead (see lib/auth.ts).
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isDnaPage = pathname === "/app/dna" || pathname.startsWith("/app/dna/");
+
+  if (isDnaPage) {
+    let dnaEnabled: boolean;
+    try {
+      dnaEnabled = resolveHostedCapabilities().dna;
+    } catch {
+      return new NextResponse("Capability configuration unavailable", {
+        status: 503,
+        headers: { "cache-control": "private, no-store" }
+      });
+    }
+    if (!dnaEnabled) {
+      return new NextResponse("Not found", {
+        status: 404,
+        headers: {
+          "cache-control": "private, no-store",
+          "x-robots-tag": "noindex, nofollow, noarchive"
+        }
+      });
+    }
+  }
+
   const isApi = pathname === "/api" || pathname.startsWith("/api/");
   const apiRoute = isApi ? resolveApiRoute(pathname) : null;
   const apiAccess = isApi ? resolveApiAccess(pathname, request.method) : null;
@@ -35,13 +65,32 @@ export async function proxy(request: NextRequest) {
     || protectedPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
   if (isApi && !apiRoute) {
+    if (isApiV1Path(pathname)) {
+      return apiV1ErrorResponse(404, "not_found", "Not found", createApiV1RequestId());
+    }
     return apiErrorResponse(404, "Not found");
   }
 
   if (isApi && apiRoute && !apiAccess) {
+    if (isApiV1Path(pathname)) {
+      return apiV1ErrorResponse(
+        405,
+        "method_not_allowed",
+        "Method not allowed",
+        createApiV1RequestId(),
+        { headers: { allow: allowedApiMethods(apiRoute).join(", ") } }
+      );
+    }
     return apiErrorResponse(405, "Method not allowed", {
       headers: { allow: allowedApiMethods(apiRoute).join(", ") }
     });
+  }
+
+  if (
+    apiRequestPolicy === "marketing-native-form"
+    && !evaluateBetaApplicationNativeFormRequest(request)
+  ) {
+    return apiErrorResponse(403, "Forbidden");
   }
 
   if (isApi && isApiWriteBlockedByReleaseFence(pathname, request.method)) {
@@ -88,7 +137,9 @@ export async function proxy(request: NextRequest) {
       ? new URL("/login", process.env.APP_BASE_URL)
       : new URL("/login", request.nextUrl);
     loginUrl.searchParams.set("next", "/app");
-    return NextResponse.redirect(loginUrl);
+    const response = NextResponse.redirect(loginUrl);
+    response.headers.set("x-robots-tag", "noindex, nofollow, noarchive");
+    return response;
   }
 
   if (!protectsApi && !protectsPage) {

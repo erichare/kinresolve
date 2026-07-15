@@ -10,7 +10,7 @@ const sides = new Set<DnaSide>(["maternal", "paternal", "both", "unknown"]);
 const treeStatuses = new Set<DnaTreeStatus>(["none", "private", "partial", "public", "unknown"]);
 const triageStatuses = new Set<DnaMatch["triageStatus"]>(["needs_review", "triaged", "ignored", "high_priority"]);
 
-export const PATCH = withPermission("dna:write", async (request: Request, _authorization, { params }: { params: Promise<{ id: string }> }) => {
+export const PATCH = withPermission("dna:write", async (request: Request, authorization, { params }: { params: Promise<{ id: string }> }) => {
   const unavailable = capabilityUnavailableResponse("dna");
   if (unavailable) return unavailable;
 
@@ -28,21 +28,21 @@ export const PATCH = withPermission("dna:write", async (request: Request, _autho
   }
 
   try {
-    const result = await updateDnaMatch(id, input);
+    const result = await updateDnaMatch(id, input, { archiveId: authorization.archiveId });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "DNA match update failed" }, { status: 400 });
   }
 });
 
-export const DELETE = withPermission("dna:write", async (_request: Request, _authorization, { params }: { params: Promise<{ id: string }> }) => {
+export const DELETE = withPermission("dna:write", async (_request: Request, authorization, { params }: { params: Promise<{ id: string }> }) => {
   const unavailable = capabilityUnavailableResponse("dna");
   if (unavailable) return unavailable;
 
   const { id } = await params;
 
   try {
-    const result = await deleteDnaMatch(id);
+    const result = await deleteDnaMatch(id, { archiveId: authorization.archiveId });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "DNA match delete failed" }, { status: 404 });

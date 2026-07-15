@@ -92,6 +92,20 @@ export type WorkspaceData = {
   updatedAt: string;
 };
 
+const apiResourceIdentitySnapshotKey = "__kinResolveApiResourceIdentities";
+const apiResourceIdentityKinds = ["people", "personFacts", "sources", "researchCases"] as const;
+type ApiResourceIdentityKind = (typeof apiResourceIdentityKinds)[number];
+type ApiResourceIdentityMaps = Record<ApiResourceIdentityKind, Map<string, string>>;
+type StoredApiResourceIdentitySnapshot = {
+  schemaVersion: 1;
+  archiveId: string;
+  people: Array<{ id: string; apiId: string }>;
+  personFacts: Array<{ id: string; apiId: string }>;
+  sources: Array<{ id: string; apiId: string }>;
+  researchCases: Array<{ id: string; apiId: string }>;
+};
+const apiResourceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 export type WorkspaceStoreOptions = DatabaseOptions & {
   archiveId?: string;
   datasetMode?: DatasetMode;
@@ -1403,8 +1417,15 @@ async function persistWorkspaceBackupInTransaction(
   reason: string
 ): Promise<WorkspaceBackup> {
   const backup = createWorkspaceBackup(workspace, reason);
+  const apiResourceIdentities = await loadApiResourceIdentityMaps(client, archiveId);
   const backupSort = await prependSortOrder(client, "workspace_backups", archiveId);
-  await insertBackupRow(client, archiveId, backup, JSON.stringify(workspace), backupSort);
+  await insertBackupRow(client, archiveId, backup, JSON.stringify({
+    ...workspace,
+    [apiResourceIdentitySnapshotKey]: serializeApiResourceIdentitySnapshot(
+      archiveId,
+      apiResourceIdentities
+    )
+  }), backupSort);
   await pruneBackupRows(client, archiveId, retainedBackupCount);
   return backup;
 }
@@ -1424,14 +1445,19 @@ export async function restoreWorkspaceBackupInTransaction(
   }
 
   const current = await loadWorkspace(client, archiveId);
+  const snapshot = result.rows[0].snapshot as Partial<WorkspaceData> & Record<string, unknown>;
+  const restoredApiResourceIdentities = parseApiResourceIdentitySnapshot(
+    snapshot[apiResourceIdentitySnapshotKey],
+    archiveId
+  );
   const restored = normalizeWorkspaceData({
-    ...(result.rows[0].snapshot as Partial<WorkspaceData>),
+    ...snapshot,
     // Keep the current backup ledger. In particular, the sync run being
     // rolled back has a restrictive FK to its pre-apply backup.
     backups: current.backups,
     updatedAt: new Date().toISOString()
   });
-  await persistWorkspace(client, archiveId, restored);
+  await persistWorkspace(client, archiveId, restored, restoredApiResourceIdentities);
   return restored;
 }
 
@@ -1631,7 +1657,12 @@ async function loadWorkspace(client: PoolClient, archiveId: string): Promise<Wor
   });
 }
 
-async function persistWorkspace(client: PoolClient, archiveId: string, workspace: WorkspaceData): Promise<void> {
+async function persistWorkspace(
+  client: PoolClient,
+  archiveId: string,
+  workspace: WorkspaceData,
+  restoredApiResourceIdentities?: ApiResourceIdentityMaps
+): Promise<void> {
   const normalized = normalizeWorkspaceData(workspace);
 
   const updated = await client.query(
@@ -1644,6 +1675,10 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
   if (updated.rowCount === 0) {
     throw archiveNotProvisionedError(archiveId);
   }
+  const apiResourceIdentities = mergeApiResourceIdentityMaps(
+    await loadApiResourceIdentityMaps(client, archiveId),
+    restoredApiResourceIdentities
+  );
 
   await client.query("DELETE FROM ai_runs WHERE archive_id = $1", [archiveId]);
   await client.query("DELETE FROM dna_hypotheses WHERE archive_id = $1", [archiveId]);
@@ -1664,12 +1699,19 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
   await client.query("DELETE FROM person_facts WHERE archive_id = $1", [archiveId]);
   await client.query("DELETE FROM people WHERE archive_id = $1", [archiveId]);
 
-  await upsertPeopleRows(client, archiveId, normalized.people, 0);
-  await replacePersonFacts(client, archiveId, normalized.people);
-  await upsertSourceRows(client, archiveId, normalized.sources, 0);
+  await upsertPeopleRows(client, archiveId, normalized.people, 0, apiResourceIdentities.people);
+  await replacePersonFacts(client, archiveId, normalized.people, apiResourceIdentities.personFacts);
+  await upsertSourceRows(client, archiveId, normalized.sources, 0, apiResourceIdentities.sources);
 
   for (const [index, researchCase] of normalized.cases.entries()) {
-    await upsertCaseRow(client, archiveId, researchCase, index);
+    await upsertCaseRow(
+      client,
+      archiveId,
+      researchCase,
+      index,
+      "upsert",
+      apiResourceIdentities.researchCases.get(researchCase.id)
+    );
     await replaceCaseChildren(client, archiveId, researchCase);
   }
 
@@ -1691,6 +1733,114 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
   for (const [index, backup] of normalized.backups.entries()) {
     await upsertBackupRowPreservingSnapshot(client, archiveId, backup, index);
   }
+}
+
+async function loadApiResourceIdentityMaps(
+  client: PoolClient,
+  archiveId: string
+): Promise<ApiResourceIdentityMaps> {
+  const result = await client.query<{ kind: ApiResourceIdentityKind; id: string; api_id: string }>(
+    `SELECT 'people'::text AS kind, id, api_id::text FROM public.people WHERE archive_id = $1
+     UNION ALL
+     SELECT 'personFacts', id, api_id::text FROM public.person_facts WHERE archive_id = $1
+     UNION ALL
+     SELECT 'sources', id, api_id::text FROM public.sources WHERE archive_id = $1
+     UNION ALL
+     SELECT 'researchCases', id, api_id::text FROM public.research_cases WHERE archive_id = $1
+     ORDER BY kind, id`,
+    [archiveId]
+  );
+  const maps = emptyApiResourceIdentityMaps();
+  for (const row of result.rows) {
+    if (!apiResourceIdentityKinds.includes(row.kind) || !apiResourceUuidPattern.test(row.api_id)) {
+      throw new Error("Stored API resource identity is invalid");
+    }
+    maps[row.kind].set(row.id, row.api_id);
+  }
+  return maps;
+}
+
+function emptyApiResourceIdentityMaps(): ApiResourceIdentityMaps {
+  return {
+    people: new Map(),
+    personFacts: new Map(),
+    sources: new Map(),
+    researchCases: new Map()
+  };
+}
+
+function mergeApiResourceIdentityMaps(
+  current: ApiResourceIdentityMaps,
+  restored?: ApiResourceIdentityMaps
+): ApiResourceIdentityMaps {
+  if (!restored) return current;
+  const merged = emptyApiResourceIdentityMaps();
+  for (const kind of apiResourceIdentityKinds) {
+    for (const [id, apiId] of current[kind]) merged[kind].set(id, apiId);
+    for (const [id, apiId] of restored[kind]) merged[kind].set(id, apiId);
+  }
+  return merged;
+}
+
+function serializeApiResourceIdentitySnapshot(
+  archiveId: string,
+  maps: ApiResourceIdentityMaps
+): StoredApiResourceIdentitySnapshot {
+  const entries = (kind: ApiResourceIdentityKind) => [...maps[kind]]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, apiId]) => ({ id, apiId }));
+  return {
+    schemaVersion: 1,
+    archiveId,
+    people: entries("people"),
+    personFacts: entries("personFacts"),
+    sources: entries("sources"),
+    researchCases: entries("researchCases")
+  };
+}
+
+function parseApiResourceIdentitySnapshot(
+  value: unknown,
+  archiveId: string
+): ApiResourceIdentityMaps | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "object"
+    || value === null
+    || (value as { schemaVersion?: unknown }).schemaVersion !== 1
+    || (value as { archiveId?: unknown }).archiveId !== archiveId
+  ) {
+    throw new Error("Workspace backup API resource identity metadata is invalid");
+  }
+  const maps = emptyApiResourceIdentityMaps();
+  for (const kind of apiResourceIdentityKinds) {
+    const entries = (value as Record<string, unknown>)[kind];
+    if (!Array.isArray(entries)) {
+      throw new Error("Workspace backup API resource identity metadata is invalid");
+    }
+    const seenApiIds = new Set<string>();
+    for (const entry of entries) {
+      const id = typeof entry === "object" && entry !== null
+        ? (entry as { id?: unknown }).id
+        : undefined;
+      const apiId = typeof entry === "object" && entry !== null
+        ? (entry as { apiId?: unknown }).apiId
+        : undefined;
+      if (
+        typeof id !== "string"
+        || id.length < 1
+        || typeof apiId !== "string"
+        || !apiResourceUuidPattern.test(apiId)
+        || maps[kind].has(id)
+        || seenApiIds.has(apiId)
+      ) {
+        throw new Error("Workspace backup API resource identity metadata is invalid");
+      }
+      maps[kind].set(id, apiId);
+      seenApiIds.add(apiId);
+    }
+  }
+  return maps;
 }
 
 function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {

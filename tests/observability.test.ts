@@ -63,6 +63,38 @@ describe("privacy-safe operational events", () => {
       .toBe("b".repeat(40));
   });
 
+  it("allows only opaque API token identity, route template, status class, and timing", () => {
+    const tokenId = "a4a17f15-b49a-4c42-872f-a76f38ad23ac";
+    const payload = createOperationalEvent({
+      event: "api_request",
+      severity: "info",
+      durationMs: 12.4,
+      requestId,
+      route: "/api/v1/people/[id]",
+      statusClass: "2xx",
+      tokenId,
+      personName: marker,
+      query: marker,
+      responseBody: marker
+    } as unknown as OperationalEventInput, new Date("2026-07-15T18:00:00.000Z"));
+
+    expect(payload).toMatchObject({
+      event: "api_request",
+      durationMs: 12,
+      requestId,
+      route: "/api/v1/people/[id]",
+      statusClass: "2xx",
+      tokenId
+    });
+    expect(JSON.stringify(payload)).not.toContain(marker);
+    expect(createOperationalEvent({
+      event: "api_request",
+      severity: "warning",
+      statusClass: "4xx",
+      tokenId: marker
+    }).tokenId).toBeUndefined();
+  });
+
   it("extracts only a bounded fixed-format error code", () => {
     expect(operationalErrorCode({ code: "DATABASE_ERROR", message: marker }))
       .toBe("DATABASE_ERROR");
@@ -137,7 +169,9 @@ describe("privacy-safe operational events", () => {
     "CRON_SECRET",
     "DATABASE_IDENTITY_URL",
     "DATABASE_URL",
+    "KINRESOLVE_BETA_APPLICATION_HMAC_SECRET",
     "KINRESOLVE_BETA_PRIVACY_HMAC_SECRET",
+    "KINRESOLVE_API_CURSOR_SECRET",
     "KINRESOLVE_OBSERVABILITY_PROBE_SECRET",
     "KINSLEUTH_APP_PASSWORD",
     "MIGRATION_DATABASE_URL",

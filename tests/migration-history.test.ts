@@ -62,7 +62,9 @@ describe("migration checksum history", () => {
         "012_archive_dataset_mode.sql",
         "013_release_write_fence.sql",
         "014_beta_invitations.sql",
-        "015_beta_operations.sql"
+        "015_beta_operations.sql",
+        "016_beta_api_tokens.sql",
+        "017_beta_applications.sql"
       ],
       releaseAnchors: ["v0.17.4"]
     });

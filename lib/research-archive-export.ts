@@ -62,6 +62,8 @@ export async function createResearchArchiveExport(
       excludedClasses: [
         "account-passwords-and-provider-credentials",
         "sessions-cookies-and-bearer-tokens",
+        "api-token-digests-prefixes-rate-buckets-and-security-events",
+        "global-beta-application-contact-consent-and-delivery-state",
         "ip-addresses-and-user-agents",
         "operator-nonces-and-rate-limit-keys",
         "database-and-object-provider-identities",

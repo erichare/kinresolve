@@ -54,6 +54,7 @@ export async function GET(request: Request) {
         enabled: status.ai.enabled,
         configured: status.ai.configured
       },
+      api: status.api,
       capabilities: status.capabilities,
       scheduledWrites: status.scheduledWrites,
       storage: {

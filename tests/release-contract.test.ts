@@ -35,6 +35,7 @@ function validInput(overrides: Partial<ReleaseContractInput> = {}): ReleaseContr
     expectedAppBaseUrl: "https://app.kinresolve.com",
     expectedDatasetMode: "pilot",
     expectedScheduledWritesEnabled: true,
+    expectedApiV1Enabled: true,
     expectedArchiveId: "pilot-household-01",
     productionEnvironment: {
       DATABASE_POOL_MAX: "2",
@@ -53,9 +54,11 @@ function validInput(overrides: Partial<ReleaseContractInput> = {}): ReleaseContr
       KINRESOLVE_BETA_PRIVACY_NOTICE_SHA256: "e".repeat(64),
       KINRESOLVE_BETA_PRIVACY_NOTICE_URL: "https://kinresolve.com/legal/private-beta-privacy",
       KINRESOLVE_BETA_PRIVACY_NOTICE_VERSION: "private-beta-privacy-v1",
+      KINRESOLVE_BETA_APPLICATIONS_ENABLED: "false",
       KINRESOLVE_DEPLOYMENT_MODE: "hosted",
       KINRESOLVE_DATASET_MODE: "pilot",
       KINRESOLVE_DATABASE_IDENTITY: "a".repeat(64),
+      KINRESOLVE_API_V1_ENABLED: "true",
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true",
       KINRESOLVE_GUIDED_RESEARCH_ENABLED: "true",
       KINRESOLVE_OBJECT_STORAGE_BACKEND: "vercel-blob",
@@ -88,7 +91,9 @@ describe("stable release contract", () => {
       archiveId: "pilot-household-01",
       databaseIdentity: "a".repeat(64),
       objectStorageIdentity: "b".repeat(64),
-      scheduledWritesEnabled: true
+      scheduledWritesEnabled: true,
+      apiV1Enabled: true,
+      betaApplicationsEnabled: false
     });
   });
 
@@ -271,10 +276,61 @@ describe("stable release contract", () => {
   });
 
   it("requires core guided-research and export workflows to stay enabled", () => {
-    for (const name of ["KINRESOLVE_GUIDED_RESEARCH_ENABLED", "KINRESOLVE_EXPORT_REFRESH_ENABLED"] as const) {
+    for (const name of [
+      "KINRESOLVE_GUIDED_RESEARCH_ENABLED",
+      "KINRESOLVE_EXPORT_REFRESH_ENABLED"
+    ] as const) {
       expect(() => validateReleaseContract(validInput({
         productionEnvironment: { ...validInput().productionEnvironment, [name]: "false" }
       })), name).toThrow(new RegExp(`${name}.*true`, "i"));
+    }
+  });
+
+  it("requires the exact API flag assigned to the release mode", () => {
+    expect(validateReleaseContract(validInput({
+      expectedApiV1Enabled: false,
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_API_V1_ENABLED: "false"
+      }
+    })).apiV1Enabled).toBe(false);
+
+    expect(() => validateReleaseContract(validInput({
+      expectedApiV1Enabled: false
+    }))).toThrow(/KINRESOLVE_API_V1_ENABLED.*false.*release mode/i);
+
+    for (const value of ["", "yes"] as const) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: {
+          ...validInput().productionEnvironment,
+          KINRESOLVE_API_V1_ENABLED: value
+        }
+      }))).toThrow(/(?:missing required production settings: KINRESOLVE_API_V1_ENABLED|KINRESOLVE_API_V1_ENABLED.*true or false)/i);
+    }
+  });
+
+  it("requires the independent beta-application flag assigned to the release", () => {
+    expect(validateReleaseContract(validInput({
+      expectedBetaApplicationsEnabled: true,
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_BETA_APPLICATIONS_ENABLED: "true"
+      }
+    })).betaApplicationsEnabled).toBe(true);
+
+    expect(() => validateReleaseContract(validInput({
+      expectedBetaApplicationsEnabled: true
+    }))).toThrow(/KINRESOLVE_BETA_APPLICATIONS_ENABLED.*true.*release/i);
+
+    for (const value of ["", "yes"] as const) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: {
+          ...validInput().productionEnvironment,
+          KINRESOLVE_BETA_APPLICATIONS_ENABLED: value
+        }
+      }))).toThrow(
+        /(?:missing required production settings: KINRESOLVE_BETA_APPLICATIONS_ENABLED|KINRESOLVE_BETA_APPLICATIONS_ENABLED.*true or false)/i
+      );
     }
   });
 
@@ -486,6 +542,8 @@ describe("stable release contract", () => {
       `database_identity=${"a".repeat(64)}\n` +
       `object_storage_identity=${"b".repeat(64)}\n` +
       "scheduled_writes_enabled=true\n" +
+      "api_v1_enabled=true\n" +
+      "beta_applications_enabled=false\n" +
       "version=0.17.4\n"
     );
     expect(git(root.path, ["tag", "--list"]).stdout).toBe("");
@@ -553,6 +611,7 @@ function runReleaseContractCli(
         EXPECTED_VERCEL_PROJECT_ID: "prj_kinresolve",
         VERCEL_ORG_ID: "team_kinresolve",
         EXPECTED_SCHEDULED_WRITES_ENABLED: "true",
+        EXPECTED_API_V1_ENABLED: "true",
         ...environment
       }
     }

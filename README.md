@@ -179,6 +179,8 @@ Compose provisions Postgres with pgvector, explicitly provisions the versioned f
 | `KINRESOLVE_ANCESTRY_PARTNER_APPROVED` | Independent operator assertion that written Ancestry approval exists; both Ancestry API gates must be true |
 | `AUTH_SECRET` | Secret for account sessions (better-auth); required in production |
 | `KINRESOLVE_BETA_PRIVACY_HMAC_SECRET` | Separate high-entropy hosted secret used only to HMAC emails, client addresses, actors, and durable rate-limit subjects; never reuse `AUTH_SECRET` |
+| `KINRESOLVE_BETA_APPLICATIONS_ENABLED` | Public native application endpoint gate; defaults off and accepts only exact `true` or `false`. Keep it independent from the API release mode |
+| `KINRESOLVE_BETA_APPLICATION_HMAC_SECRET` | Required only when native applications are enabled; distinct 32-byte-or-stronger server-only HMAC key for application/email/idempotency identities. Never reuse any app, provider, recovery, database, storage, AI, or release credential |
 | `KINRESOLVE_BETA_OPERATOR_AUDIENCE` / `KINRESOLVE_BETA_OPERATOR_KEY_ID` / `KINRESOLVE_BETA_OPERATOR_PUBLIC_KEY_SPKI` | Hosted operator cell identity: exact canonical product origin plus the ID and Ed25519 public key used to verify signed invitation commands |
 | `KINRESOLVE_BETA_LEGAL_STATUS` / `KINRESOLVE_BETA_*_{VERSION,SHA256,URL}` | Exact approved participation-terms, privacy-notice, and cohort-boundary metadata; URLs must be versioned paths on `https://kinresolve.com` and their bytes are verified during release, viewing, and acceptance |
 | `KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER` / `KINRESOLVE_TRANSACTIONAL_EMAIL_FROM` / `KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO` | Hosted release requires Resend with the approved `beta@kinresolve.com` sender and reply-to contract |
@@ -419,11 +421,16 @@ port `6543` with `sslmode=require`—the app upgrades known Supabase pooler conn
 `KINRESOLVE_DATABASE_IDENTITY`, sentinel-derived
 `KINRESOLVE_OBJECT_STORAGE_IDENTITY`,
 `KINRESOLVE_OBJECT_STORAGE_BACKEND=vercel-blob`, guided research and export refresh
-enabled, the exact seven-flag cohort-one manifest, the approved legal manifest, the
+enabled, explicit `KINRESOLVE_API_V1_ENABLED` and
+`KINRESOLVE_BETA_APPLICATIONS_ENABLED` values, the exact seven-flag
+cohort-one manifest, the approved legal manifest, the
 audience-bound operator public identity, the approved Resend sender contract,
-`AUTH_SECRET`, `KINRESOLVE_BETA_PRIVACY_HMAC_SECRET`, `RESEND_API_KEY`,
-`BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, and `RELEASE_FENCE_SECRET`. The seven credentials
-(`DATABASE_URL` plus those six secrets) must be Vercel Sensitive variables; every listed
+`AUTH_SECRET`, `KINRESOLVE_API_CURSOR_SECRET`,
+`KINRESOLVE_BETA_PRIVACY_HMAC_SECRET`, both observability secrets, `RESEND_API_KEY`,
+`BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, and `RELEASE_FENCE_SECRET`. Every listed
+credential, including `DATABASE_URL`, must be a Vercel Sensitive variable. When native
+applications are enabled, `KINRESOLVE_BETA_APPLICATION_HMAC_SECRET` is an additional
+required Sensitive variable; app-off releases do not require it. Every listed
 noncredential setting must remain readable, and every assignment
 must be scoped to Production only so the workflow can validate configuration without
 reading secret values. Before either staging or production can build, deploy, or mutate a

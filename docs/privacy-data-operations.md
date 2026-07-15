@@ -38,6 +38,8 @@ The structured bundle includes:
 It excludes:
 
 - passwords, provider credentials, sessions, cookies, and bearer capabilities;
+- API token digests, non-secret prefixes, durable API rate buckets, and API security
+  events;
 - IP addresses, user agents, operator nonces, and durable rate-limit keys;
 - database/object provider identities, object keys, and Blob URLs;
 - worker leases and idempotency secrets; and
@@ -77,12 +79,50 @@ Support must:
 Never promise immediate erasure from retained backups. Never mark the request complete
 because the app is unpublished or the participant is locked out.
 
+## Applicant access, deletion, and retention
+
+Product beta applications are deployment-global contact records, not archive research.
+They are deliberately excluded from GEDCOM and structured research-archive exports. In
+native application mode, the service stores only the submitted name, normalized email,
+fixed researcher/workflow/archive-size/optional-tool categories, exact communication
+consent, review state, and HMAC-only delivery/provider identifiers. It stores no request
+IP address, user agent, cookie, authorization value, free text, file, or family data.
+
+The source provides an allowlisted application lookup by verified normalized email for a
+protected support/DSAR integration; it returns no HMAC subjects, provider message
+identifiers, network metadata, or internal delivery state. The signed beta-operator
+`application-delete` action consumes the same replay-protected operator identity before
+deleting every row for that normalized email and returns only a bounded deletion count.
+There is no anonymous lookup, deletion route, or address-existence response. Until a
+reviewed protected support wrapper exposes the lookup, counsel/operations must not claim
+a self-service applicant access export, and native intake activation/legal promises
+remain blocked on approval of that identity-verified DSAR delivery process.
+
+Every product application row has an immutable expiration exactly 90 days after its
+creation, regardless of review state. Bounded hosted cleanup deletes expired rows, and a
+verified applicant request may delete them earlier. Mailto-fallback messages and copies
+held by applicant mail providers, Cloudflare mail routing, the Kin Resolve mailbox, or
+Resend are separate systems and must follow the approved provider/mailbox lifecycle;
+database deletion does not claim to erase those copies. The synthetic demo purge also
+deletes the global application table, but only inside the isolated resettable demo cell.
+
 ## Retention state and current gaps
 
 The hosted daily cleanup currently performs bounded cleanup for expired invitation
 capabilities, expired email-verification capabilities, expired durable auth-rate-limit
-buckets, and expired operator nonces. Direct GEDCOM staging older than 24 hours and
-expired integration upload/media claims have their own bounded cleanup paths.
+buckets, expired product beta applications, expired durable API rate buckets, and
+expired operator nonces. Direct GEDCOM
+staging older than 24 hours and expired integration upload/media claims have their own
+bounded cleanup paths.
+
+API token digest/prefix metadata and API security events are retained only as protected
+evidence for the isolated cell's lifetime. Demo row reset requires active token
+revocation and preserves that evidence; authoritative deletion is whole-cell
+destruction. This is an implemented lifecycle description, not an approved live
+retention duration. Application creation is bounded to 10 usable and 100 lifetime token
+records per cell. Together with the maximum token expiry, export quotas, and permanent
+revocation, that inventory cap bounds application-created append-only API security-event
+growth until whole-cell teardown.
 
 The current cleanup does not implement a counsel-approved lifecycle for append-only beta
 audit rows, legal acceptance, security events, data-operation evidence, provider logs, or

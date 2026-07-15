@@ -1633,6 +1633,7 @@ function SourceCard({
 
       <input
         accept={card.accept}
+        aria-label={`Choose ${card.title} ${sourceKind} file`}
         className="visually-hidden"
         data-provider={card.provider}
         disabled={!enabled}

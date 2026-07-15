@@ -125,7 +125,8 @@ describe("protected production recovery evidence workflow", () => {
       "npm run db:migrate:production",
       "npm run db:migrations:verify-production",
       "scripts/validate-recovery-health.mjs",
-      'KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"'
+      'KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"',
+      'KINRESOLVE_API_V1_ENABLED: "false"'
     ]) expect(`${workflow}\n${databaseTool}\n${databaseCommand}\n${objectOperations}`).toContain(marker);
     expect(recoveryHealth).toContain('expectedReleaseCommit: gitSha(required("RELEASE_COMMIT"))');
     expect(workflow).toContain('test "${KINRESOLVE_DATABASE_IDENTITY}" != "${RECOVERY_TARGET_DATABASE_IDENTITY}"');
