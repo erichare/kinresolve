@@ -9,7 +9,7 @@ import {
 import { query } from "../db";
 import type { ResearchCase } from "../models";
 import { maximumPageSize, type PaginationInput } from "../pagination";
-import { ensureWorkspaceSeeded, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
+import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
 
 // SQL-side case reads for the cases workspace and its API, following the
 // people-queries/source-queries template: scoped queries instead of
@@ -116,7 +116,7 @@ export async function searchCasesPageFromDb(
   pagination: PaginationInput = { page: 1, pageSize: 25 },
   options: WorkspaceStoreOptions = {}
 ): Promise<CaseSearchResult> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const params: unknown[] = [archiveId];
@@ -202,7 +202,7 @@ export async function searchCasesPageFromDb(
 // Cross-case evidence flatten for the review queue: DNA-linked first, then
 // weakest confidence, then case title, capped like the in-memory default.
 export async function caseEvidenceQueueFromDb(options: WorkspaceStoreOptions = {}, limit = 50): Promise<EvidenceQueueItem[]> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   // Tie-breaks past the case title mirror the in-memory flatten order: cases

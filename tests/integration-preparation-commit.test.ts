@@ -17,7 +17,7 @@ import {
   resolveExternalEntityRef,
   startSyncRun
 } from "@/lib/integrations/store";
-import { readWorkspace } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -27,7 +27,7 @@ describeIfDatabase("atomic integration preparation commit", () => {
   const options = { archiveId, databaseUrl: databaseUrl! };
 
   beforeEach(async () => {
-    await readWorkspace(options);
+    await provisionTestArchive(options);
   });
 
   afterEach(async () => {

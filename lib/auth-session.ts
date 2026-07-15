@@ -1,7 +1,7 @@
 import { getAuth } from "./auth";
 import { query } from "./db";
 import type { Role } from "./models";
-import { ensureWorkspaceSeeded, getArchiveId, type WorkspaceStoreOptions } from "./workspace-store";
+import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "./workspace-store";
 
 export type SessionContext = {
   userId: string;
@@ -89,7 +89,7 @@ async function resolveMembershipRole(
     return null;
   }
 
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   await query(
     "INSERT INTO memberships (archive_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT (archive_id, user_id) DO NOTHING",
     [archiveId, userId],

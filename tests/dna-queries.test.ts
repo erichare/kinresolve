@@ -11,15 +11,17 @@ import {
   scoreWorkspaceDnaMatches,
   type WorkspaceData
 } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
 
 let storeOptions: { databaseUrl: string; archiveId: string };
 
-beforeEach(() => {
+beforeEach(async () => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `test-dq-${randomUUID()}` };
+  await provisionTestArchive(storeOptions);
 });
 
 afterEach(async () => {
@@ -32,8 +34,6 @@ afterAll(async () => {
 });
 
 async function seededWorkspace(): Promise<WorkspaceData> {
-  await readWorkspace(storeOptions);
-
   await saveDnaMatches(
     [
       {

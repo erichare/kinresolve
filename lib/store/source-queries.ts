@@ -8,7 +8,7 @@ import type {
   SourceSearchResult,
   SourceSearchStats
 } from "../source-search";
-import { ensureWorkspaceSeeded, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
+import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
 
 // SQL-side source reads for the sources workspace and its API, following the
 // people-queries template: scoped queries instead of materializing the whole
@@ -56,7 +56,7 @@ export async function searchSourcesPageFromDb(
   pagination: PaginationInput = { page: 1, pageSize: 50 },
   options: WorkspaceStoreOptions = {}
 ): Promise<SourceSearchResult> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const params: unknown[] = [archiveId];
@@ -134,7 +134,7 @@ export async function searchSourcesPageFromDb(
 }
 
 export async function listPersonLinkOptions(options: WorkspaceStoreOptions = {}, limit = 30): Promise<PersonLinkOption[]> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const result = await query<{ id: string; display_name: string; slug: string; birth_date: string | null; birth_place: string | null }>(
@@ -162,7 +162,7 @@ export async function listPersonLinkOptions(options: WorkspaceStoreOptions = {},
 }
 
 export async function listCaseLinkOptions(options: WorkspaceStoreOptions = {}, limit = 100): Promise<CaseLinkOption[]> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const result = await query<{ id: string; title: string }>(

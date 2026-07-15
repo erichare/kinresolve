@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -16,6 +16,7 @@ if (databaseUrl) {
 import { getAuth } from "@/lib/auth";
 import { countUsers, getSessionContext } from "@/lib/auth-session";
 import { closeDatabasePools, query } from "@/lib/db";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 import { POST as authCatchAllPost } from "@/app/api/auth/[...all]/route";
 
 const archiveId = `test-auth-${randomUUID()}`;
@@ -30,6 +31,11 @@ beforeAll(async () => {
   if (!databaseUrl) return;
   vi.stubEnv("KINSLEUTH_ARCHIVE_ID", archiveId);
   await cleanupUsers();
+});
+
+beforeEach(async () => {
+  if (!databaseUrl) return;
+  await provisionTestArchive(options!);
 });
 
 afterEach(async () => {

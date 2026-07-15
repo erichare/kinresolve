@@ -19,6 +19,7 @@ import {
 } from "@/lib/integrations/store";
 import { createArchiveObjectStorage } from "@/lib/storage/object-storage";
 import { readWorkspace } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -47,7 +48,7 @@ describeIfDatabase("repeatable integration refresh processor", () => {
   const options = { archiveId, databaseUrl: databaseUrl!, objectStorage };
 
   beforeEach(async () => {
-    await readWorkspace(options);
+    await provisionTestArchive(options);
   });
 
   afterEach(async () => {

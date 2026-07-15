@@ -5,6 +5,7 @@ import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoFictionNotice, demoPeople } from "./demo-data";
 import { prepareGedcomImport, type PreparedGedcomImport } from "./gedcom/apply";
 import { buildFamilyRelationshipMap, parseGedcom } from "./gedcom/parser";
+import { datasetModes, resolveDatasetConfiguration, type DatasetMode } from "./hosted-config";
 import { buildResearchGuide } from "./research-guide";
 import {
   mapAIAnalysisRun,
@@ -87,6 +88,17 @@ export type WorkspaceData = {
 
 export type WorkspaceStoreOptions = DatabaseOptions & {
   archiveId?: string;
+  datasetMode?: DatasetMode;
+};
+
+export type ArchiveProvisioning = {
+  archiveId: string;
+  datasetMode: DatasetMode;
+  demoFixtureVersion: number | null;
+};
+
+export type ArchiveProvisioningResult = ArchiveProvisioning & {
+  created: boolean;
 };
 
 type UpdateCaseTaskOptions = WorkspaceStoreOptions & {
@@ -94,6 +106,7 @@ type UpdateCaseTaskOptions = WorkspaceStoreOptions & {
 };
 
 const defaultArchiveId = "archive-default";
+export const demoFixtureVersion = 1;
 // Full pre-import snapshots are large; retain only the most recent ones.
 const retainedBackupCount = 10;
 const retainedAiRunCount = 25;
@@ -102,7 +115,7 @@ export function getArchiveId(options: WorkspaceStoreOptions = {}): string {
   return options.archiveId ?? process.env.KINSLEUTH_ARCHIVE_ID ?? defaultArchiveId;
 }
 
-export function createSeedWorkspace(now = new Date()): WorkspaceData {
+export function createDemoWorkspace(now = new Date()): WorkspaceData {
   return {
     version: "0.17.0",
     archiveName: "Hartwell–Mercer Family Archive",
@@ -219,36 +232,119 @@ export function createSeedWorkspace(now = new Date()): WorkspaceData {
   };
 }
 
+// Compatibility name for self-hosted callers and tests. Hosted deployments
+// create demo data only through provisionArchive("demo").
+export const createSeedWorkspace = createDemoWorkspace;
+
+export function createEmptyWorkspace(now = new Date()): WorkspaceData {
+  return {
+    version: "0.17.0",
+    archiveName: "Kin Resolve Private Archive",
+    archiveTagline: "A private family history research workspace.",
+    people: [],
+    cases: [],
+    sources: [],
+    dnaMatches: [],
+    aiRuns: [],
+    imports: [],
+    rawRecords: [],
+    backups: [],
+    updatedAt: now.toISOString()
+  };
+}
+
+type ArchiveProvisioningRow = {
+  id: string;
+  dataset_mode: string;
+  demo_fixture_version: number | null;
+};
+
+export async function getArchiveProvisioning(
+  options: WorkspaceStoreOptions = {}
+): Promise<ArchiveProvisioning | null> {
+  const archiveId = getArchiveId(options);
+  return withTransaction(options, async (client) => {
+    const result = await client.query<ArchiveProvisioningRow>(
+      "SELECT id, dataset_mode, demo_fixture_version FROM archives WHERE id = $1",
+      [archiveId]
+    );
+    return result.rows[0] ? mapArchiveProvisioning(result.rows[0]) : null;
+  });
+}
+
+export async function requireProvisionedArchive(
+  options: WorkspaceStoreOptions = {}
+): Promise<ArchiveProvisioning> {
+  const archiveId = getArchiveId(options);
+  return withTransaction(options, (client) => requireProvisionedArchiveRow(client, archiveId, options));
+}
+
+export async function provisionArchive(
+  datasetMode: DatasetMode,
+  options: WorkspaceStoreOptions = {}
+): Promise<ArchiveProvisioningResult> {
+  if (!isOneOf(datasetMode, datasetModes)) {
+    throw new Error("dataset mode must be empty, demo, or pilot");
+  }
+
+  const archiveId = getArchiveId(options);
+  const workspace = datasetMode === "demo" ? createDemoWorkspace() : createEmptyWorkspace();
+  const fixtureVersion = datasetMode === "demo" ? demoFixtureVersion : null;
+
+  return withTransaction(options, async (client) => {
+    const inserted = await client.query<ArchiveProvisioningRow>(
+      `INSERT INTO archives
+         (id, name, tagline, slug, dataset_mode, demo_fixture_version, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id, dataset_mode, demo_fixture_version`,
+      [
+        archiveId,
+        workspace.archiveName,
+        workspace.archiveTagline,
+        slugifyArchive(`${workspace.archiveName}-${archiveId}`),
+        datasetMode,
+        fixtureVersion,
+        workspace.updatedAt
+      ]
+    );
+
+    if (inserted.rows[0]) {
+      await persistWorkspace(client, archiveId, workspace);
+      return { ...mapArchiveProvisioning(inserted.rows[0]), created: true };
+    }
+
+    const existing = await client.query<ArchiveProvisioningRow>(
+      "SELECT id, dataset_mode, demo_fixture_version FROM archives WHERE id = $1 FOR UPDATE",
+      [archiveId]
+    );
+    const provisioning = existing.rows[0] ? mapArchiveProvisioning(existing.rows[0]) : null;
+    if (!provisioning) {
+      throw archiveNotProvisionedError(archiveId);
+    }
+    if (provisioning.datasetMode !== datasetMode) {
+      throw new Error(
+        `Archive ${archiveId} is already provisioned as ${provisioning.datasetMode}; refusing to reprovision it as ${datasetMode}.`
+      );
+    }
+    assertCurrentDemoFixture(provisioning);
+    return { ...provisioning, created: false };
+  });
+}
+
 export async function readWorkspace(options: WorkspaceStoreOptions = {}): Promise<WorkspaceData> {
   const archiveId = getArchiveId(options);
 
   return withTransaction(options, async (client) => {
-    const archive = await client.query<{ id: string }>("SELECT id FROM archives WHERE id = $1", [archiveId]);
-    if (archive.rowCount === 0) {
-      if (await claimAndSeedArchive(client, archiveId)) {
-        return loadWorkspace(client, archiveId);
-      }
-      // Another transaction is seeding; wait for its commit, then read it.
-      await client.query("SELECT id FROM archives WHERE id = $1 FOR SHARE", [archiveId]);
-    }
-
+    await requireProvisionedArchiveRow(client, archiveId, options);
     return loadWorkspace(client, archiveId);
   });
 }
 
-// Guarantees the archive exists (seeding the demo workspace on first touch)
-// without loading it. Scoped SQL readers use this instead of readWorkspace so
-// first-visit behavior stays identical while hot paths skip the full load.
-export async function ensureWorkspaceSeeded(options: WorkspaceStoreOptions = {}): Promise<void> {
-  const archiveId = getArchiveId(options);
-
-  await withTransaction(options, async (client) => {
-    const archive = await client.query<{ id: string }>("SELECT id FROM archives WHERE id = $1", [archiveId]);
-    if (archive.rowCount === 0 && !(await claimAndSeedArchive(client, archiveId))) {
-      // Another transaction is seeding; wait for its commit before returning.
-      await client.query("SELECT id FROM archives WHERE id = $1 FOR SHARE", [archiveId]);
-    }
-  });
+// Scoped SQL readers call this before querying archive-owned rows. It validates
+// provisioning without creating or loading a workspace.
+export async function ensureWorkspaceProvisioned(options: WorkspaceStoreOptions = {}): Promise<void> {
+  await requireProvisionedArchive(options);
 }
 
 export async function writeWorkspace(workspace: WorkspaceData, options: WorkspaceStoreOptions = {}): Promise<WorkspaceData> {
@@ -259,6 +355,7 @@ export async function writeWorkspace(workspace: WorkspaceData, options: Workspac
   });
 
   await withTransaction(options, async (client) => {
+    await requireProvisionedArchiveRow(client, archiveId, options);
     await persistWorkspace(client, archiveId, next);
   });
 
@@ -268,8 +365,8 @@ export async function writeWorkspace(workspace: WorkspaceData, options: Workspac
 // Runs a row-level mutation inside ONE transaction. The UPDATE on the archive
 // row both takes the lock that serializes concurrent mutations (the same
 // guarantee the old SELECT ... FOR UPDATE gave the whole-workspace writer) and
-// bumps the workspace timestamp. A missing archive is seeded first, preserving
-// first-touch demo seeding.
+// bumps the workspace timestamp. Provisioning is always an explicit operator
+// action, so a missing archive fails without creating any data.
 async function withArchiveMutation<T>(
   options: WorkspaceStoreOptions,
   action: (client: PoolClient, archiveId: string) => Promise<T>
@@ -277,33 +374,84 @@ async function withArchiveMutation<T>(
   const archiveId = getArchiveId(options);
 
   return withTransaction(options, async (client) => {
-    const locked = await client.query("UPDATE archives SET updated_at = now() WHERE id = $1 RETURNING id", [archiveId]);
+    const locked = await client.query<ArchiveProvisioningRow>(
+      `UPDATE archives SET updated_at = now() WHERE id = $1
+       RETURNING id, dataset_mode, demo_fixture_version`,
+      [archiveId]
+    );
     if (locked.rowCount === 0) {
-      const seeded = await claimAndSeedArchive(client, archiveId);
-      if (!seeded) {
-        // Another transaction is seeding this archive right now; block on its
-        // row lock so we mutate the seeded workspace instead of racing it.
-        await client.query("UPDATE archives SET updated_at = now() WHERE id = $1", [archiveId]);
-      }
+      throw archiveNotProvisionedError(archiveId);
     }
+    validateArchiveProvisioning(mapArchiveProvisioning(locked.rows[0]!), options);
     return action(client, archiveId);
   });
 }
 
-// An UPDATE on a missing row takes no lock, so two first-touch mutations could
-// both decide to seed and the later one would wipe the earlier one's committed
-// write. Claiming the id with an insert makes exactly one transaction the
-// seeder; everyone else serializes on the claimed row.
-async function claimAndSeedArchive(client: PoolClient, archiveId: string): Promise<boolean> {
-  const claimed = await client.query(
-    "INSERT INTO archives (id, name, tagline, slug, updated_at) VALUES ($1, '', '', $1, now()) ON CONFLICT (id) DO NOTHING RETURNING id",
+async function requireProvisionedArchiveRow(
+  client: PoolClient,
+  archiveId: string,
+  options: WorkspaceStoreOptions
+): Promise<ArchiveProvisioning> {
+  const result = await client.query<ArchiveProvisioningRow>(
+    "SELECT id, dataset_mode, demo_fixture_version FROM archives WHERE id = $1 FOR SHARE",
     [archiveId]
   );
-  if (claimed.rowCount === 0) {
-    return false;
+  if (!result.rows[0]) {
+    throw archiveNotProvisionedError(archiveId);
   }
-  await persistWorkspace(client, archiveId, createSeedWorkspace());
-  return true;
+  const provisioning = mapArchiveProvisioning(result.rows[0]);
+  validateArchiveProvisioning(provisioning, options);
+  return provisioning;
+}
+
+function mapArchiveProvisioning(row: ArchiveProvisioningRow): ArchiveProvisioning {
+  if (!isOneOf(row.dataset_mode, datasetModes)) {
+    throw new Error(`Archive ${row.id} has invalid persisted dataset mode ${row.dataset_mode}.`);
+  }
+  return {
+    archiveId: row.id,
+    datasetMode: row.dataset_mode,
+    demoFixtureVersion: row.demo_fixture_version
+  };
+}
+
+function validateArchiveProvisioning(
+  provisioning: ArchiveProvisioning,
+  options: WorkspaceStoreOptions
+): void {
+  const expected = expectedDatasetMode(options);
+  if (expected && provisioning.datasetMode !== expected) {
+    throw new Error(
+      `Archive dataset mode mismatch: configured ${expected}, but persisted ${provisioning.datasetMode} for ${provisioning.archiveId}.`
+    );
+  }
+  assertCurrentDemoFixture(provisioning);
+}
+
+function expectedDatasetMode(options: WorkspaceStoreOptions): DatasetMode | undefined {
+  if (options.datasetMode) {
+    if (!isOneOf(options.datasetMode, datasetModes)) {
+      throw new Error("dataset mode must be empty, demo, or pilot");
+    }
+    return options.datasetMode;
+  }
+  const configuration = resolveDatasetConfiguration();
+  return configuration.deploymentMode === "hosted" || configuration.explicitDatasetMode
+    ? configuration.datasetMode
+    : undefined;
+}
+
+function assertCurrentDemoFixture(provisioning: ArchiveProvisioning): void {
+  if (provisioning.datasetMode === "demo" && provisioning.demoFixtureVersion !== demoFixtureVersion) {
+    throw new Error(
+      `Archive ${provisioning.archiveId} uses demo fixture version ${String(provisioning.demoFixtureVersion)}; ` +
+        `version ${demoFixtureVersion} requires a freshly provisioned demo archive.`
+    );
+  }
+}
+
+function archiveNotProvisionedError(archiveId: string): Error {
+  return new Error(`Archive ${archiveId} is not provisioned. Run the explicit archive provisioning command first.`);
 }
 
 async function loadCaseData(client: PoolClient, archiveId: string, caseId: string): Promise<ResearchCase | undefined> {
@@ -373,13 +521,14 @@ export async function updateArchiveBranding(input: ArchiveBranding, options: Wor
   }
 
   return withTransaction(options, async (client) => {
-    const existing = await client.query<{ id: string }>("SELECT id FROM archives WHERE id = $1 FOR UPDATE", [archiveId]);
-
-    if (existing.rowCount === 0) {
-      const seed = createSeedWorkspace();
-      await persistWorkspace(client, archiveId, { ...seed, archiveName: name, archiveTagline: tagline });
-      return { name, tagline };
+    const existing = await client.query<ArchiveProvisioningRow>(
+      "SELECT id, dataset_mode, demo_fixture_version FROM archives WHERE id = $1 FOR UPDATE",
+      [archiveId]
+    );
+    if (!existing.rows[0]) {
+      throw archiveNotProvisionedError(archiveId);
     }
+    validateArchiveProvisioning(mapArchiveProvisioning(existing.rows[0]), options);
 
     await client.query("UPDATE archives SET name = $2, tagline = $3, updated_at = now() WHERE id = $1", [archiveId, name, tagline]);
     return { name, tagline };
@@ -601,7 +750,7 @@ export async function updateCaseTask(
 }
 
 export async function readResearchCase(caseId: string, options: WorkspaceStoreOptions = {}): Promise<ResearchCase | undefined> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
   return withTransaction(options, (client) => loadCaseData(client, archiveId, caseId));
 }
@@ -1451,12 +1600,16 @@ async function loadWorkspace(client: PoolClient, archiveId: string): Promise<Wor
 async function persistWorkspace(client: PoolClient, archiveId: string, workspace: WorkspaceData): Promise<void> {
   const normalized = normalizeWorkspaceData(workspace);
 
-  await client.query(
-    `INSERT INTO archives (id, name, tagline, slug, updated_at)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, tagline = EXCLUDED.tagline, updated_at = EXCLUDED.updated_at`,
-    [archiveId, normalized.archiveName, normalized.archiveTagline, slugifyArchive(`${normalized.archiveName}-${archiveId}`), normalized.updatedAt]
+  const updated = await client.query(
+    `UPDATE archives
+     SET name = $2, tagline = $3, updated_at = $4
+     WHERE id = $1
+     RETURNING id`,
+    [archiveId, normalized.archiveName, normalized.archiveTagline, normalized.updatedAt]
   );
+  if (updated.rowCount === 0) {
+    throw archiveNotProvisionedError(archiveId);
+  }
 
   await client.query("DELETE FROM ai_runs WHERE archive_id = $1", [archiveId]);
   await client.query("DELETE FROM dna_hypotheses WHERE archive_id = $1", [archiveId]);
@@ -1509,7 +1662,7 @@ async function persistWorkspace(client: PoolClient, archiveId: string, workspace
 function normalizeWorkspaceData(value: Partial<WorkspaceData>): WorkspaceData {
   return {
     version: "0.17.0",
-    archiveName: value.archiveName || "Hartwell–Mercer Family Archive",
+    archiveName: value.archiveName || "Kin Resolve Private Archive",
     archiveTagline: value.archiveTagline ?? "",
     people: Array.isArray(value.people) ? value.people : [],
     cases: Array.isArray(value.cases) ? value.cases.map(normalizeResearchCase) : [],

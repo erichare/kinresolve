@@ -9,15 +9,17 @@ import {
   searchPeoplePageFromDb
 } from "@/lib/store/people-queries";
 import { applyGedcomImport, readWorkspace, updatePersonCuration } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
 
 let storeOptions: { databaseUrl: string; archiveId: string };
 
-beforeEach(() => {
+beforeEach(async () => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `test-pq-${randomUUID()}` };
+  await provisionTestArchive(storeOptions);
 });
 
 afterEach(async () => {
@@ -56,7 +58,6 @@ const accentedGedcom = [
 ].join("\n");
 
 async function seededWorkspace() {
-  await readWorkspace(storeOptions);
   await applyGedcomImport({ sourceName: "accented.ged", content: accentedGedcom }, storeOptions);
   await updatePersonCuration("@I1@", { published: true, privacy: "public", livingStatus: "deceased" }, storeOptions);
   await updatePersonCuration("@I2@", { privacy: "sensitive", livingStatus: "living" }, storeOptions);

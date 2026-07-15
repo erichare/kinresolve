@@ -58,7 +58,8 @@ describe("migration checksum history", () => {
         "008_integration_upload_intents.sql",
         "009_integration_media_objects.sql",
         "010_integration_media_write_claims.sql",
-        "011_integration_change_search.sql"
+        "011_integration_change_search.sql",
+        "012_archive_dataset_mode.sql"
       ],
       releaseAnchors: ["v0.17.4"]
     });

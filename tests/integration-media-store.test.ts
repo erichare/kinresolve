@@ -11,7 +11,7 @@ import {
 } from "@/lib/integrations/media-store";
 import { DESKTOP_MEDIA_RIGHTS_ACKNOWLEDGEMENT_VERSION } from "@/lib/integrations/types";
 import { createArchiveObjectStorage } from "@/lib/storage/object-storage";
-import { readWorkspace } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -41,7 +41,7 @@ describeIfDatabase("archive-scoped integration media store", () => {
   const secondOptions = { archiveId: secondArchiveId, databaseUrl: databaseUrl!, objectStorage };
 
   beforeEach(async () => {
-    await Promise.all([readWorkspace(firstOptions), readWorkspace(secondOptions)]);
+    await Promise.all([provisionTestArchive(firstOptions), provisionTestArchive(secondOptions)]);
   });
 
   afterEach(async () => {

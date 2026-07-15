@@ -37,9 +37,55 @@ describe("GET /api/health", () => {
       storage: { configured: true }
     });
   });
+
+  it("reports degraded readiness when the configured archive is not provisioned", async () => {
+    runtimeMocks.getRuntimeStatus.mockResolvedValue(
+      runtimeStatus(true, { provisioned: false, datasetMode: null, datasetModeMatches: false })
+    );
+
+    const response = await GET();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "degraded",
+      database: {
+        connected: true,
+        provisioned: false,
+        datasetMode: null,
+        expectedDatasetMode: "pilot",
+        datasetModeMatches: false
+      }
+    });
+  });
+
+  it("reports degraded readiness when persisted and configured dataset modes differ", async () => {
+    runtimeMocks.getRuntimeStatus.mockResolvedValue(
+      runtimeStatus(true, { datasetMode: "demo", datasetModeMatches: false })
+    );
+
+    const response = await GET();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "degraded",
+      database: {
+        provisioned: true,
+        datasetMode: "demo",
+        expectedDatasetMode: "pilot",
+        datasetModeMatches: false
+      }
+    });
+  });
 });
 
-function runtimeStatus(storageConfigured: boolean) {
+function runtimeStatus(
+  storageConfigured: boolean,
+  databaseOverrides: Partial<{
+    provisioned: boolean;
+    datasetMode: "empty" | "demo" | "pilot" | null;
+    datasetModeMatches: boolean;
+  }> = {}
+) {
   return {
     product: "KinSleuth",
     version: "0.17.4",
@@ -52,7 +98,12 @@ function runtimeStatus(storageConfigured: boolean) {
       archiveCount: 1,
       peopleCount: 0,
       caseCount: 0,
-      aiRunCount: 0
+      aiRunCount: 0,
+      provisioned: true,
+      datasetMode: "pilot",
+      expectedDatasetMode: "pilot",
+      datasetModeMatches: true,
+      ...databaseOverrides
     },
     ai: {
       configured: false,

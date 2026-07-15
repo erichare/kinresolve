@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { closeDatabasePools, query } from "@/lib/db";
 import { buildResearchGuide } from "@/lib/research-guide";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 import {
   acceptGuideAssignment,
   addCaseHypothesis,
@@ -32,9 +33,10 @@ beforeAll(async () => {
   await query("DELETE FROM archives WHERE id LIKE 'test-guided-%'", [], { databaseUrl });
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `test-guided-${randomUUID()}` };
+  await provisionTestArchive(storeOptions);
 });
 
 afterEach(async () => {

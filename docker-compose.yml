@@ -7,6 +7,9 @@ services:
       APP_BASE_URL: http://localhost:3000
       AUTH_SECRET: local-dev-secret-change-me
       DATABASE_URL: postgres://kinsleuth:kinsleuth@postgres:5432/kinsleuth
+      KINRESOLVE_DEPLOYMENT_MODE: self-hosted
+      KINRESOLVE_DATASET_MODE: demo
+      KINSLEUTH_ARCHIVE_ID: archive-default
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true"
       KINRESOLVE_DESKTOP_MEDIA_ENABLED: "false"
       KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "false"
@@ -25,9 +28,26 @@ services:
       AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-3-small}
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
+      provision:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
+
+  provision:
+    build:
+      context: .
+      target: worker
+    command: npm run archive:provision -- --mode demo
+    restart: "no"
+    environment:
+      DATABASE_URL: postgres://kinsleuth:kinsleuth@postgres:5432/kinsleuth
+      KINRESOLVE_DEPLOYMENT_MODE: self-hosted
+      KINRESOLVE_DATASET_MODE: demo
+      KINSLEUTH_ARCHIVE_ID: archive-default
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   worker:
     build:
@@ -37,6 +57,9 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://kinsleuth:kinsleuth@postgres:5432/kinsleuth
+      KINRESOLVE_DEPLOYMENT_MODE: self-hosted
+      KINRESOLVE_DATASET_MODE: demo
+      KINSLEUTH_ARCHIVE_ID: archive-default
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true"
       KINRESOLVE_DESKTOP_MEDIA_ENABLED: "false"
       KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "false"
@@ -65,7 +88,9 @@ services:
       AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-3-small}
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
+      provision:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
       clamav:
@@ -96,6 +121,12 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kinsleuth -d kinsleuth"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
 
   minio:
     image: minio/minio:latest

@@ -10,7 +10,7 @@ import {
 } from "../dna-search";
 import type { DnaConnectionHypothesis, DnaMatch } from "../models";
 import type { PaginationInput } from "../pagination";
-import { ensureWorkspaceSeeded, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
+import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
 import { mapDnaMatch, mapPersonRow } from "./mappers";
 
 // SQL-side DNA match reads for the triage workspace and its API, following the
@@ -58,7 +58,7 @@ export async function searchDnaMatchesPageFromDb(
   pagination: PaginationInput = { page: 1, pageSize: 25 },
   options: WorkspaceStoreOptions = {}
 ): Promise<DnaSearchResult> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const params: unknown[] = [archiveId];
@@ -145,7 +145,7 @@ export async function createDnaHypothesesForMatches(
     return [];
   }
 
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const result = await query<Record<string, unknown>>(
@@ -159,7 +159,7 @@ export async function createDnaHypothesesForMatches(
 }
 
 export async function listCaseOptions(options: WorkspaceStoreOptions = {}): Promise<DnaCaseOption[]> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   // Same ordering as the workspace loader's cases read, so the picker lists
