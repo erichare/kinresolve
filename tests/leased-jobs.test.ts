@@ -8,7 +8,8 @@ import {
   enqueueJob,
   failJob,
   getJob,
-  leaseNextJob
+  leaseNextJob,
+  renewJobLease
 } from "@/lib/jobs/leased-job-store";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -101,6 +102,52 @@ describeIfDatabase("durable leased jobs", () => {
         options
       )
     ).rejects.toThrow(/lease|stale/i);
+  });
+
+  it("renews an active fenced lease so long-running parsing cannot overlap", async () => {
+    const availableAt = new Date("2026-07-14T16:30:00.000Z");
+    const queued = await enqueueJob(
+      {
+        kind: "integration_snapshot_parse",
+        payload: { runId: "run-long-synthetic" },
+        idempotencyKey: "parse-long-synthetic",
+        maximumAttempts: 3,
+        availableAt
+      },
+      options
+    );
+    const lease = await leaseNextJob(
+      { workerId: "worker-long", now: availableAt, leaseDurationMs: 60_000 },
+      options
+    );
+    const renewed = await renewJobLease(
+      {
+        jobId: queued.id,
+        leaseToken: lease!.leaseToken,
+        renewedAt: new Date("2026-07-14T16:30:30.000Z"),
+        leaseDurationMs: 60_000
+      },
+      options
+    );
+
+    expect(renewed.leaseExpiresAt.toISOString()).toBe("2026-07-14T16:31:30.000Z");
+    await expect(leaseNextJob(
+      {
+        workerId: "worker-overlap",
+        now: new Date("2026-07-14T16:31:00.001Z"),
+        leaseDurationMs: 60_000
+      },
+      options
+    )).resolves.toBeNull();
+    await expect(completeJob(
+      {
+        jobId: queued.id,
+        leaseToken: lease!.leaseToken,
+        result: { status: "review_ready" },
+        completedAt: new Date("2026-07-14T16:31:10.000Z")
+      },
+      options
+    )).resolves.toMatchObject({ state: "completed" });
   });
 
   it("requeues a failed attempt at its retry time and stops after the attempt limit", async () => {

@@ -65,6 +65,7 @@ describe("integration persistence migration contract", () => {
       "proposed_action",
       "resolution",
       "apply_idempotency_key",
+      "applied_archive_updated_at",
       "backup_id",
       "rollback_idempotency_key",
       "rolled_back_at"
@@ -106,13 +107,13 @@ describeIfDatabase("installed integration schema", () => {
 
   it("keeps all integration relationships inside their owning archive", async () => {
     const expectedRelationships = [
-      ["integration_connections", "integration_snapshots", ["archive_id", "last_applied_snapshot_id"]],
+      ["integration_connections", "integration_snapshots", ["archive_id", "id", "last_applied_snapshot_id"]],
       ["integration_snapshots", "integration_connections", ["archive_id", "connection_id"]],
       ["external_entity_refs", "integration_connections", ["archive_id", "connection_id"]],
-      ["external_entity_refs", "integration_snapshots", ["archive_id", "snapshot_id"]],
+      ["external_entity_refs", "integration_snapshots", ["archive_id", "connection_id", "snapshot_id"]],
       ["sync_runs", "integration_connections", ["archive_id", "connection_id"]],
-      ["sync_runs", "integration_snapshots", ["archive_id", "base_snapshot_id"]],
-      ["sync_runs", "integration_snapshots", ["archive_id", "incoming_snapshot_id"]],
+      ["sync_runs", "integration_snapshots", ["archive_id", "connection_id", "base_snapshot_id"]],
+      ["sync_runs", "integration_snapshots", ["archive_id", "connection_id", "incoming_snapshot_id"]],
       ["sync_runs", "workspace_backups", ["archive_id", "backup_id"]],
       ["sync_changes", "sync_runs", ["archive_id", "run_id"]]
     ] as const;
@@ -129,6 +130,33 @@ describeIfDatabase("installed integration schema", () => {
            AND constraint_record.contype = 'f'
          GROUP BY constraint_record.oid`,
         [`public.${childTable}`, `public.${parentTable}`],
+        { databaseUrl: databaseUrl! }
+      );
+
+      expect(result.rows.map((row) => row.columns)).toContainEqual([...expectedColumns]);
+    }
+  });
+
+  it("binds every snapshot reference to the owning connection as well as the archive", async () => {
+    const expectedRelationships = [
+      ["integration_connections", ["archive_id", "id", "last_applied_snapshot_id"]],
+      ["external_entity_refs", ["archive_id", "connection_id", "snapshot_id"]],
+      ["sync_runs", ["archive_id", "connection_id", "base_snapshot_id"]],
+      ["sync_runs", ["archive_id", "connection_id", "incoming_snapshot_id"]]
+    ] as const;
+
+    for (const [childTable, expectedColumns] of expectedRelationships) {
+      const result = await query<{ columns: string[] }>(
+        `SELECT array_agg(attribute.attname::text ORDER BY key_column.position) AS columns
+         FROM pg_catalog.pg_constraint constraint_record
+         JOIN unnest(constraint_record.conkey) WITH ORDINALITY AS key_column(attnum, position) ON true
+         JOIN pg_catalog.pg_attribute attribute
+           ON attribute.attrelid = constraint_record.conrelid AND attribute.attnum = key_column.attnum
+         WHERE constraint_record.conrelid = $1::regclass
+           AND constraint_record.confrelid = 'public.integration_snapshots'::regclass
+           AND constraint_record.contype = 'f'
+         GROUP BY constraint_record.oid`,
+        [`public.${childTable}`],
         { databaseUrl: databaseUrl! }
       );
 

@@ -121,6 +121,36 @@ describe("archive-namespaced private object storage", () => {
     expect(southwood.duplicate).toBe(false);
     expect(backend.put).toHaveBeenCalledTimes(2);
   });
+
+  it("promotes a staging object to an opaque content-addressed key without reading it", async () => {
+    const backend = createMemoryBackend();
+    const storage = createArchiveObjectStorage({ backend });
+    const sourceKey = "archives/archive-northwood/integration-upload-staging/intent.ged";
+    const bytes = Buffer.from("0 HEAD\n0 TRLR", "utf8");
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    backend.seed(sourceKey, bytes, "text/plain", "etag-source");
+
+    await expect(storage.promote({
+      archiveId: "archive-northwood",
+      sourceKey,
+      purpose: "integration-artifacts",
+      sha256,
+      contentType: "text/plain",
+      expectedSourceEtag: "etag-source"
+    })).resolves.toEqual({
+      key: `archives/archive-northwood/integration-artifacts/${sha256}`,
+      access: "private",
+      duplicate: false
+    });
+    expect(backend.promote).toHaveBeenCalledWith({
+      sourceKey,
+      destinationKey: `archives/archive-northwood/integration-artifacts/${sha256}`,
+      access: "private",
+      contentType: "text/plain",
+      expectedSourceEtag: "etag-source"
+    });
+    expect(backend.read).not.toHaveBeenCalled();
+  });
 });
 
 type BackendObject = {
@@ -145,6 +175,24 @@ function createMemoryBackend() {
       objects.set(input.key, { ...input, bytes: Buffer.from(input.bytes) });
       return { key: input.key };
     }),
+    promote: vi.fn(async (input: {
+      sourceKey: string;
+      destinationKey: string;
+      access: "private";
+      contentType: string;
+      expectedSourceEtag: string;
+    }) => {
+      const source = objects.get(input.sourceKey);
+      if (!source || (source as BackendObject & { etag?: string }).etag !== input.expectedSourceEtag) {
+        throw new Error("source changed");
+      }
+      objects.set(input.destinationKey, {
+        key: input.destinationKey,
+        access: "private",
+        bytes: Buffer.from(source.bytes),
+        contentType: input.contentType
+      });
+    }),
     read: vi.fn(async ({ key }: BackendKey) => {
       const stored = objects.get(key);
       if (!stored) {
@@ -154,6 +202,9 @@ function createMemoryBackend() {
     }),
     delete: vi.fn(async ({ key }: BackendKey) => {
       objects.delete(key);
-    })
+    }),
+    seed(key: string, bytes: Buffer, contentType: string, etag: string) {
+      objects.set(key, { key, bytes, contentType, access: "private", etag } as BackendObject);
+    }
   };
 }

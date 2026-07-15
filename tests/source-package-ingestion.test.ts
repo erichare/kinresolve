@@ -97,6 +97,19 @@ describe("source-package ingestion", () => {
     ).rejects.toThrow(/compression ratio|zip bomb|archive limit/i);
   });
 
+  it("rejects a ZIP that declares more than the tree-only expanded-memory ceiling", async () => {
+    const bytes = makeZip([{ name: "northwood.ged", content: syntheticGedcom }]);
+    const centralOffset = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    bytes.writeUInt32LE(2 * 1024 * 1024, centralOffset + 20);
+    bytes.writeUInt32LE(129 * 1024 * 1024, centralOffset + 24);
+
+    await expect(inspectSourcePackage({
+      fileName: "expanded-over-runtime-limit.zip",
+      bytes,
+      provider: "ancestry_export"
+    })).rejects.toThrow(/expanded content is too large/i);
+  });
+
   it.each([
     { name: "media/viewer.exe", content: Buffer.from("MZ synthetic executable", "ascii") },
     { name: "media/portrait.jpg", content: Buffer.from("MZ disguised synthetic executable", "ascii") }
@@ -111,6 +124,17 @@ describe("source-package ingestion", () => {
     ).rejects.toThrow(/executable|not permitted/i);
   });
 
+  it("rejects a slash-terminated ZIP entry that hides file data as a directory", async () => {
+    const bytes = makeZip([
+      { name: "northwood.ged", content: syntheticGedcom },
+      { name: "media/payload.exe/", content: Buffer.from("MZ hidden synthetic payload", "ascii") }
+    ]);
+
+    await expect(
+      inspectSourcePackage({ fileName: "directory-payload.zip", bytes, provider: "family_tree_maker" })
+    ).rejects.toThrow(/directory entries cannot contain file data/i);
+  });
+
   it("normalizes desktop media paths and reports references missing from the package", async () => {
     const gedcomWithMedia = [
       syntheticGedcom.replace("0 TRLR", ""),
@@ -123,7 +147,8 @@ describe("source-package ingestion", () => {
     const portrait = Buffer.from("synthetic portrait bytes", "utf8");
     const bytes = makeZip([
       { name: "export/northwood.ged", content: gedcomWithMedia },
-      { name: "export/media/portrait.jpg", content: portrait }
+      { name: "export/media/portrait.jpg", content: portrait },
+      { name: "export/media/unreferenced-ledger.jpg", content: Buffer.from("synthetic ledger bytes") }
     ]);
 
     const inspected = await inspectSourcePackage({
@@ -139,6 +164,11 @@ describe("source-package ingestion", () => {
       archivePath: "export/media/portrait.jpg"
     });
     expect(Buffer.from(inspected.media[0].content)).toEqual(portrait);
+    expect(inspected.quarantineFiles).toHaveLength(2);
+    expect(inspected.quarantineFiles.map((file) => Buffer.from(file.content).toString("utf8"))).toEqual([
+      "synthetic portrait bytes",
+      "synthetic ledger bytes"
+    ]);
     expect(inspected.missingMedia).toEqual([
       {
         gedcomPath: "media\\missing-ledger.jpg",

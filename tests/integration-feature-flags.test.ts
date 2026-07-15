@@ -13,6 +13,7 @@ describe("integration rollout gates", () => {
     expect(flags).toEqual({
       exportRefresh: true,
       desktopMedia: false,
+      desktopMediaLegalReviewApproved: false,
       ancestryPartnerApi: false
     });
     expect(isIntegrationProviderEnabled("ancestry_export", flags)).toBe(true);
@@ -23,12 +24,14 @@ describe("integration rollout gates", () => {
   it("allows each public rollout track to be disabled independently", () => {
     const flags = getIntegrationFeatureFlags({
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "false",
-      KINRESOLVE_DESKTOP_MEDIA_ENABLED: "true"
+      KINRESOLVE_DESKTOP_MEDIA_ENABLED: "true",
+      KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "true"
     });
 
     expect(flags).toEqual({
       exportRefresh: false,
       desktopMedia: true,
+      desktopMediaLegalReviewApproved: true,
       ancestryPartnerApi: false
     });
     expect(isIntegrationProviderEnabled("ancestry_export", flags)).toBe(false);
@@ -53,9 +56,13 @@ describe("integration rollout gates", () => {
     expect(isIntegrationProviderEnabled("ancestry_api", fullyEnabled)).toBe(true);
   });
 
-  it("never advertises writeback and only advertises desktop media when its gate is open", () => {
+  it("never advertises writeback and advertises media only after both operational gates open", () => {
     const closed = getIntegrationFeatureFlags({});
-    const open = getIntegrationFeatureFlags({ KINRESOLVE_DESKTOP_MEDIA_ENABLED: "true" });
+    const enabledWithoutReview = getIntegrationFeatureFlags({ KINRESOLVE_DESKTOP_MEDIA_ENABLED: "true" });
+    const open = getIntegrationFeatureFlags({
+      KINRESOLVE_DESKTOP_MEDIA_ENABLED: "true",
+      KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "true"
+    });
 
     expect(getProviderCapabilities("ancestry_export", closed)).toEqual({
       snapshotImport: true,
@@ -65,6 +72,7 @@ describe("integration rollout gates", () => {
       writeback: false
     });
     expect(getProviderCapabilities("family_tree_maker", closed).media).toBe(false);
+    expect(getProviderCapabilities("family_tree_maker", enabledWithoutReview).media).toBe(false);
     expect(getProviderCapabilities("family_tree_maker", open).media).toBe(true);
     expect(getProviderCapabilities("rootsmagic", open).media).toBe(true);
     expect(Object.values([

@@ -1,14 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { closeDatabasePools, query } from "@/lib/db";
+import { closeDatabasePools, query, withTransaction } from "@/lib/db";
+import { prepareGedcomImport } from "@/lib/gedcom/apply";
 import {
   addSyncChanges,
   applySyncRun,
+  cancelSyncRun,
+  completeSyncRunPreparation,
   createIntegrationConnection,
   createIntegrationSnapshot,
   disconnectIntegrationConnection,
   getIntegrationConnection,
+  getLatestSyncRunForConnection,
   getSyncRun,
   listIntegrationConnections,
   listSyncChanges,
@@ -17,7 +21,8 @@ import {
   startSyncRun,
   upsertExternalEntityRef
 } from "@/lib/integrations/store";
-import { readWorkspace } from "@/lib/workspace-store";
+import { pruneBackupRows } from "@/lib/store/rows";
+import { readWorkspace, updatePersonCuration } from "@/lib/workspace-store";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -96,10 +101,11 @@ async function createSnapshot(
 }
 
 async function insertBackup(options: StoreOptions, id = `backup-${randomUUID()}`): Promise<string> {
+  const workspace = await readWorkspace(options);
   await query(
     `INSERT INTO workspace_backups (archive_id, id, reason, storage_key, snapshot)
-     VALUES ($1, $2, 'Before integration refresh', $3, '{}'::jsonb)`,
-    [options.archiveId, id, `postgres://workspace_backups/${id}`],
+     VALUES ($1, $2, 'Before integration refresh', $3, $4::jsonb)`,
+    [options.archiveId, id, `postgres://workspace_backups/${id}`, JSON.stringify(workspace)],
     options
   );
   return id;
@@ -141,6 +147,61 @@ describeIfDatabase("provider-neutral integration store", () => {
     expect(disconnected.status).toBe("disconnected");
     expect(disconnected.disconnectedAt).toEqual(expect.any(String));
     await expect(getIntegrationConnection(connection.id, firstArchive)).resolves.toEqual(disconnected);
+  });
+
+  it("cancels active refresh work transactionally before disconnecting a source", async () => {
+    const connection = await createAncestryConnection();
+    const run = await startSyncRun({ connectionId: connection.id }, firstArchive);
+    const jobId = `integration-job-${randomUUID()}`;
+    await query(
+      `INSERT INTO durable_jobs (
+         archive_id, id, kind, payload, state, idempotency_key, maximum_attempts
+       ) VALUES ($1, $2, 'integration_snapshot_parse', $3::jsonb, 'queued', $4, 3)`,
+      [
+        firstArchive.archiveId,
+        jobId,
+        JSON.stringify({ runId: run.id, connectionId: connection.id }),
+        `disconnect-refresh:${run.id}`
+      ],
+      firstArchive
+    );
+
+    const disconnected = await disconnectIntegrationConnection(connection.id, firstArchive);
+
+    expect(disconnected.status).toBe("disconnected");
+    await expect(getSyncRun(run.id, firstArchive)).resolves.toMatchObject({ status: "cancelled" });
+    const job = await query<{ state: string; cancelled_at: Date | null }>(
+      "SELECT state, cancelled_at FROM durable_jobs WHERE archive_id = $1 AND id = $2",
+      [firstArchive.archiveId, jobId],
+      firstArchive
+    );
+    expect(job.rows[0]).toMatchObject({ state: "cancelled", cancelled_at: expect.any(Date) });
+  });
+
+  it("persists the declared authoritative editor and returns the latest connection run", async () => {
+    const connection = await createAncestryConnection();
+    const first = await startSyncRun(
+      connection.id,
+      { declaredAuthority: "family_tree_maker" },
+      firstArchive
+    );
+
+    await expect(getIntegrationConnection(connection.id, firstArchive)).resolves.toMatchObject({
+      authority: "family_tree_maker"
+    });
+    await expect(getLatestSyncRunForConnection(connection.id, firstArchive)).resolves.toEqual(first);
+    await expect(getLatestSyncRunForConnection(connection.id, secondArchive)).rejects.toThrow(/not found/i);
+
+    await cancelSyncRun(first.id, firstArchive);
+    const second = await startSyncRun(
+      connection.id,
+      { declaredAuthority: "rootsmagic" },
+      firstArchive
+    );
+    await expect(getLatestSyncRunForConnection(connection.id, firstArchive)).resolves.toEqual(second);
+    await expect(getIntegrationConnection(connection.id, firstArchive)).resolves.toMatchObject({
+      authority: "rootsmagic"
+    });
   });
 
   it("deduplicates an immutable SHA-256 snapshot within a connection without overwriting the first metadata", async () => {
@@ -190,6 +251,52 @@ describeIfDatabase("provider-neutral integration store", () => {
 
     expect(second.snapshot.id).not.toBe(first.snapshot.id);
     await expect(createSnapshot(firstConnection.id, "e".repeat(64), secondArchive)).rejects.toThrow(/not found|archive/i);
+  });
+
+  it("does not complete a run with a snapshot owned by another connection in the same archive", async () => {
+    const firstConnection = await createAncestryConnection(firstArchive, "First tree");
+    const secondConnection = await createAncestryConnection(firstArchive, "Second tree");
+    const otherSnapshot = (await createSnapshot(secondConnection.id, "1".repeat(64))).snapshot;
+    const run = await startSyncRun({ connectionId: firstConnection.id }, firstArchive);
+
+    await expect(completeSyncRunPreparation(run.id, otherSnapshot.id, firstArchive)).rejects.toThrow(
+      /snapshot|data source|connection|not found/i
+    );
+    await expect(getSyncRun(run.id, firstArchive)).resolves.toMatchObject({
+      status: "queued",
+      incomingSnapshotId: undefined
+    });
+  });
+
+  it("cancels the run and its durable job atomically and cannot later complete preparation", async () => {
+    const connection = await createAncestryConnection();
+    const incoming = (await createSnapshot(connection.id, "3".repeat(64))).snapshot;
+    const run = await startSyncRun({ connectionId: connection.id }, firstArchive);
+    const jobId = `integration-job-${randomUUID()}`;
+    await query(
+      `INSERT INTO durable_jobs (
+         archive_id, id, kind, payload, state, idempotency_key, maximum_attempts
+       ) VALUES ($1, $2, 'integration_snapshot_parse', $3::jsonb, 'queued', $4, 3)`,
+      [
+        firstArchive.archiveId,
+        jobId,
+        JSON.stringify({ runId: run.id, connectionId: connection.id }),
+        `integration-snapshot-parse:${run.id}`
+      ],
+      firstArchive
+    );
+
+    const cancelled = await cancelSyncRun(run.id, firstArchive);
+
+    expect(cancelled.status).toBe("cancelled");
+    await expect(cancelSyncRun(run.id, firstArchive)).resolves.toMatchObject({ status: "cancelled" });
+    const job = await query<{ state: string; cancelled_at: Date | null }>(
+      "SELECT state, cancelled_at FROM durable_jobs WHERE archive_id = $1 AND id = $2",
+      [firstArchive.archiveId, jobId],
+      firstArchive
+    );
+    expect(job.rows[0]).toMatchObject({ state: "cancelled", cancelled_at: expect.any(Date) });
+    await expect(completeSyncRunPreparation(run.id, incoming.id, firstArchive)).rejects.toThrow(/cancel|state|prepare/i);
   });
 
   it("keeps external identities connection-scoped and never silently remaps a stable external id", async () => {
@@ -270,17 +377,33 @@ describeIfDatabase("provider-neutral integration store", () => {
           localHash: "base-1",
           incomingHash: "incoming-1",
           classification: "remote_only",
-          proposedAction: "accept_incoming"
+          proposedAction: "accept_incoming",
+          resolutionPayload: {
+            values: {
+              incoming: {
+                displayName: "Mara Quill",
+                notes: "sealed synthetic note"
+              }
+            }
+          }
         },
         {
-          entityType: "person",
-          externalId: "@I2@",
-          localEntityId: "person-2",
+          entityType: "source",
+          externalId: "@S2@",
+          localEntityId: "source-2",
           baseHash: "base-2",
           localHash: "local-2",
           incomingHash: "incoming-2",
           classification: "conflict",
-          proposedAction: "review"
+          proposedAction: "review",
+          resolutionPayload: {
+            values: {
+              incoming: {
+                title: "Lantern Harbor ledger",
+                transcript: "private synthetic transcript"
+              }
+            }
+          }
         },
         {
           entityType: "person",
@@ -290,7 +413,10 @@ describeIfDatabase("provider-neutral integration store", () => {
           localHash: "base-3",
           incomingHash: null,
           classification: "deletion",
-          proposedAction: "keep_local"
+          proposedAction: "keep_local",
+          resolutionPayload: {
+            values: { local: { displayName: "Mara Quill Senior" } }
+          }
         }
       ],
       firstArchive
@@ -305,7 +431,47 @@ describeIfDatabase("provider-neutral integration store", () => {
     );
     expect(firstPage.items).toEqual(changes.slice(0, 2));
     expect(firstPage.nextCursor).toEqual(expect.any(String));
-    expect(secondPage).toEqual({ items: changes.slice(2), nextCursor: null });
+    expect(secondPage.items).toEqual(changes.slice(2));
+    expect(secondPage.nextCursor).toBeNull();
+    expect(firstPage.summary).toEqual({
+      total: 3,
+      filtered: 3,
+      unresolved: 1,
+      byClassification: {
+        remote_only: 1,
+        local_only: 0,
+        same: 0,
+        conflict: 1,
+        deletion: 1
+      }
+    });
+    const filtered = await listSyncChanges(
+      run.id,
+      { pageSize: 20, query: "S2", classification: "conflict" },
+      firstArchive
+    );
+    expect(filtered.items).toEqual([changes[1]]);
+    expect(filtered.summary).toMatchObject({ total: 3, filtered: 1, unresolved: 1 });
+    const byPersonName = await listSyncChanges(run.id, { pageSize: 1, query: "mara qu" }, firstArchive);
+    expect(byPersonName.items).toEqual([changes[0]]);
+    expect(byPersonName.nextCursor).toEqual(expect.any(String));
+    expect(byPersonName.summary).toMatchObject({ total: 3, filtered: 2 });
+    const byPersonNameNextPage = await listSyncChanges(
+      run.id,
+      { pageSize: 1, query: "mara qu", cursor: byPersonName.nextCursor ?? undefined },
+      firstArchive
+    );
+    expect(byPersonNameNextPage.items).toEqual([changes[2]]);
+    expect(byPersonNameNextPage.nextCursor).toBeNull();
+    const bySourceTitle = await listSyncChanges(run.id, { pageSize: 20, query: "HARBOR LEDGER" }, firstArchive);
+    expect(bySourceTitle.items).toEqual([changes[1]]);
+    expect(bySourceTitle.summary).toMatchObject({ total: 3, filtered: 1 });
+    const privateText = await listSyncChanges(run.id, { pageSize: 20, query: "synthetic transcript" }, firstArchive);
+    expect(privateText.items).toEqual([]);
+    expect(privateText.summary).toMatchObject({ total: 3, filtered: 0 });
+    expect((await listSyncChanges(run.id, { pageSize: 20, query: "deletion" }, firstArchive)).items).toEqual([
+      changes[2]
+    ]);
     await expect(getSyncRun(run.id, secondArchive)).rejects.toThrow(/not found/i);
     await expect(listSyncChanges(run.id, { pageSize: 20 }, secondArchive)).rejects.toThrow(/not found/i);
   });
@@ -359,6 +525,321 @@ describeIfDatabase("provider-neutral integration store", () => {
     ).rejects.toThrow(/idempot|payload|conflict/i);
   });
 
+  it("requires explicit approval before accepting remote-only changes outside the loaded page", async () => {
+    const { run } = await createReviewRun();
+    await addSyncChanges(
+      run.id,
+      Array.from({ length: 51 }, (_, index) => ({
+        entityType: "person",
+        externalId: `@I${index + 1}@`,
+        localEntityId: `person-remote-${index + 1}`,
+        baseHash: null,
+        localHash: null,
+        incomingHash: `incoming-${index + 1}`,
+        classification: "remote_only" as const,
+        proposedAction: "accept_incoming" as const,
+        resolutionPayload: {
+          values: { incoming: { displayName: `Synthetic remote person ${index + 1}` } }
+        }
+      })),
+      firstArchive
+    );
+    const firstPage = await listSyncChanges(run.id, { pageSize: 50 }, firstArchive);
+    expect(firstPage.items).toHaveLength(50);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+
+    await expect(applySyncRun(
+      run.id,
+      { idempotencyKey: `apply-unreviewed-${randomUUID()}`, resolutions: [] },
+      firstArchive
+    )).rejects.toMatchObject({ code: "RESOLUTION_REQUIRED" });
+    await expect(getSyncRun(run.id, firstArchive)).resolves.toMatchObject({ status: "review_ready" });
+
+    await expect(applySyncRun(
+      run.id,
+      {
+        idempotencyKey: `apply-reviewed-${randomUUID()}`,
+        acceptAllSafeIncoming: true,
+        resolutions: []
+      },
+      firstArchive
+    )).resolves.toMatchObject({
+      appliedChangeCount: 51,
+      run: { status: "applied" }
+    });
+  });
+
+  it("persists canonical field-level resolutions and replays reordered fields idempotently", async () => {
+    const { run } = await createReviewRun();
+    const [change] = await addSyncChanges(
+      run.id,
+      [
+        {
+          entityType: "person",
+          externalId: "@I5@",
+          localEntityId: "person-5",
+          baseHash: "base",
+          localHash: "local",
+          incomingHash: "incoming",
+          classification: "conflict",
+          proposedAction: "review",
+          resolutionPayload: { canonicalValues: { birthDate: { base: "1900", local: "1901", incoming: "1902" } } }
+        }
+      ],
+      firstArchive
+    );
+    const idempotencyKey = `apply-${randomUUID()}`;
+
+    const first = await applySyncRun(
+      run.id,
+      {
+        idempotencyKey,
+        resolutions: [
+          {
+            changeId: change.id,
+            resolution: "keep_local",
+            fields: { notes: "keep_local", birthDate: "accept_incoming" }
+          }
+        ]
+      },
+      firstArchive
+    );
+    const retry = await applySyncRun(
+      run.id,
+      {
+        idempotencyKey,
+        resolutions: [
+          {
+            changeId: change.id,
+            resolution: "keep_local",
+            fields: { birthDate: "accept_incoming", notes: "keep_local" }
+          }
+        ]
+      },
+      firstArchive
+    );
+
+    expect(first.replayed).toBe(false);
+    expect(retry.replayed).toBe(true);
+    const stored = await listSyncChanges(run.id, { pageSize: 20 }, firstArchive);
+    expect(stored.items[0].resolutionPayload).toMatchObject({
+      canonicalValues: { birthDate: { base: "1900", local: "1901", incoming: "1902" } },
+      fieldResolutions: { birthDate: "accept_incoming", notes: "keep_local" }
+    });
+  });
+
+  it("requires and atomically persists a reviewed ambiguous identity candidate", async () => {
+    const { run } = await createReviewRun();
+    const [change] = await addSyncChanges(
+      run.id,
+      [
+        {
+          entityType: "person",
+          externalId: "@I72@",
+          localEntityId: "person-new-incoming",
+          baseHash: null,
+          localHash: null,
+          incomingHash: "incoming",
+          classification: "conflict",
+          proposedAction: "review",
+          resolutionPayload: {
+            ambiguousLocalEntityIds: ["person-synthetic-candidate-1", "person-synthetic-candidate-2"]
+          }
+        }
+      ],
+      firstArchive
+    );
+    const backupId = await insertBackup(firstArchive);
+
+    await expect(
+      applySyncRun(
+        run.id,
+        {
+          idempotencyKey: `apply-${randomUUID()}`,
+          backupId,
+          resolutions: [{ changeId: change.id, resolution: "accept_incoming" }]
+        },
+        firstArchive
+      )
+    ).rejects.toThrow(/identity|candidate|resolution|review/i);
+    await expect(
+      applySyncRun(
+        run.id,
+        {
+          idempotencyKey: `apply-${randomUUID()}`,
+          backupId,
+          resolutions: [{
+            changeId: change.id,
+            resolution: "accept_incoming",
+            localEntityId: "person-not-a-candidate"
+          }]
+        },
+        firstArchive
+      )
+    ).rejects.toThrow(/identity|candidate|invalid/i);
+
+    const unchanged = await listSyncChanges(run.id, { pageSize: 20 }, firstArchive);
+    expect(unchanged.items[0]).toMatchObject({
+      localEntityId: "person-new-incoming",
+      resolution: undefined,
+      resolutionPayload: {
+        ambiguousLocalEntityIds: ["person-synthetic-candidate-1", "person-synthetic-candidate-2"]
+      }
+    });
+
+    await applySyncRun(
+      run.id,
+      {
+        idempotencyKey: `apply-${randomUUID()}`,
+        backupId,
+        resolutions: [{
+          changeId: change.id,
+          resolution: "accept_incoming",
+          localEntityId: "person-synthetic-candidate-2"
+        }]
+      },
+      firstArchive
+    );
+
+    const stored = await listSyncChanges(run.id, { pageSize: 20 }, firstArchive);
+    expect(stored.items[0]).toMatchObject({
+      localEntityId: "person-synthetic-candidate-2",
+      resolution: "accept_incoming",
+      resolutionPayload: {
+        ambiguousLocalEntityIds: ["person-synthetic-candidate-1", "person-synthetic-candidate-2"],
+        selectedLocalEntityId: "person-synthetic-candidate-2"
+      }
+    });
+  });
+
+  it("preserves local publication and privacy curation across reviewed identity-field corrections", async () => {
+    const { run } = await createReviewRun();
+    const before = await readWorkspace(firstArchive);
+    const target = before.people[0];
+    const curatedFact = target.facts[0];
+    const curatedSource = before.sources[0];
+    expect(curatedFact).toBeDefined();
+    expect(curatedSource).toBeDefined();
+    await updatePersonCuration(
+      target.id,
+      { published: true, privacy: "public", livingStatus: "deceased" },
+      firstArchive
+    );
+    await query(
+      "UPDATE person_facts SET privacy = 'sensitive' WHERE archive_id = $1 AND id = $2",
+      [firstArchive.archiveId, curatedFact.id],
+      firstArchive
+    );
+    await query(
+      "UPDATE sources SET privacy = 'sensitive' WHERE archive_id = $1 AND id = $2",
+      [firstArchive.archiveId, curatedSource.id],
+      firstArchive
+    );
+    const prepared = prepareGedcomImport(
+      "corrected-tree.ged",
+      "0 @I1@ INDI\n1 NAME Completely Corrected /Identity/\n1 BIRT\n2 DATE 1 JAN 1902\n"
+    );
+    prepared.people[0] = {
+      ...prepared.people[0],
+      id: target.id,
+      facts: prepared.people[0].facts.map((fact, index) => ({
+        ...fact,
+        id: index === 0 ? curatedFact.id : `${target.id}-corrected-fact-${index}`,
+        privacy: "private"
+      }))
+    };
+    prepared.sources = [{ ...curatedSource, title: "Corrected synthetic source title", privacy: "private" }];
+
+    await applySyncRun(
+      run.id,
+      {
+        idempotencyKey: `apply-${randomUUID()}`,
+        preparedImport: prepared,
+        resolutions: []
+      },
+      firstArchive
+    );
+
+    const corrected = (await readWorkspace(firstArchive)).people.find((person) => person.id === target.id);
+    expect(corrected).toMatchObject({
+      displayName: "Completely Corrected Identity",
+      birthDate: "1 JAN 1902",
+      published: true,
+      privacy: "public",
+      livingStatus: "deceased"
+    });
+    expect(corrected?.facts[0]?.privacy).toBe("sensitive");
+    expect((await readWorkspace(firstArchive)).sources.find((source) => source.id === curatedSource.id)).toMatchObject({
+      title: "Corrected synthetic source title",
+      privacy: "sensitive"
+    });
+  });
+
+  it("rejects invalid field-level resolution names before applying", async () => {
+    const { run } = await createReviewRun();
+    const [change] = await addSyncChanges(
+      run.id,
+      [
+        {
+          entityType: "person",
+          classification: "conflict",
+          proposedAction: "review"
+        }
+      ],
+      firstArchive
+    );
+
+    await expect(
+      applySyncRun(
+        run.id,
+        {
+          idempotencyKey: `apply-${randomUUID()}`,
+          resolutions: [
+            { changeId: change.id, resolution: "keep_local", fields: { " ": "accept_incoming" } }
+          ]
+        },
+        firstArchive
+      )
+    ).rejects.toThrow(/field|invalid/i);
+  });
+
+  it("never accepts incoming field values for an incoming deletion", async () => {
+    const { run } = await createReviewRun();
+    const [change] = await addSyncChanges(
+      run.id,
+      [
+        {
+          entityType: "person",
+          externalId: "@I6@",
+          localEntityId: "person-6",
+          baseHash: "base",
+          localHash: "base",
+          incomingHash: null,
+          classification: "deletion",
+          proposedAction: "keep_local"
+        }
+      ],
+      firstArchive
+    );
+
+    await expect(
+      applySyncRun(
+        run.id,
+        {
+          idempotencyKey: `apply-${randomUUID()}`,
+          resolutions: [
+            {
+              changeId: change.id,
+              resolution: "keep_local",
+              fields: { displayName: "accept_incoming" }
+            }
+          ]
+        },
+        firstArchive
+      )
+    ).rejects.toThrow(/deletion|incoming/i);
+  });
+
   it("records replay-safe rollback metadata and restores the previous remembered baseline", async () => {
     const { connection, base, run } = await createReviewRun();
     const backupId = await insertBackup(firstArchive);
@@ -367,7 +848,11 @@ describeIfDatabase("provider-neutral integration store", () => {
       { idempotencyKey: `apply-${randomUUID()}`, backupId, resolutions: [] },
       firstArchive
     );
-    const input = { idempotencyKey: `rollback-${randomUUID()}`, actorId: "integration-test-user" };
+    const input = {
+      idempotencyKey: `rollback-${randomUUID()}`,
+      actorId: "integration-test-user",
+      restoreBackup: true
+    };
 
     const first = await rollbackSyncRun(run.id, input, firstArchive);
     const retry = await rollbackSyncRun(run.id, input, firstArchive);
@@ -389,5 +874,124 @@ describeIfDatabase("provider-neutral integration store", () => {
     await expect(
       rollbackSyncRun(run.id, { ...input, actorId: "different-user" }, firstArchive)
     ).rejects.toThrow(/idempot|payload|conflict/i);
+    await expect(
+      rollbackSyncRun(run.id, { ...input, restoreBackup: false }, firstArchive)
+    ).rejects.toThrow(/idempot|payload|conflict/i);
+  });
+
+  it("creates a restorable backup when every reviewed change keeps local data", async () => {
+    const { connection, base, run } = await createReviewRun();
+    const before = await readWorkspace(firstArchive);
+
+    const applied = await applySyncRun(
+      run.id,
+      { idempotencyKey: `apply-${randomUUID()}`, resolutions: [] },
+      firstArchive
+    );
+
+    expect(applied.run).toMatchObject({
+      status: "applied",
+      backupId: expect.stringMatching(/^backup-/)
+    });
+    await rollbackSyncRun(
+      run.id,
+      { idempotencyKey: `rollback-${randomUUID()}`, restoreBackup: true },
+      firstArchive
+    );
+    expect((await getIntegrationConnection(connection.id, firstArchive)).lastAppliedSnapshotId).toBe(base.id);
+    expect(await readWorkspace(firstArchive)).toMatchObject({
+      people: before.people,
+      sources: before.sources
+    });
+  });
+
+  it("rejects rollback after any later archive mutation", async () => {
+    const { run } = await createReviewRun();
+    const backupId = await insertBackup(firstArchive);
+    await applySyncRun(
+      run.id,
+      { idempotencyKey: `apply-${randomUUID()}`, backupId, resolutions: [] },
+      firstArchive
+    );
+    await query(
+      "UPDATE archives SET updated_at = updated_at + interval '1 second' WHERE id = $1",
+      [firstArchive.archiveId],
+      firstArchive
+    );
+
+    await expect(
+      rollbackSyncRun(
+        run.id,
+        { idempotencyKey: `rollback-${randomUUID()}`, restoreBackup: true },
+        firstArchive
+      )
+    ).rejects.toThrow(/archive changed|stale|latest/i);
+    await expect(getSyncRun(run.id, firstArchive)).resolves.toMatchObject({ status: "applied", backupId });
+  });
+
+  it("rejects rollback of an older applied run after a newer baseline was applied", async () => {
+    const { connection, incoming: firstIncoming, run: firstRun } = await createReviewRun();
+    const firstBackupId = await insertBackup(firstArchive);
+    await applySyncRun(
+      firstRun.id,
+      { idempotencyKey: `apply-${randomUUID()}`, backupId: firstBackupId, resolutions: [] },
+      firstArchive
+    );
+
+    const secondIncoming = (await createSnapshot(connection.id, "2".repeat(64))).snapshot;
+    const secondRun = await startSyncRun(
+      {
+        connectionId: connection.id,
+        baseSnapshotId: firstIncoming.id,
+        incomingSnapshotId: secondIncoming.id
+      },
+      firstArchive
+    );
+    const secondBackupId = await insertBackup(firstArchive);
+    await applySyncRun(
+      secondRun.id,
+      { idempotencyKey: `apply-${randomUUID()}`, backupId: secondBackupId, resolutions: [] },
+      firstArchive
+    );
+
+    await expect(
+      rollbackSyncRun(
+        firstRun.id,
+        { idempotencyKey: `rollback-${randomUUID()}`, restoreBackup: true },
+        firstArchive
+      )
+    ).rejects.toThrow(/archive changed|current|latest|baseline|stale/i);
+    expect((await getIntegrationConnection(connection.id, firstArchive)).lastAppliedSnapshotId).toBe(secondIncoming.id);
+  });
+
+  it("expires sync-run rollback references outside the bounded backup window", async () => {
+    const connection = await createAncestryConnection();
+    for (let index = 0; index < 12; index += 1) {
+      const backupId = await insertBackup(firstArchive, `backup-retention-${index}-${randomUUID()}`);
+      await query(
+        `INSERT INTO sync_runs (
+           archive_id, id, connection_id, status, backup_id, applied_at, created_at, updated_at
+         ) VALUES ($1, $2, $3, 'applied', $4, now(), now(), now())`,
+        [firstArchive.archiveId, `sync-run-retention-${index}-${randomUUID()}`, connection.id, backupId],
+        firstArchive
+      );
+    }
+
+    await withTransaction(firstArchive, async (client) => {
+      await pruneBackupRows(client, firstArchive.archiveId, 10);
+    });
+
+    const backups = await query<{ count: number }>(
+      "SELECT count(*)::integer AS count FROM workspace_backups WHERE archive_id = $1",
+      [firstArchive.archiveId],
+      firstArchive
+    );
+    const expiredRuns = await query<{ count: number }>(
+      "SELECT count(*)::integer AS count FROM sync_runs WHERE archive_id = $1 AND backup_id IS NULL",
+      [firstArchive.archiveId],
+      firstArchive
+    );
+    expect(backups.rows[0].count).toBe(10);
+    expect(expiredRuns.rows[0].count).toBe(2);
   });
 });
