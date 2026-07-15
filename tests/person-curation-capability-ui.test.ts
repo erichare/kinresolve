@@ -1,9 +1,25 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const workspaceMocks = vi.hoisted(() => ({
+  readWorkspace: vi.fn()
+}));
+
+vi.mock("@/lib/workspace-store", () => workspaceMocks);
+
+import AppPersonPage from "@/app/app/people/[id]/page";
 import { PersonCurationPanel } from "@/components/person-curation-panel";
 import { demoPeople } from "@/lib/demo-data";
+
+beforeEach(() => {
+  vi.unstubAllEnvs();
+  vi.resetAllMocks();
+  workspaceMocks.readWorkspace.mockResolvedValue({
+    archiveName: "Synthetic private archive",
+    people: [{ ...demoPeople[0], published: true }]
+  });
+});
 
 describe("person curation publishing capability", () => {
   it("does not offer publication for an unpublished profile when publishing is disabled", () => {
@@ -27,6 +43,17 @@ describe("person curation publishing capability", () => {
     expect(html).toMatch(/<input\b[^>]*type="checkbox"/i);
     expect(html).toMatch(/Published/i);
   });
+
+  it("labels a legacy published flag as private beta on the hosted person page", async () => {
+    stubHostedPrivateBeta();
+
+    const html = renderToStaticMarkup(await AppPersonPage({
+      params: Promise.resolve({ id: demoPeople[0].id })
+    }));
+
+    expect(html).toMatch(/>Private beta</i);
+    expect(html).not.toMatch(/>Published</i);
+  });
 });
 
 function render(publicPublishingEnabled: boolean, published: boolean): string {
@@ -34,4 +61,21 @@ function render(publicPublishingEnabled: boolean, published: boolean): string {
     person: { ...demoPeople[0], published },
     publicPublishingEnabled
   }));
+}
+
+function stubHostedPrivateBeta(): void {
+  const environment = {
+    KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+    KINRESOLVE_DATASET_MODE: "pilot",
+    KINRESOLVE_DNA_ENABLED: "false",
+    KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+    KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+    KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+    KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+    KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+  } as const;
+  for (const [name, value] of Object.entries(environment)) {
+    vi.stubEnv(name, value);
+  }
 }
