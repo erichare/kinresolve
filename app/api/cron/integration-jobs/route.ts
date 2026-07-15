@@ -6,6 +6,9 @@ import {
   runIntegrationWorkerMaintenance
 } from "@/lib/integrations/worker";
 import { logRedactedIntegrationError } from "@/lib/integrations/error-reporting";
+import { getActiveReleaseFence } from "@/lib/release-fence";
+import { releaseFenceLockedResponse } from "@/lib/release-fence-http";
+import { getScheduledWritesStatus } from "@/lib/scheduled-writes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,7 +24,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const scheduledWrites = getScheduledWritesStatus();
+  if (!scheduledWrites.valid || !scheduledWrites.enabled) {
+    return NextResponse.json({ error: "Scheduled work is unavailable." }, { status: 503 });
+  }
+
   try {
+    const activeFence = await getActiveReleaseFence();
+    if (activeFence) return releaseFenceLockedResponse(activeFence, { discloseControlIdentity: true });
     const configuration = integrationWorkerConfiguration();
     // Cleanup is independent of parse-queue discovery, so a cron invocation
     // still performs bounded maintenance when there are no jobs or archives

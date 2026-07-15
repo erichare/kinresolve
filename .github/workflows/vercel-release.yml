@@ -1,21 +1,86 @@
-name: Deploy stable release to Vercel
+name: Release Kin Resolve beta candidate
+run-name: Kin Resolve beta release run ${{ github.run_id }} attempt ${{ github.run_attempt }}
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Full 40-character commit SHA currently at main
+        required: true
+        type: string
+      release_version:
+        description: Stable package version without the v prefix
+        required: true
+        type: string
+      release_policy_acknowledged_at:
+        description: RFC3339 timestamp of the forward-only cutover review
+        required: true
+        type: string
+      first_cutover_acknowledgement:
+        description: Exact forward-only acknowledgement from db/release-policy.json
+        required: true
+        type: string
+      recovery_run_id:
+        description: Successful production recovery-evidence workflow run ID
+        required: true
+        type: string
+      recovery_evidence_sha256:
+        description: SHA-256 of the attested recovery-evidence.json artifact
+        required: true
+        type: string
+      auto_assignment_acknowledgement:
+        description: Exact acknowledgement that protected Vercel dashboard auto-assignment is disabled
+        required: true
+        type: string
+      deployment_protection_acknowledgement:
+        description: Exact acknowledgement that Standard Protection covers every generated URL with no exceptions
+        required: true
+        type: string
+      writer_perimeter_acknowledgement:
+        description: Exact acknowledgement that only protected production writers retain database or Blob access
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: vercel-production
+  group: kinresolve-beta-release
+  queue: max
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    if: github.event.release.prerelease == false
+  safety:
+    name: Require prior automatic safety work to finish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the trusted safety gate from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js for the credential-free safety gate
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Refuse to overtake unresolved containment or cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: release
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+  verify:
+    needs: safety
     runs-on: ubuntu-latest
-    environment: production
+    timeout-minutes: 60
     services:
       postgres:
         image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
@@ -30,40 +95,85 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
-
     steps:
-      - name: Check out the released revision
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name }}
-          fetch-depth: 0
-
-      - name: Fetch protected main and the release tag
+      - name: Validate dispatch request before checkout
+        env:
+          GITHUB_REF_VALUE: ${{ github.ref }}
+          EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          AUTO_ASSIGNMENT_ACKNOWLEDGEMENT: ${{ inputs.auto_assignment_acknowledgement }}
+          DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT: ${{ inputs.deployment_protection_acknowledgement }}
+          WRITER_PERIMETER_ACKNOWLEDGEMENT: ${{ inputs.writer_perimeter_acknowledgement }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RECOVERY_EVIDENCE_SHA256: ${{ inputs.recovery_evidence_sha256 }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          git fetch origin main:refs/remotes/origin/main --no-tags
-          git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" --force --no-tags
+          set -euo pipefail
+          test "$GITHUB_REF_VALUE" = "refs/heads/main"
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$RELEASE_COMMIT" = "$EXPECTED_GITHUB_SHA"
+          test "$AUTO_ASSIGNMENT_ACKNOWLEDGEMENT" = "I acknowledge Vercel production deployment auto-assignment is disabled in the protected project dashboard."
+          test "$DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT" = "I acknowledge Vercel Standard Protection covers every generated deployment URL and has no exceptions."
+          test "$WRITER_PERIMETER_ACKNOWLEDGEMENT" = "I acknowledge the production writer perimeter contains only the canonical Vercel runtime and protected GitHub release/recovery workflows; no external workers, SQL/API writers, or shared database/Blob credentials remain."
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$RECOVERY_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$RECOVERY_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+
+      - name: Check out the exact candidate revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate provenance
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          checked_out_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+          resolved_release_commit="$(git rev-parse --verify --end-of-options "${RELEASE_COMMIT}^{commit}")"
+          test "$checked_out_commit" = "$RELEASE_COMMIT"
+          test "$resolved_release_commit" = "$RELEASE_COMMIT"
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main
+          package_version="$(node -e '
+            const { readFileSync } = require("node:fs");
+            const value = JSON.parse(readFileSync("package.json", "utf8")).version;
+            if (typeof value !== "string") process.exit(1);
+            process.stdout.write(value);
+          ')"
+          test "$package_version" = "$RELEASE_VERSION"
+          test "$RELEASE_TAG" = "v$package_version"
+          remote_tag="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
+          test -z "$remote_tag"
+
+      - name: Verify candidate tag and release do not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          status="$(curl --retry 3 --retry-all-errors --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
+          test "$status" = "404"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Verify release provenance before running repository code
-        run: |
-          release_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
-          checked_out_commit="$(git rev-parse --verify 'HEAD^{commit}')"
-          test "$release_commit" = "$checked_out_commit"
-          git merge-base --is-ancestor "$release_commit" origin/main
-          package_version="$(node -e '
-            const { readFileSync } = require("node:fs");
-            const value = JSON.parse(readFileSync("package.json", "utf8")).version;
-            if (typeof value !== "string" || value.length === 0) process.exit(1);
-            process.stdout.write(value);
-          ')"
-          test "$RELEASE_TAG" = "v$package_version"
+      - name: Validate the checked-in Vercel deployment bypass guard
+        run: npm run vercel:config:validate
 
       - name: Install dependencies
         run: npm ci
@@ -80,6 +190,9 @@ jobs:
       - name: Verify immutable migrations
         run: npm run migrations:verify
 
+      - name: Verify fictional demo boundary
+        run: npm run demo:verify
+
       - name: Test complete Postgres persistence
         env:
           TEST_DATABASE_URL: postgres://kinresolve_ci:kinresolve_ci@localhost:5432/kinresolve_release_test
@@ -90,10 +203,20 @@ jobs:
           TEST_RELEASE_UPGRADE_DATABASE_URL: postgres://kinresolve_ci:kinresolve_ci@localhost:5432/postgres
         run: npm run test:release-upgrade
 
+      - name: Prove the latest stable release is forward-only incompatible
+        env:
+          TEST_RELEASE_UPGRADE_DATABASE_URL: postgres://kinresolve_ci:kinresolve_ci@localhost:5432/postgres
+        run: npm run test:release-compatibility
+
       - name: Test large GEDCOM persistence
         env:
           TEST_DATABASE_URL: postgres://kinresolve_ci:kinresolve_ci@localhost:5432/kinresolve_release_test
         run: npm run test:db:large
+
+      - name: Test large hosted integration refresh
+        env:
+          TEST_DATABASE_URL: postgres://kinresolve_ci:kinresolve_ci@localhost:5432/kinresolve_release_test
+        run: npm run test:db:integration-large
 
       - name: Build application
         run: npm run build
@@ -101,71 +224,1459 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Pull Vercel production settings
+  staging:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: beta-staging
+    outputs:
+      app_base_url: ${{ steps.staging-release-contract.outputs.app_base_url }}
+      archive_id: ${{ steps.staging-release-contract.outputs.archive_id }}
+      candidate_deployment_id: ${{ steps.staging-candidate.outputs.deployment_id }}
+      database_identity: ${{ steps.staging-release-contract.outputs.database_identity }}
+      holding_deployment_id: ${{ steps.staging-holding.outputs.deployment_id }}
+      object_storage_identity: ${{ steps.staging-release-contract.outputs.object_storage_identity }}
+      object_storage_provider_id: ${{ steps.staging-identity-exclusions.outputs.object_storage_provider_id }}
+    steps:
+      - name: Check out the verified candidate
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Recheck the safety queue for this staging attempt
         env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: release
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the pinned Vercel CLI before loading deploy credentials
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Fetch protected main
+        run: git fetch origin main:refs/remotes/origin/main --force --no-tags
+
+      - name: Validate staging Vercel identifiers
+        env:
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          PRODUCTION_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: npx --yes vercel@56.1.0 pull --yes --environment=production
-
-      - name: Verify stable release and production settings
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          test -s .vercel/.env.production.local
-          node --experimental-strip-types scripts/validate-release-contract.mjs
+          set -euo pipefail
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          test "$VERCEL_PROJECT_ID" != "$PRODUCTION_VERCEL_PROJECT_ID"
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
 
-      - name: Build production artifact
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: npx --yes vercel@56.1.0 build --prod
-
-      - name: Deploy production artifact
-        id: deploy
+      - name: Pull isolated staging production settings
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          deployment_url="$(npx --yes vercel@56.1.0 deploy --prebuilt --prod --yes)"
+          set -euo pipefail
+          umask 077
+          vercel pull --yes --environment=production
+
+      - name: Fetch staging environment metadata
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          scope_query="?limit=100"
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="$scope_query&teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/env$scope_query" \
+            --output "$RUNNER_TEMP/staging-environment.json"
+
+      - name: Validate staging environment metadata
+        run: >-
+          node --experimental-strip-types scripts/validate-vercel-environment.mjs
+          "$RUNNER_TEMP/staging-environment.json" .vercel/.env.production.local
+
+      - name: Validate staging release contract
+        id: staging-release-contract
+        env:
+          EXPECTED_APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          EXPECTED_ARCHIVE_ID: kinresolve-staging-demo
+          EXPECTED_DATASET_MODE: demo
+          EXPECTED_SCHEDULED_WRITES_ENABLED: "false"
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          FORBIDDEN_APP_BASE_URL: https://app.kinresolve.com
+          FORBIDDEN_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-release-contract.mjs
+
+      - name: Attest the staging runtime database role
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/staging-runtime-database-role.json"
+          npm run db:runtime-role:attest -- "$output"
+          jq -e --arg database_identity "$EXPECTED_DATABASE_IDENTITY" '
+            (. | keys | sort) == ([
+              "adminMembership", "bypassRls", "createDatabase", "createRole",
+              "credentialsDistinct", "databaseIdentity", "migrationRoleMembership",
+              "ownsDatabase", "ownsPublicFunctions", "ownsPublicRelations",
+              "ownsPublicSchema", "ownsPublicTypes", "persistentMutation",
+              "pgWriteAllDataMembership", "publicSchemaCreate", "releaseFenceDelete",
+              "releaseFenceInsert", "releaseFenceReferences", "releaseFenceSelect",
+              "releaseFenceTrigger", "releaseFenceTruncate", "releaseFenceUpdate",
+              "replication", "representativeAppWriteRolledBack",
+              "runtimeRoleIdentitySha256", "sameDatabaseSessionVerified",
+              "schemaVersion", "superuser"
+            ] | sort) and
+            .schemaVersion == 1 and
+            .databaseIdentity == $database_identity and
+            (.runtimeRoleIdentitySha256 | test("^[a-f0-9]{64}$")) and
+            .credentialsDistinct == true and
+            .sameDatabaseSessionVerified == true and
+            .superuser == false and
+            (.bypassRls | type) == "boolean" and
+            .createDatabase == false and .createRole == false and .replication == false and
+            .pgWriteAllDataMembership == false and .migrationRoleMembership == false and
+            .adminMembership == false and .ownsDatabase == false and
+            .ownsPublicSchema == false and .ownsPublicRelations == false and
+            .ownsPublicFunctions == false and .ownsPublicTypes == false and
+            .publicSchemaCreate == false and .releaseFenceSelect == true and
+            .releaseFenceInsert == false and .releaseFenceUpdate == false and
+            .releaseFenceDelete == false and .releaseFenceTruncate == false and
+            .releaseFenceTrigger == false and .releaseFenceReferences == false and
+            .representativeAppWriteRolledBack == true and .persistentMutation == false
+          ' "$output" > /dev/null
+
+      - name: Prove staging cannot target protected production identities
+        id: staging-identity-exclusions
+        env:
+          FORBIDDEN_PRODUCTION_DATABASE_IDENTITY: ${{ vars.FORBIDDEN_PRODUCTION_DATABASE_IDENTITY }}
+          FORBIDDEN_PRODUCTION_OBJECT_STORAGE_IDENTITY: ${{ vars.FORBIDDEN_PRODUCTION_OBJECT_STORAGE_IDENTITY }}
+          FORBIDDEN_PRODUCTION_OBJECT_STORAGE_PROVIDER_ID: ${{ vars.FORBIDDEN_PRODUCTION_OBJECT_STORAGE_PROVIDER_ID }}
+          STAGING_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          STAGING_OBJECT_STORAGE_IDENTITY: ${{ steps.staging-release-contract.outputs.object_storage_identity }}
+          STAGING_OBJECT_STORAGE_PROVIDER_ID: ${{ vars.KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$FORBIDDEN_PRODUCTION_DATABASE_IDENTITY" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$FORBIDDEN_PRODUCTION_OBJECT_STORAGE_IDENTITY" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$FORBIDDEN_PRODUCTION_OBJECT_STORAGE_PROVIDER_ID" =~ ^[a-z0-9][a-z0-9-]{7,63}$ ]]
+          [[ "$STAGING_DATABASE_IDENTITY" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$STAGING_OBJECT_STORAGE_IDENTITY" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$STAGING_OBJECT_STORAGE_PROVIDER_ID" =~ ^[a-z0-9][a-z0-9-]{7,63}$ ]]
+          test "$STAGING_DATABASE_IDENTITY" != "$FORBIDDEN_PRODUCTION_DATABASE_IDENTITY"
+          test "$STAGING_OBJECT_STORAGE_IDENTITY" != "$FORBIDDEN_PRODUCTION_OBJECT_STORAGE_IDENTITY"
+          test "$STAGING_OBJECT_STORAGE_PROVIDER_ID" != "$FORBIDDEN_PRODUCTION_OBJECT_STORAGE_PROVIDER_ID"
+          printf 'object_storage_provider_id=%s\n' "$STAGING_OBJECT_STORAGE_PROVIDER_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Validate forward-only release policy in staging
+        env:
+          RELEASE_POLICY_OWNER: ${{ github.actor }}
+          RELEASE_POLICY_ACKNOWLEDGED_AT: ${{ inputs.release_policy_acknowledged_at }}
+          FIRST_CUTOVER_ACKNOWLEDGEMENT: ${{ inputs.first_cutover_acknowledgement }}
+        run: node --experimental-strip-types scripts/validate-release-policy.mjs
+
+      - name: Capture and validate the approved staging holding deployment
+        id: staging-holding
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/staging-holding.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/staging-holding.json"
+
+      - name: Verify immutable staging migrations
+        run: npm run migrations:verify
+
+      - name: Build the staging production artifact
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel build --prod
+
+      - name: Deploy the immutable staging candidate
+        id: staging-deploy
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_url="$(vercel deploy --prebuilt --prod --skip-domain --yes \
+            --meta "githubCommitSha=$RELEASE_COMMIT" \
+            --meta "githubRunId=$GITHUB_RUN_ID" \
+            --meta "githubRunAttempt=$GITHUB_RUN_ATTEMPT" \
+            --meta "releaseTag=$RELEASE_TAG" \
+            --meta "packageVersion=$RELEASE_VERSION")"
           DEPLOYMENT_URL="$deployment_url" node -e '
             const url = new URL(process.env.DEPLOYMENT_URL);
-            if (url.protocol !== "https:" || url.origin !== process.env.DEPLOYMENT_URL) {
-              throw new Error("Vercel did not emit one HTTPS deployment origin.");
-            }
+            if (url.protocol !== "https:" || url.origin !== process.env.DEPLOYMENT_URL ||
+                !url.hostname.endsWith(".vercel.app") || url.hostname === "vercel.app") process.exit(1);
           '
           printf 'url=%s\n' "$deployment_url" >> "$GITHUB_OUTPUT"
 
-      - name: Verify deployed health and login redirect
+      - name: Fetch the staging candidate deployment record
         env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          DEPLOYMENT_URL: ${{ steps.staging-deploy.outputs.url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          health_status="$(curl --retry 10 --retry-delay 3 --retry-all-errors --fail-with-body --max-time 20 --silent --show-error --output "$RUNNER_TEMP/health.json" --write-out '%{http_code}' "$DEPLOYMENT_URL/api/health")"
-          test "$health_status" = "200"
+          set -euo pipefail
+          deployment_host="${DEPLOYMENT_URL#https://}"
+          [[ "$deployment_host" =~ ^[a-z0-9-]+\.vercel\.app$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/staging-candidate.json"
+
+      - name: Validate the staging candidate deployment
+        id: staging-candidate
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          EXPECTED_GITHUB_COMMIT_SHA: ${{ inputs.release_commit }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+          PACKAGE_VERSION: ${{ inputs.release_version }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.staging-holding.outputs.deployment_id }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-vercel-deployment.mjs candidate "$RUNNER_TEMP/staging-candidate.json"
+
+      - name: Prove the generated staging candidate rejects unauthenticated access
+        timeout-minutes: 5
+        env:
+          CANDIDATE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          status="$(curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
+            --silent --show-error \
+            --output "$RUNNER_TEMP/staging-candidate-unauthenticated" \
+            --write-out '%{http_code}' \
+            "$CANDIDATE_ORIGIN/api/health")"
+          case "$status" in
+            401|403) ;;
+            *) exit 1 ;;
+          esac
+          if jq -e '
+            type == "object" and
+            (has("database") or has("capabilities") or has("scheduledWrites"))
+          ' "$RUNNER_TEMP/staging-candidate-unauthenticated" > /dev/null 2>&1; then
+            echo "Unauthenticated request reached the Kin Resolve health endpoint." >&2
+            exit 1
+          fi
+
+      - name: Attest the staging candidate database before migration
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.staging-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}
+          SMOKE_PHASE: "identity"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Prove both signed staging schedulers are disabled before migration
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          STAGING_CANDIDATE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          for path in /api/cron/import-uploads /api/cron/integration-jobs; do
+            name="${path##*/}"
+            status="$(curl --connect-timeout 10 --max-time 45 --retry 2 --retry-all-errors \
+              --silent --show-error \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+              --output "$RUNNER_TEMP/staging-$name-disabled.json" \
+              --write-out '%{http_code}' \
+              "$STAGING_CANDIDATE_ORIGIN$path")"
+            test "$status" = "503"
+            jq -e '. == {"error":"Scheduled work is unavailable."}' \
+              "$RUNNER_TEMP/staging-$name-disabled.json" > /dev/null
+          done
+
+      - name: Revalidate the staging holding deployment immediately before migration
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/staging-holding-pre-migration.json"
+          env -u GITHUB_OUTPUT node --experimental-strip-types \
+            scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/staging-holding-pre-migration.json"
+
+      - name: Smoke the staging holding application immediately before migration
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.staging-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          SMOKE_PHASE: "pre-migration"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Migrate the isolated staging database
+        env:
+          EXPECTED_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: npm run db:migrate:production
+
+      - name: Verify the exact staging migration ledger
+        env:
+          EXPECTED_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: npm run db:migrations:verify-production
+
+      - name: Smoke the staging candidate
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.staging-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}
+          SMOKE_PHASE: "full"
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Remove pulled staging environment material
+        if: always()
+        run: |
+          rm -f .vercel/.env.production.local
+          rm -f "$RUNNER_TEMP/staging-environment.json"
+          rm -f "$RUNNER_TEMP/staging-runtime-database-role.json"
+          rm -rf .vercel/output
+
+  production:
+    name: Deploy and promote production candidate
+    needs: [verify, staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: production
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    outputs:
+      app_base_url: ${{ steps.production-release-contract.outputs.app_base_url }}
+      candidate_deployment_id: ${{ steps.production-candidate.outputs.deployment_id }}
+    steps:
+      - name: Check out the verified candidate
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Recheck the safety queue for this production attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: release
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the pinned Vercel CLI before loading deploy credentials
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Fetch protected main
+        run: git fetch origin main:refs/remotes/origin/main --force --no-tags
+
+      - name: Validate production Vercel identifiers
+        env:
+          EXPECTED_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+
+      - name: Pull production settings
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          vercel pull --yes --environment=production
+
+      - name: Fetch production environment metadata
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          scope_query="?limit=100"
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="$scope_query&teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/env$scope_query" \
+            --output "$RUNNER_TEMP/production-environment.json"
+
+      - name: Validate production environment metadata
+        run: >-
+          node --experimental-strip-types scripts/validate-vercel-environment.mjs
+          "$RUNNER_TEMP/production-environment.json" .vercel/.env.production.local
+
+      - name: Validate production release contract
+        id: production-release-contract
+        env:
+          EXPECTED_APP_BASE_URL: https://app.kinresolve.com
+          EXPECTED_ARCHIVE_ID: kinresolve-pilot-01
+          EXPECTED_DATASET_MODE: pilot
+          EXPECTED_SCHEDULED_WRITES_ENABLED: "true"
+          EXPECTED_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-release-contract.mjs
+
+      - name: Attest the production runtime database role
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/production-runtime-database-role.json"
+          npm run db:runtime-role:attest -- "$output"
+          jq -e --arg database_identity "$EXPECTED_DATABASE_IDENTITY" '
+            (. | keys | sort) == ([
+              "adminMembership", "bypassRls", "createDatabase", "createRole",
+              "credentialsDistinct", "databaseIdentity", "migrationRoleMembership",
+              "ownsDatabase", "ownsPublicFunctions", "ownsPublicRelations",
+              "ownsPublicSchema", "ownsPublicTypes", "persistentMutation",
+              "pgWriteAllDataMembership", "publicSchemaCreate", "releaseFenceDelete",
+              "releaseFenceInsert", "releaseFenceReferences", "releaseFenceSelect",
+              "releaseFenceTrigger", "releaseFenceTruncate", "releaseFenceUpdate",
+              "replication", "representativeAppWriteRolledBack",
+              "runtimeRoleIdentitySha256", "sameDatabaseSessionVerified",
+              "schemaVersion", "superuser"
+            ] | sort) and
+            .schemaVersion == 1 and
+            .databaseIdentity == $database_identity and
+            (.runtimeRoleIdentitySha256 | test("^[a-f0-9]{64}$")) and
+            .credentialsDistinct == true and
+            .sameDatabaseSessionVerified == true and
+            .superuser == false and
+            (.bypassRls | type) == "boolean" and
+            .createDatabase == false and .createRole == false and .replication == false and
+            .pgWriteAllDataMembership == false and .migrationRoleMembership == false and
+            .adminMembership == false and .ownsDatabase == false and
+            .ownsPublicSchema == false and .ownsPublicRelations == false and
+            .ownsPublicFunctions == false and .ownsPublicTypes == false and
+            .publicSchemaCreate == false and .releaseFenceSelect == true and
+            .releaseFenceInsert == false and .releaseFenceUpdate == false and
+            .releaseFenceDelete == false and .releaseFenceTruncate == false and
+            .releaseFenceTrigger == false and .releaseFenceReferences == false and
+            .representativeAppWriteRolledBack == true and .persistentMutation == false
+          ' "$output" > /dev/null
+
+      - name: Prove staging and production release-cell isolation
+        env:
+          PRODUCTION_APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          PRODUCTION_ARCHIVE_ID: ${{ steps.production-release-contract.outputs.archive_id }}
+          PRODUCTION_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          PRODUCTION_OBJECT_STORAGE_IDENTITY: ${{ steps.production-release-contract.outputs.object_storage_identity }}
+          PRODUCTION_OBJECT_STORAGE_PROVIDER_ID: ${{ vars.KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID }}
+          STAGING_APP_BASE_URL: ${{ needs.staging.outputs.app_base_url }}
+          STAGING_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}
+          STAGING_DATABASE_IDENTITY: ${{ needs.staging.outputs.database_identity }}
+          STAGING_OBJECT_STORAGE_IDENTITY: ${{ needs.staging.outputs.object_storage_identity }}
+          STAGING_OBJECT_STORAGE_PROVIDER_ID: ${{ needs.staging.outputs.object_storage_provider_id }}
+        run: |
+          set -euo pipefail
+          [[ "$PRODUCTION_OBJECT_STORAGE_PROVIDER_ID" =~ ^[a-z0-9][a-z0-9-]{7,63}$ ]]
+          [[ "$STAGING_OBJECT_STORAGE_PROVIDER_ID" =~ ^[a-z0-9][a-z0-9-]{7,63}$ ]]
+          test "$PRODUCTION_APP_BASE_URL" != "$STAGING_APP_BASE_URL"
+          test "$PRODUCTION_ARCHIVE_ID" != "$STAGING_ARCHIVE_ID"
+          test "$PRODUCTION_DATABASE_IDENTITY" != "$STAGING_DATABASE_IDENTITY"
+          test "$PRODUCTION_OBJECT_STORAGE_IDENTITY" != "$STAGING_OBJECT_STORAGE_IDENTITY"
+          test "$PRODUCTION_OBJECT_STORAGE_PROVIDER_ID" != "$STAGING_OBJECT_STORAGE_PROVIDER_ID"
+
+      - name: Validate forward-only production release policy
+        env:
+          RELEASE_POLICY_OWNER: ${{ github.actor }}
+          RELEASE_POLICY_ACKNOWLEDGED_AT: ${{ inputs.release_policy_acknowledged_at }}
+          FIRST_CUTOVER_ACKNOWLEDGEMENT: ${{ inputs.first_cutover_acknowledgement }}
+        run: node --experimental-strip-types scripts/validate-release-policy.mjs
+
+      - name: Download and verify attested recovery evidence
+        id: recovery-readiness
+        env:
+          EXPECTED_ARCHIVE_ID: ${{ steps.production-release-contract.outputs.archive_id }}
+          EXPECTED_EVIDENCE_SHA256: ${{ inputs.recovery_evidence_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          KINRESOLVE_OBJECT_STORAGE_IDENTITY: ${{ steps.production-release-contract.outputs.object_storage_identity }}
+          KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID: ${{ vars.KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID }}
+          RECOVERY_TARGET_DATABASE_IDENTITY: ${{ vars.RECOVERY_TARGET_DATABASE_IDENTITY }}
+          RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY: ${{ vars.RECOVERY_TARGET_OBJECT_STORAGE_IDENTITY }}
+          RECOVERY_TARGET_OBJECT_STORAGE_PROVIDER_ID: ${{ vars.RECOVERY_TARGET_OBJECT_STORAGE_PROVIDER_ID }}
+          RECOVERY_TARGET_SUPABASE_PROJECT_REF: ${{ vars.RECOVERY_TARGET_SUPABASE_PROJECT_REF }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          [[ "$RECOVERY_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$EXPECTED_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECOVERY_RUN_ID" \
+            > "$RUNNER_TEMP/recovery-run.json"
+          recovery_run_attempt="$(node -e '
+            const { readFileSync } = require("node:fs");
+            const run = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/recovery-run.json", "utf8"));
+            if (run.event !== "workflow_dispatch" || run.conclusion !== "success" ||
+                run.head_sha !== process.env.RELEASE_COMMIT || run.head_branch !== "main" ||
+                run.path !== ".github/workflows/recovery-evidence.yml" ||
+                run.repository?.full_name !== process.env.GITHUB_REPOSITORY ||
+                String(run.id ?? "") !== process.env.RECOVERY_RUN_ID ||
+                !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1 ||
+                run.run_attempt > 9999999999 ||
+                run.display_title !== "Kin Resolve recovery run " + run.id + " attempt " + run.run_attempt) {
+              process.exit(1);
+            }
+            process.stdout.write(String(run.run_attempt));
+          ')"
+          [[ "$recovery_run_attempt" =~ ^[1-9][0-9]{0,9}$ ]]
+          evidence_directory="$RUNNER_TEMP/recovery-evidence"
+          mkdir -p "$evidence_directory"
+          gh run download "$RECOVERY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "production-recovery-evidence-$recovery_run_attempt" --dir "$evidence_directory"
+          evidence_file="$evidence_directory/recovery-evidence.json"
+          test -f "$evidence_file"
+          test "$(find "$evidence_directory" -type f | wc -l | tr -d ' ')" = "1"
+          actual_sha256="$(sha256sum "$evidence_file" | awk '{ print $1 }')"
+          test "$actual_sha256" = "$EXPECTED_EVIDENCE_SHA256"
+          gh attestation verify "$evidence_file" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/recovery-evidence.yml" \
+            --source-ref refs/heads/main \
+            --source-digest "$RELEASE_COMMIT" \
+            --deny-self-hosted-runners
+          node --experimental-strip-types scripts/validate-release-readiness.mjs "$evidence_file"
+
+      - name: Capture and validate the approved holding deployment
+        id: production-holding
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/production-holding.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/production-holding.json"
+
+      - name: Smoke the holding application before migration
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.production-release-contract.outputs.app_base_url }}
+          SMOKE_PHASE: "pre-migration"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Assert the evidenced production fence before production-target deployment
+        id: assert-write-fence-before-deploy
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          EXPECTED_FENCE_ACTIVATED_AT: ${{ steps.recovery-readiness.outputs.fence_activated_at }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_FENCE_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RELEASE_FENCE_ID: ${{ steps.recovery-readiness.outputs.fence_id }}
+        run: |
+          set -euo pipefail
+          npm run --silent release:fence:control -- assert > "$RUNNER_TEMP/assert-write-fence-before-deploy.json"
+          jq -e '
+            .found == true and
+            .transition == "asserted" and
+            .fence.fenceId == env.RELEASE_FENCE_ID and
+            .fence.releaseCommitSha == env.RELEASE_COMMIT and
+            .fence.state == "active" and
+            .fence.activatedAt == env.EXPECTED_FENCE_ACTIVATED_AT and
+            (.fence.activationGeneration | type) == "number" and
+            .fence.activationGeneration >= 1 and
+            .fence.activationGeneration == (.fence.activationGeneration | floor)
+          ' "$RUNNER_TEMP/assert-write-fence-before-deploy.json" > /dev/null
+          jq -r '"activation_generation=\(.fence.activationGeneration)"' \
+            "$RUNNER_TEMP/assert-write-fence-before-deploy.json" >> "$GITHUB_OUTPUT"
+
+      - name: Build the production artifact before database mutation
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel build --prod
+
+      - name: Deploy the immutable production candidate
+        id: production-deploy
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_url="$(vercel deploy --prebuilt --prod --skip-domain --yes \
+            --meta "githubCommitSha=$RELEASE_COMMIT" \
+            --meta "githubRunId=$GITHUB_RUN_ID" \
+            --meta "githubRunAttempt=$GITHUB_RUN_ATTEMPT" \
+            --meta "releaseTag=$RELEASE_TAG" \
+            --meta "packageVersion=$RELEASE_VERSION")"
+          DEPLOYMENT_URL="$deployment_url" node -e '
+            const url = new URL(process.env.DEPLOYMENT_URL);
+            if (url.protocol !== "https:" || url.origin !== process.env.DEPLOYMENT_URL ||
+                !url.hostname.endsWith(".vercel.app") || url.hostname === "vercel.app") process.exit(1);
+          '
+          printf 'url=%s\n' "$deployment_url" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the production candidate deployment record
+        env:
+          DEPLOYMENT_URL: ${{ steps.production-deploy.outputs.url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${DEPLOYMENT_URL#https://}"
+          [[ "$deployment_host" =~ ^[a-z0-9-]+\.vercel\.app$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/production-candidate.json"
+
+      - name: Validate the production candidate deployment
+        id: production-candidate
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          EXPECTED_GITHUB_COMMIT_SHA: ${{ inputs.release_commit }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+          PACKAGE_VERSION: ${{ inputs.release_version }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-vercel-deployment.mjs candidate "$RUNNER_TEMP/production-candidate.json"
+
+      - name: Prove the generated production candidate rejects unauthenticated access
+        timeout-minutes: 5
+        env:
+          CANDIDATE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          status="$(curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
+            --silent --show-error \
+            --output "$RUNNER_TEMP/production-candidate-unauthenticated" \
+            --write-out '%{http_code}' \
+            "$CANDIDATE_ORIGIN/api/health")"
+          case "$status" in
+            401|403) ;;
+            *) exit 1 ;;
+          esac
+          if jq -e '
+            type == "object" and
+            (has("database") or has("capabilities") or has("scheduledWrites"))
+          ' "$RUNNER_TEMP/production-candidate-unauthenticated" > /dev/null 2>&1; then
+            echo "Unauthenticated request reached the Kin Resolve health endpoint." >&2
+            exit 1
+          fi
+
+      - name: Attest the production candidate database before migration
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
+          SMOKE_PHASE: "identity"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Recheck the release namespace immediately before database mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test -z "$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
+          status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
+          test "$status" = "404"
+
+      - name: Revalidate the production holding deployment immediately before migration
+        id: production-holding-pre-migration
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/production-holding-pre-migration.json"
+          env -u GITHUB_OUTPUT node --experimental-strip-types \
+            scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/production-holding-pre-migration.json"
+
+      - name: Smoke the production holding application immediately before migration
+        id: production-holding-pre-migration-smoke
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.production-release-contract.outputs.app_base_url }}
+          SMOKE_PHASE: "pre-migration"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Assert the live production write fence immediately before database mutation
+        id: assert-write-fence-before-migration
+        timeout-minutes: 5
+        env:
+          RELEASE_FENCE_SECRET: ${{ secrets.RELEASE_FENCE_SECRET }}
+          EXPECTED_FENCE_ACTIVATED_AT: ${{ steps.recovery-readiness.outputs.fence_activated_at }}
+          EXPECTED_FENCE_ID: ${{ steps.recovery-readiness.outputs.fence_id }}
+          FENCE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_FENCE_SECRET" =~ ^[A-Za-z0-9_-]{43,128}$ ]]
+          [[ "$EXPECTED_FENCE_ID" =~ ^fence-[a-z0-9][a-z0-9-]{7,63}$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          body="$(printf '{\"fenceId\":\"%s\",\"releaseCommitSha\":\"%s\"}' \
+            "$EXPECTED_FENCE_ID" "$RELEASE_COMMIT")"
+          request_args=(
+            --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors
+            --fail --silent --show-error --request POST
+            --header "Authorization: Bearer $RELEASE_FENCE_SECRET"
+            --header "Content-Type: application/json"
+            --header "User-Agent: kinresolve-release-fence/1.0"
+            --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET"
+            --data "$body"
+          )
+          curl "${request_args[@]}" "$FENCE_ORIGIN/api/release/fence/assert" \
+            --output "$RUNNER_TEMP/assert-write-fence-before-migration.json"
           node -e '
             const { readFileSync } = require("node:fs");
-            const { join } = require("node:path");
-            const health = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "health.json"), "utf8"));
-            const expectedVersion = process.env.RELEASE_TAG.replace(/^v/, "");
-            if (
-              health.status !== "ok" ||
-              health.database?.connected !== true ||
-              health.storage?.configured !== true ||
-              health.version !== expectedVersion
-            ) {
-              throw new Error("Deployment health did not match the released, connected application.");
-            }
+            const value = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/assert-write-fence-before-migration.json", "utf8"));
+            if (value.fenceId !== process.env.EXPECTED_FENCE_ID ||
+                value.releaseCommitSha !== process.env.RELEASE_COMMIT ||
+                value.activatedAt !== process.env.EXPECTED_FENCE_ACTIVATED_AT ||
+                value.active !== true || value.transition !== "asserted") process.exit(1);
           '
 
-          app_status="$(curl --max-time 20 --silent --show-error --dump-header "$RUNNER_TEMP/app-headers.txt" --output /dev/null --write-out '%{http_code}' "$DEPLOYMENT_URL/app")"
-          case "$app_status" in
-            302|303|307|308) ;;
-            *) echo "Expected /app to redirect to login, got HTTP $app_status" >&2; exit 1 ;;
-          esac
-          app_location="$(awk 'tolower($1) == "location:" { print $2 }' "$RUNNER_TEMP/app-headers.txt" | tr -d '\r')"
-          APP_LOCATION="$app_location" node --experimental-strip-types scripts/validate-deployment-redirect.mjs
+      - name: Migrate production through the dedicated connection
+        env:
+          EXPECTED_ARCHIVE_ID: ${{ steps.production-release-contract.outputs.archive_id }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          EXPECTED_MIGRATION_PREFIX_COUNT: ${{ steps.recovery-readiness.outputs.source_migration_count }}
+          EXPECTED_MIGRATION_PREFIX_LEDGER_SHA256: ${{ steps.recovery-readiness.outputs.source_migration_ledger_sha256 }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: npm run db:migrate:production
 
-          printf 'Production deployment: %s\n' "$DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify the exact production migration ledger
+        env:
+          EXPECTED_ARCHIVE_ID: ${{ steps.production-release-contract.outputs.archive_id }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: npm run db:migrations:verify-production
+
+      - name: Reassert the production write fence after migration
+        id: assert-write-fence-after-migration
+        timeout-minutes: 5
+        env:
+          RELEASE_FENCE_SECRET: ${{ secrets.RELEASE_FENCE_SECRET }}
+          EXPECTED_FENCE_ACTIVATED_AT: ${{ steps.recovery-readiness.outputs.fence_activated_at }}
+          EXPECTED_FENCE_ID: ${{ steps.recovery-readiness.outputs.fence_id }}
+          FENCE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_FENCE_SECRET" =~ ^[A-Za-z0-9_-]{43,128}$ ]]
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          body="$(printf '{\"fenceId\":\"%s\",\"releaseCommitSha\":\"%s\"}' \
+            "$EXPECTED_FENCE_ID" "$RELEASE_COMMIT")"
+          request_args=(
+            --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors
+            --fail --silent --show-error --request POST
+            --header "Authorization: Bearer $RELEASE_FENCE_SECRET"
+            --header "Content-Type: application/json"
+            --header "User-Agent: kinresolve-release-fence/1.0"
+            --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET"
+            --data "$body"
+          )
+          curl "${request_args[@]}" "$FENCE_ORIGIN/api/release/fence/assert" \
+            --output "$RUNNER_TEMP/assert-write-fence-after-migration.json"
+          node -e '
+            const { readFileSync } = require("node:fs");
+            const value = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/assert-write-fence-after-migration.json", "utf8"));
+            if (value.fenceId !== process.env.EXPECTED_FENCE_ID ||
+                value.releaseCommitSha !== process.env.RELEASE_COMMIT ||
+                value.activatedAt !== process.env.EXPECTED_FENCE_ACTIVATED_AT ||
+                value.active !== true || value.transition !== "asserted") process.exit(1);
+          '
+
+      - name: Smoke the production candidate
+        id: candidate-smoke
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
+          SMOKE_PHASE: "full"
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Revalidate the captured holding deployment immediately before promotion
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/production-holding-pre-promotion.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/production-holding-pre-promotion.json"
+
+      - name: Mark promotion attempt
+        id: promotion-marker
+        run: printf 'attempted=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Promote the exact production candidate
+        id: promote
+        timeout-minutes: 10
+        env:
+          CANDIDATE_DEPLOYMENT_URL: ${{ steps.production-candidate.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel promote "$CANDIDATE_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Disable and independently attest production domain auto-assignment
+        id: domain-auto-assignment
+        if: >-
+          always() &&
+          steps.promotion-marker.outputs.attempted == 'true'
+        timeout-minutes: 5
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "false"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          project_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request PATCH \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"autoAssignCustomDomains":false}' \
+            "$project_api" --output "$RUNNER_TEMP/production-project-auto-assignment-patch.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$project_api" --output "$RUNNER_TEMP/production-project-after-auto-assignment.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/production-project-after-auto-assignment.json"
+
+      - name: Emergency-pause production if domain auto-assignment cannot be disabled
+        if: >-
+          always() &&
+          steps.promotion-marker.outputs.attempted == 'true' &&
+          steps.domain-auto-assignment.outcome != 'success'
+        timeout-minutes: 5
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "true"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query" \
+            --output "$RUNNER_TEMP/production-project-emergency-pause.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/production-project-after-emergency-pause.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/production-project-after-emergency-pause.json"
+
+      - name: Fetch the promoted canonical deployment record
+        id: fetch-promoted
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ steps.production-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/production-promoted.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/production-promoted.json" \
+              && GITHUB_OUTPUT="$RUNNER_TEMP/promotion-poll-output" \
+                node --experimental-strip-types scripts/validate-vercel-deployment.mjs promoted \
+                  "$RUNNER_TEMP/production-promoted.json" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then
+              echo "Canonical alias did not converge to the candidate before the deadline." >&2
+              exit 1
+            fi
+            sleep 3
+          done
+
+      - name: Validate the exact promoted deployment and canonical alias
+        id: validate-promoted
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ steps.production-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-vercel-deployment.mjs promoted "$RUNNER_TEMP/production-promoted.json"
+
+      - name: Smoke the canonical production application
+        id: canonical-smoke
+        timeout-minutes: 15
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.production-release-contract.outputs.app_base_url }}
+          SMOKE_PHASE: "full"
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Release the attested production write fence
+        id: release-write-fence
+        timeout-minutes: 5
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          EXPECTED_FENCE_ACTIVATION_GENERATION: ${{ steps.assert-write-fence-before-deploy.outputs.activation_generation }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_FENCE_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RELEASE_FENCE_ID: ${{ steps.recovery-readiness.outputs.fence_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_FENCE_ID" =~ ^fence-[a-z0-9][a-z0-9-]{7,63}$ ]]
+          [[ "$EXPECTED_FENCE_ACTIVATION_GENERATION" =~ ^[1-9][0-9]*$ ]]
+          npm run --silent release:fence:control -- release > "$RUNNER_TEMP/release-write-fence.json"
+          jq -e --argjson expected_generation "$EXPECTED_FENCE_ACTIVATION_GENERATION" '
+            .found == true and
+            .transition == "released" and
+            .fence.fenceId == env.RELEASE_FENCE_ID and
+            .fence.releaseCommitSha == env.RELEASE_COMMIT and
+            .fence.state == "released" and
+            .fence.activationGeneration == $expected_generation and
+            (.fence.releasedAt | type) == "string"
+          ' "$RUNNER_TEMP/release-write-fence.json" > /dev/null
+
+      - name: Revalidate the canonical candidate after releasing the fence
+        id: final-canonical-validation
+        timeout-minutes: 5
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ steps.production-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/production-final-canonical.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs promoted \
+            "$RUNNER_TEMP/production-final-canonical.json"
+
+      - name: Smoke the fully enabled canonical production application
+        timeout-minutes: 15
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.production-release-contract.outputs.app_base_url }}
+          SMOKE_PHASE: "full"
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Reconcile both signed production schedulers after fence release
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          for path in /api/cron/import-uploads /api/cron/integration-jobs; do
+            name="${path##*/}"
+            status="$(curl --connect-timeout 10 --max-time 300 --retry 2 --retry-all-errors \
+              --silent --show-error \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+              --output "$RUNNER_TEMP/production-$name-reconcile.json" \
+              --write-out '%{http_code}' \
+              "$APP_BASE_URL$path")"
+            test "$status" = "200"
+            jq -e 'type == "object"' "$RUNNER_TEMP/production-$name-reconcile.json" > /dev/null
+          done
+
+      - name: Revalidate the canonical candidate after scheduler reconciliation
+        timeout-minutes: 5
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ steps.production-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/production-post-reconcile.json"
+          env -u GITHUB_OUTPUT node --experimental-strip-types \
+            scripts/validate-vercel-deployment.mjs promoted \
+            "$RUNNER_TEMP/production-post-reconcile.json"
+
+      - name: Recheck the release namespace after cutover
+        id: final-release-namespace
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test -z "$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
+          status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
+          test "$status" = "404"
+
+      - name: Record the privacy-safe release gate summary
+        env:
+          FENCE_ID: ${{ steps.recovery-readiness.outputs.fence_id }}
+          PRODUCTION_CANDIDATE_DEPLOYMENT_ID: ${{ steps.production-candidate.outputs.deployment_id }}
+          PRODUCTION_HOLDING_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          STAGING_CANDIDATE_DEPLOYMENT_ID: ${{ needs.staging.outputs.candidate_deployment_id }}
+          STAGING_HOLDING_DEPLOYMENT_ID: ${{ needs.staging.outputs.holding_deployment_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$FENCE_ID" =~ ^fence-[a-z0-9][a-z0-9-]{7,63}$ ]]
+          for deployment_id in \
+            "$STAGING_HOLDING_DEPLOYMENT_ID" \
+            "$STAGING_CANDIDATE_DEPLOYMENT_ID" \
+            "$PRODUCTION_HOLDING_DEPLOYMENT_ID" \
+            "$PRODUCTION_CANDIDATE_DEPLOYMENT_ID"; do
+            [[ "$deployment_id" =~ ^dpl_[A-Za-z0-9]{8,96}$ ]]
+          done
+          # Markdown code spans below are intentionally literal.
+          # shellcheck disable=SC2016
+          {
+            printf '## Kin Resolve release gate summary\n\n'
+            printf -- '- Commit: `%s`\n' "$RELEASE_COMMIT"
+            printf -- '- Version: `%s`\n' "$RELEASE_VERSION"
+            printf -- '- Staging holding deployment: `%s`\n' "$STAGING_HOLDING_DEPLOYMENT_ID"
+            printf -- '- Staging candidate deployment: `%s`\n' "$STAGING_CANDIDATE_DEPLOYMENT_ID"
+            printf -- '- Production holding deployment: `%s`\n' "$PRODUCTION_HOLDING_DEPLOYMENT_ID"
+            printf -- '- Production candidate deployment: `%s`\n' "$PRODUCTION_CANDIDATE_DEPLOYMENT_ID"
+            printf -- '- Fence: `%s`\n' "$FENCE_ID"
+            printf -- '- Gates: staging isolation, holding, candidate identity, migration ledger, and smoke passed\n'
+            printf -- '- Gates: production recovery, holding, candidate identity, fence, migration ledger, promotion, and canonical smoke passed\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Contain production writes before rollback
+        id: contain-production-writes
+        if: (failure() || cancelled()) && steps.promotion-marker.outputs.attempted == 'true'
+        timeout-minutes: 5
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          EXPECTED_FENCE_ACTIVATION_GENERATION: ${{ steps.assert-write-fence-before-deploy.outputs.activation_generation }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_FENCE_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RELEASE_FENCE_ID: ${{ steps.recovery-readiness.outputs.fence_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_FENCE_ID" =~ ^fence-[a-z0-9][a-z0-9-]{7,63}$ ]]
+          [[ "$EXPECTED_FENCE_ACTIVATION_GENERATION" =~ ^[1-9][0-9]*$ ]]
+          npm run --silent release:fence:control -- contain > "$RUNNER_TEMP/contain-production-writes.json"
+          jq -e --argjson expected_generation "$EXPECTED_FENCE_ACTIVATION_GENERATION" '
+            .found == true and
+            .fence.fenceId == env.RELEASE_FENCE_ID and
+            .fence.releaseCommitSha == env.RELEASE_COMMIT and
+            .fence.state == "active" and
+            (
+              (.transition == "already-active" and
+                (.fence.activationGeneration == $expected_generation or
+                 .fence.activationGeneration == ($expected_generation + 1)))
+              or
+              (.transition == "reacquired" and
+                .fence.activationGeneration == ($expected_generation + 1))
+            )
+          ' "$RUNNER_TEMP/contain-production-writes.json" > /dev/null
+          jq -r '"activated_at=\(.fence.activatedAt)"' \
+            "$RUNNER_TEMP/contain-production-writes.json" >> "$GITHUB_OUTPUT"
+
+      - name: Drain admitted production work before rollback
+        id: drain-production-writes
+        if: (failure() || cancelled()) && steps.promotion-marker.outputs.attempted == 'true' && steps.contain-production-writes.outcome == 'success'
+        timeout-minutes: 40
+        env:
+          EXPECTED_ARCHIVE_ID: ${{ steps.production-release-contract.outputs.archive_id }}
+          EXPECTED_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}
+          FENCE_ACTIVATED_AT: ${{ steps.contain-production-writes.outputs.activated_at }}
+          RECOVERY_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RECOVERY_REQUIRE_STRAGGLER_PROOF: "true"
+        run: |
+          set -euo pipefail
+          sleep 1860
+          node --experimental-strip-types scripts/capture-recovery-database.mjs \
+            "$RUNNER_TEMP/pre-rollback-drain.json"
+          jq -e '.activeJobLeases == 0 and .unexpiredUploadIntents == 0 and .stragglerTransactions == 0' \
+            "$RUNNER_TEMP/pre-rollback-drain.json" > /dev/null
+
+      - name: Roll back the production alias to the approved holding deployment
+        id: rollback
+        if: (failure() || cancelled()) && steps.promotion-marker.outputs.attempted == 'true' && steps.drain-production-writes.outcome == 'success'
+        timeout-minutes: 10
+        env:
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel rollback "$APPROVED_HOLDING_DEPLOYMENT_ID" --yes --timeout=5m
+
+      - name: Fetch the canonical deployment after rollback
+        id: fetch-rollback
+        if: always() && steps.rollback.outcome == 'success'
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/production-rollback.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/production-rollback.json" \
+              && GITHUB_OUTPUT="$RUNNER_TEMP/rollback-poll-output" \
+                node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+                  "$RUNNER_TEMP/production-rollback.json" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then
+              echo "Canonical alias did not converge to the holding deployment before the deadline." >&2
+              exit 1
+            fi
+            sleep 3
+          done
+
+      - name: Verify the holding deployment after rollback
+        id: verify-rollback
+        if: always() && steps.fetch-rollback.outcome == 'success'
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding "$RUNNER_TEMP/production-rollback.json"
+
+      - name: Prove rollback left production domain auto-assignment disabled
+        if: always() && steps.verify-rollback.outcome == 'success'
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "false"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/production-project-after-rollback.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/production-project-after-rollback.json"
+
+      - name: Record mandatory provider cron verification after rollback
+        if: always() && steps.verify-rollback.outcome == 'success'
+        run: |
+          {
+            printf '## Production rollback follow-up\n\n'
+            printf -- '- Canonical traffic is on the approved zero-runtime holding deployment.\n'
+            printf -- '- The durable production write fence remains active.\n'
+            printf -- '- Required: verify or disable both schedules in the Vercel Cron Jobs dashboard before resuming service.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove pulled production environment material
+        if: always()
+        run: |
+          rm -f .vercel/.env.production.local
+          rm -f "$RUNNER_TEMP/production-environment.json"
+          rm -f "$RUNNER_TEMP/production-runtime-database-role.json"
+          rm -rf .vercel/output
+
+  publish-release:
+    name: Publish stable GitHub release
+    needs: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out the exact live candidate
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js for the publication safety gate
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Recheck the safety queue for this publication attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: release
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Revalidate the live canonical candidate before publication
+        env:
+          APP_BASE_URL: ${{ needs.production.outputs.app_base_url }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ needs.production.outputs.candidate_deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 10); do
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/production-publication.json" \
+              && GITHUB_OUTPUT="$RUNNER_TEMP/publication-poll-output" \
+                node --experimental-strip-types scripts/validate-vercel-deployment.mjs promoted \
+                  "$RUNNER_TEMP/production-publication.json" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 10 ]]; then
+              echo "Canonical alias no longer resolves to the promoted candidate." >&2
+              exit 1
+            fi
+            sleep 3
+          done
+
+      - name: Publish or verify the stable GitHub release
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          remote_tag="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
+          if [[ -z "$remote_tag" ]]; then
+            if ! gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" -f sha="$RELEASE_COMMIT" \
+              > "$RUNNER_TEMP/created-tag.json" 2> "$RUNNER_TEMP/create-tag-error.txt"; then
+              remote_tag="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
+              test -n "$remote_tag"
+            fi
+          fi
+          remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | awk 'NR == 1 { print $1 }')"
+          test "$remote_tag_sha" = "$RELEASE_COMMIT"
+
+          if gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,targetCommitish \
+            > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            node -e '
+              const { readFileSync } = require("node:fs");
+              const release = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/existing-release.json", "utf8"));
+              if (release.tagName !== process.env.RELEASE_TAG || release.isDraft || release.isPrerelease ||
+                  release.targetCommitish !== process.env.RELEASE_COMMIT) process.exit(1);
+            '
+          else
+            release_status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+              --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GH_REPO/releases/tags/$RELEASE_TAG")"
+            test "$release_status" = "404"
+            gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_COMMIT" \
+              --title "Kin Resolve v$RELEASE_VERSION" --generate-notes --latest
+          fi
+          final_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | awk 'NR == 1 { print $1 }')"
+          test "$final_tag_sha" = "$RELEASE_COMMIT"

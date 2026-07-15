@@ -1,22 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseEnv } from "node:util";
-import { hostedCapabilityEnvironmentNames } from "./hosted-capabilities";
+import { requiredReadableProductionEnvironmentNames } from "./vercel-environment-contract.ts";
+import { databaseIdentityPattern } from "./database-attestation.ts";
 
-const requiredProductionSettings = [
-  "APP_BASE_URL",
-  "AUTH_SECRET",
-  "BLOB_READ_WRITE_TOKEN",
-  "CRON_SECRET",
-  "DATABASE_AUTO_MIGRATE",
-  "DATABASE_POOL_MAX",
-  "DATABASE_URL",
-  "KINRESOLVE_DEPLOYMENT_MODE",
-  "KINRESOLVE_DATASET_MODE",
-  ...hostedCapabilityEnvironmentNames,
-  "KINSLEUTH_ALLOW_SIGNUPS",
-  "KINSLEUTH_ARCHIVE_ID"
-] as const;
+const requiredProductionSettings = requiredReadableProductionEnvironmentNames;
 
 export type ReleaseContractInput = {
   releaseTag: string;
@@ -33,12 +21,23 @@ export type ReleaseContractInput = {
   };
   expectedProjectId: string;
   expectedOrgId: string;
+  expectedAppBaseUrl?: string;
+  expectedDatasetMode?: "empty" | "demo" | "pilot";
+  expectedScheduledWritesEnabled?: boolean;
+  expectedArchiveId?: string;
+  forbiddenProjectId?: string;
+  forbiddenAppBaseUrl?: string;
   productionEnvironment: Record<string, string | undefined>;
 };
 
 type ReleaseContractResult = {
   version: string;
   appOrigin: string;
+  datasetMode: "empty" | "demo" | "pilot";
+  archiveId: string;
+  databaseIdentity: string;
+  objectStorageIdentity: string;
+  scheduledWritesEnabled: boolean;
 };
 
 type LoadReleaseContractOptions = {
@@ -74,29 +73,31 @@ function validateHttpsOrigin(value: string, variableName: string): URL {
   return url;
 }
 
-function validateSecret(name: string, value: string, minimumLength: number): void {
-  const normalized = value.trim();
-  if (/^(change|replace|placeholder|example|todo|xxx|your[-_])/i.test(normalized)) {
-    throw new Error(`${name} must not use a placeholder value.`);
-  }
-  if (normalized.length < minimumLength) {
-    throw new Error(`${name} must be at least ${minimumLength} characters.`);
-  }
-}
-
 export function validateReleaseContract(input: ReleaseContractInput): ReleaseContractResult {
+  if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(input.packageVersion)) {
+    throw new Error("package.json version must be a stable semantic version.");
+  }
+  if (!/^[0-9a-f]{40}$/.test(input.releaseCommit)) {
+    throw new Error("The release commit must be a 40-character lowercase SHA.");
+  }
+  if (!/^[0-9a-f]{40}$/.test(input.checkedOutCommit)) {
+    throw new Error("The checked-out commit must be a 40-character lowercase SHA.");
+  }
   const expectedTag = `v${input.packageVersion}`;
   if (input.releaseTag !== expectedTag) {
     throw new Error(`Release tag must match package version ${input.packageVersion}.`);
   }
   if (input.releaseCommit !== input.checkedOutCommit) {
-    throw new Error("The release tag commit must equal the checked-out revision.");
+    throw new Error("The requested release commit must equal the checked-out revision.");
   }
   if (!input.releaseIsOnMain) {
-    throw new Error("The released revision must be an ancestor of origin/main.");
+    throw new Error("The requested release revision must be an ancestor of origin/main.");
   }
   if (!input.expectedProjectId || input.project.projectId !== input.expectedProjectId) {
     throw new Error("The linked project ID must match the expected Vercel project.");
+  }
+  if (input.forbiddenProjectId && input.project.projectId === input.forbiddenProjectId) {
+    throw new Error("The linked Vercel project must be isolated from the forbidden release cell.");
   }
   if (!input.expectedOrgId || input.project.orgId !== input.expectedOrgId) {
     throw new Error("The linked organization ID must match the expected Vercel organization.");
@@ -113,16 +114,6 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   const environment = Object.fromEntries(
     requiredProductionSettings.map((name) => [name, input.productionEnvironment[name]!])
   ) as Record<(typeof requiredProductionSettings)[number], string>;
-  const databaseUrl = parseUrl(environment.DATABASE_URL, "DATABASE_URL");
-  if (databaseUrl.protocol !== "postgres:" && databaseUrl.protocol !== "postgresql:") {
-    throw new Error("DATABASE_URL must be a PostgreSQL URL.");
-  }
-  if (!databaseUrl.hostname) {
-    throw new Error("DATABASE_URL must include a database host.");
-  }
-  if (databaseUrl.pathname === "" || databaseUrl.pathname === "/") {
-    throw new Error("DATABASE_URL must include a database name.");
-  }
   if (!/^[1-9]\d*$/.test(environment.DATABASE_POOL_MAX) || Number(environment.DATABASE_POOL_MAX) > 100) {
     throw new Error("DATABASE_POOL_MAX must be a positive integer no greater than 100.");
   }
@@ -132,14 +123,49 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   if (environment.KINRESOLVE_DEPLOYMENT_MODE !== "hosted") {
     throw new Error("KINRESOLVE_DEPLOYMENT_MODE must be exactly hosted for production releases.");
   }
+  if (environment.KINRESOLVE_OBJECT_STORAGE_BACKEND !== "vercel-blob") {
+    throw new Error("KINRESOLVE_OBJECT_STORAGE_BACKEND must be exactly vercel-blob for production releases.");
+  }
   if (environment.KINSLEUTH_ALLOW_SIGNUPS !== "false") {
     throw new Error("KINSLEUTH_ALLOW_SIGNUPS must be exactly false for production releases.");
   }
   if (!["empty", "demo", "pilot"].includes(environment.KINRESOLVE_DATASET_MODE)) {
     throw new Error("KINRESOLVE_DATASET_MODE must be empty, demo, or pilot.");
   }
+  const datasetMode = environment.KINRESOLVE_DATASET_MODE as ReleaseContractResult["datasetMode"];
+  if (input.expectedDatasetMode !== undefined && datasetMode !== input.expectedDatasetMode) {
+    throw new Error("KINRESOLVE_DATASET_MODE must match the expected release cell dataset mode.");
+  }
   if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(environment.KINSLEUTH_ARCHIVE_ID)) {
     throw new Error("KINSLEUTH_ARCHIVE_ID must be a safe lowercase archive identifier of at most 63 characters.");
+  }
+  if (input.expectedArchiveId !== undefined && environment.KINSLEUTH_ARCHIVE_ID !== input.expectedArchiveId) {
+    throw new Error("KINSLEUTH_ARCHIVE_ID must match the expected release cell archive.");
+  }
+  if (environment.KINRESOLVE_GUIDED_RESEARCH_ENABLED !== "true") {
+    throw new Error("KINRESOLVE_GUIDED_RESEARCH_ENABLED must be exactly true for the private beta release.");
+  }
+  if (environment.KINRESOLVE_EXPORT_REFRESH_ENABLED !== "true") {
+    throw new Error("KINRESOLVE_EXPORT_REFRESH_ENABLED must be exactly true for the private beta release.");
+  }
+  if (
+    environment.KINRESOLVE_SCHEDULED_WRITES_ENABLED !== "true"
+    && environment.KINRESOLVE_SCHEDULED_WRITES_ENABLED !== "false"
+  ) {
+    throw new Error("KINRESOLVE_SCHEDULED_WRITES_ENABLED must be exactly true or false.");
+  }
+  const scheduledWritesEnabled = environment.KINRESOLVE_SCHEDULED_WRITES_ENABLED === "true";
+  const expectedScheduledWritesEnabled = input.expectedScheduledWritesEnabled ?? true;
+  if (scheduledWritesEnabled !== expectedScheduledWritesEnabled) {
+    throw new Error(
+      `KINRESOLVE_SCHEDULED_WRITES_ENABLED must be exactly ${String(expectedScheduledWritesEnabled)} for this release cell.`
+    );
+  }
+  if (!databaseIdentityPattern.test(environment.KINRESOLVE_DATABASE_IDENTITY)) {
+    throw new Error("KINRESOLVE_DATABASE_IDENTITY must be a lowercase SHA-256 database fingerprint.");
+  }
+  if (!databaseIdentityPattern.test(environment.KINRESOLVE_OBJECT_STORAGE_IDENTITY)) {
+    throw new Error("KINRESOLVE_OBJECT_STORAGE_IDENTITY must be a lowercase SHA-256 storage fingerprint.");
   }
   const cohortOneCapabilities = {
     KINRESOLVE_DNA_ENABLED: "false",
@@ -157,11 +183,28 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   }
 
   const appUrl = validateHttpsOrigin(environment.APP_BASE_URL, "APP_BASE_URL");
-  validateSecret("AUTH_SECRET", environment.AUTH_SECRET, 32);
-  validateSecret("BLOB_READ_WRITE_TOKEN", environment.BLOB_READ_WRITE_TOKEN, 16);
-  validateSecret("CRON_SECRET", environment.CRON_SECRET, 32);
+  if (input.expectedAppBaseUrl !== undefined) {
+    const expectedAppUrl = validateHttpsOrigin(input.expectedAppBaseUrl, "Expected APP_BASE_URL");
+    if (appUrl.origin !== expectedAppUrl.origin) {
+      throw new Error("APP_BASE_URL must match the expected canonical origin.");
+    }
+  }
+  if (input.forbiddenAppBaseUrl !== undefined) {
+    const forbiddenAppUrl = validateHttpsOrigin(input.forbiddenAppBaseUrl, "Forbidden APP_BASE_URL");
+    if (appUrl.origin === forbiddenAppUrl.origin) {
+      throw new Error("APP_BASE_URL must be isolated from the forbidden release cell origin.");
+    }
+  }
 
-  return { version: input.packageVersion, appOrigin: appUrl.origin };
+  return {
+    version: input.packageVersion,
+    appOrigin: appUrl.origin,
+    datasetMode,
+    archiveId: environment.KINSLEUTH_ARCHIVE_ID,
+    databaseIdentity: environment.KINRESOLVE_DATABASE_IDENTITY,
+    objectStorageIdentity: environment.KINRESOLVE_OBJECT_STORAGE_IDENTITY,
+    scheduledWritesEnabled
+  };
 }
 
 async function readRequiredFile(filePath: string, missingMessage: string): Promise<string> {

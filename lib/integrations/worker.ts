@@ -1,4 +1,5 @@
 import { query, type DatabaseOptions } from "../db";
+import { assertReleaseWritesAllowed } from "../release-fence";
 import {
   completeJob,
   failJob,
@@ -45,17 +46,20 @@ type WorkerMaintenanceConfiguration = Pick<
 >;
 
 type WorkerMaintenanceDependencies = {
+  assertReleaseWritesAllowed: typeof assertReleaseWritesAllowed;
   cleanupExpiredDirectIntegrationUploadIntents: typeof cleanupExpiredDirectIntegrationUploadIntents;
   cleanupExpiredIntegrationMediaWriteClaims?: typeof cleanupExpiredIntegrationMediaWriteClaims;
   now?: () => Date;
 };
 
 const defaultMaintenanceDependencies: WorkerMaintenanceDependencies = {
+  assertReleaseWritesAllowed,
   cleanupExpiredDirectIntegrationUploadIntents,
   cleanupExpiredIntegrationMediaWriteClaims
 };
 
 type WorkerDependencies = {
+  assertReleaseWritesAllowed: typeof assertReleaseWritesAllowed;
   listArchiveIds(options: DatabaseOptions): Promise<string[]>;
   leaseNextJob: typeof leaseNextJob;
   processIntegrationSyncRun: typeof processIntegrationSyncRun;
@@ -70,6 +74,7 @@ type WorkerDependencies = {
 };
 
 const defaultDependencies: WorkerDependencies = {
+  assertReleaseWritesAllowed,
   listArchiveIds: listIntegrationJobArchiveIds,
   leaseNextJob,
   processIntegrationSyncRun,
@@ -125,6 +130,10 @@ export async function runIntegrationWorkerMaintenance(
   configuration: Pick<IntegrationWorkerConfiguration, "databaseUrl" | "maintenanceLimit">,
   dependencies: WorkerMaintenanceDependencies = defaultMaintenanceDependencies
 ): Promise<{ scanned: number; deleted: number; failed: number }> {
+  await assertIntegrationWorkerWritesAllowed(
+    configuration.databaseUrl,
+    dependencies.assertReleaseWritesAllowed
+  );
   const directUploads = await dependencies.cleanupExpiredDirectIntegrationUploadIntents(
     { limit: configuration.maintenanceLimit },
     { databaseUrl: configuration.databaseUrl, now: dependencies.now }
@@ -161,6 +170,10 @@ export async function runIntegrationWorkerBatch(
   configuration: WorkerBatchConfiguration,
   dependencies: WorkerDependencies = defaultDependencies
 ): Promise<{ archivesScanned: number; leased: number; completed: number; failed: number }> {
+  await assertIntegrationWorkerWritesAllowed(
+    configuration.databaseUrl,
+    dependencies.assertReleaseWritesAllowed
+  );
   const archiveIds = await dependencies.listArchiveIds({ databaseUrl: configuration.databaseUrl });
   const result = { archivesScanned: archiveIds.length, leased: 0, completed: 0, failed: 0 };
   if (archiveIds.length === 0) return result;
@@ -382,6 +395,28 @@ async function listIntegrationJobArchiveIds(options: DatabaseOptions): Promise<s
 
 function workerNow(dependencies: WorkerDependencies): Date {
   return dependencies.now?.() ?? new Date();
+}
+
+export class IntegrationWorkerWriteGuardError extends Error {
+  readonly code = "RELEASE_FENCE_UNAVAILABLE";
+
+  constructor() {
+    super("Integration worker writes are unavailable.");
+    this.name = "IntegrationWorkerWriteGuardError";
+  }
+}
+
+async function assertIntegrationWorkerWritesAllowed(
+  databaseUrl: string,
+  guard: typeof assertReleaseWritesAllowed
+): Promise<void> {
+  try {
+    await guard({ databaseUrl });
+  } catch {
+    // Active-fence identity and database connection failures are both private
+    // operational state. Callers only need the fail-closed classification.
+    throw new IntegrationWorkerWriteGuardError();
+  }
 }
 
 function deadlineReached(

@@ -2,14 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createIntegrationWorkerMaintenanceScheduler,
+  IntegrationWorkerWriteGuardError,
   integrationWorkerConfiguration,
   runIntegrationWorkerBatch,
   runIntegrationWorkerMaintenance
 } from "@/lib/integrations/worker";
+import { ReleaseFenceActiveError } from "@/lib/release-fence";
 
 describe("bounded integration worker protocol", () => {
   it("reconciles terminal job failures before looking for new work", async () => {
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       reconcileTerminalIntegrationFailures: vi.fn(async () => 1),
       leaseNextJob: vi.fn(async () => null)
@@ -29,6 +32,9 @@ describe("bounded integration worker protocol", () => {
       archiveId: "archive-synthetic",
       databaseUrl: "postgres://synthetic.invalid/test"
     });
+    expect(dependencies.assertReleaseWritesAllowed).toHaveBeenCalledExactlyOnceWith({
+      databaseUrl: "postgres://synthetic.invalid/test"
+    });
   });
 
   it("does not lease another hosted job after its safe invocation deadline", async () => {
@@ -36,6 +42,7 @@ describe("bounded integration worker protocol", () => {
     let now = new Date("2026-07-14T20:00:00.000Z");
     const deadlineAt = new Date("2026-07-14T20:00:10.000Z");
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       now: () => now,
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       reconcileTerminalIntegrationFailures: vi.fn(async () => 0),
@@ -70,6 +77,7 @@ describe("bounded integration worker protocol", () => {
   it("leases archive-scoped parse jobs and completes them with fencing tokens", async () => {
     const lease = leasedJob("job-1", "run-1", "lease-1");
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       leaseNextJob: vi.fn()
         .mockResolvedValueOnce(lease)
@@ -110,6 +118,7 @@ describe("bounded integration worker protocol", () => {
     const lease = leasedJob("job-scanner", "run-scanner", "lease-scanner");
     const malwareScanner = { scan: vi.fn(async () => "clean" as const) };
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       leaseNextJob: vi.fn().mockResolvedValueOnce(lease).mockResolvedValueOnce(null),
       getSyncRun: vi.fn(async () => ({ id: "run-scanner", status: "queued" })),
@@ -144,6 +153,7 @@ describe("bounded integration worker protocol", () => {
   it("persists only a public error classification while retaining retry semantics", async () => {
     const lease = leasedJob("job-secret", "run-secret", "lease-secret");
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       leaseNextJob: vi.fn().mockResolvedValueOnce(lease).mockResolvedValueOnce(null),
       getSyncRun: vi.fn(async () => ({ id: "run-secret", status: "queued" })),
@@ -188,6 +198,7 @@ describe("bounded integration worker protocol", () => {
   it("completes a reclaimed parse job from the durable review checkpoint without parsing twice", async () => {
     const lease = leasedJob("job-reclaimed", "run-ready", "lease-reclaimed");
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       leaseNextJob: vi.fn().mockResolvedValueOnce(lease).mockResolvedValueOnce(null),
       getSyncRun: vi.fn(async () => ({ id: "run-ready", status: "review_ready" })),
@@ -220,6 +231,7 @@ describe("bounded integration worker protocol", () => {
     let finishRenewal!: () => void;
     const renewal = new Promise<void>((resolve) => { finishRenewal = resolve; });
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       leaseNextJob: vi.fn().mockResolvedValueOnce(lease),
       getSyncRun: vi.fn(async () => ({ id: "run-renew", status: "queued" })),
@@ -253,6 +265,7 @@ describe("bounded integration worker protocol", () => {
   it("marks the sync run failed only after the durable job exhausts retries", async () => {
     const lease = { ...leasedJob("job-terminal", "run-terminal", "lease-terminal"), attempt: 3, maximumAttempts: 3 };
     const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
       listArchiveIds: vi.fn(async () => ["archive-synthetic"]),
       leaseNextJob: vi.fn().mockResolvedValueOnce(lease),
       getSyncRun: vi.fn(async () => ({ id: "run-terminal", status: "parsing" })),
@@ -293,6 +306,7 @@ describe("bounded integration worker protocol", () => {
         maintenanceLimit: 7
       },
       {
+        assertReleaseWritesAllowed: vi.fn(async () => undefined),
         cleanupExpiredDirectIntegrationUploadIntents: cleanup,
         cleanupExpiredIntegrationMediaWriteClaims: cleanupMedia
       }
@@ -308,6 +322,85 @@ describe("bounded integration worker protocol", () => {
     );
   });
 
+  it.each([
+    [
+      "an active release fence",
+      () => new ReleaseFenceActiveError(activeFence())
+    ],
+    [
+      "an unavailable fence query",
+      () => new Error("postgres://private-user:private-password@db.internal/private-family")
+    ]
+  ])("blocks every batch dependency before discovery, reconciliation, or leasing for %s", async (_label, failure) => {
+    const dependencies = batchDependencySpies();
+    dependencies.assertReleaseWritesAllowed.mockRejectedValueOnce(failure());
+
+    const error = await runIntegrationWorkerBatch(
+      {
+        workerId: "worker-guarded",
+        maximumJobs: 1,
+        leaseDurationMs: 60_000,
+        databaseUrl: "postgres://synthetic.invalid/test"
+      },
+      dependencies as never
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(IntegrationWorkerWriteGuardError);
+    expect(error).toMatchObject({
+      code: "RELEASE_FENCE_UNAVAILABLE",
+      message: "Integration worker writes are unavailable."
+    });
+    expect(`${String(error)} ${JSON.stringify(error)}`).not.toMatch(
+      /fence-private-beta-01|private-password|private-family/
+    );
+    expect(dependencies.assertReleaseWritesAllowed).toHaveBeenCalledExactlyOnceWith({
+      databaseUrl: "postgres://synthetic.invalid/test"
+    });
+    for (const [name, dependency] of Object.entries(dependencies)) {
+      if (name !== "assertReleaseWritesAllowed") expect(dependency).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    [
+      "an active release fence",
+      () => new ReleaseFenceActiveError(activeFence())
+    ],
+    [
+      "an unavailable fence query",
+      () => new Error("postgres://private-user:private-password@db.internal/private-family")
+    ]
+  ])("blocks every maintenance dependency before cleanup for %s", async (_label, failure) => {
+    const dependencies = {
+      assertReleaseWritesAllowed: vi.fn(async () => undefined),
+      cleanupExpiredDirectIntegrationUploadIntents: vi.fn(),
+      cleanupExpiredIntegrationMediaWriteClaims: vi.fn()
+    };
+    dependencies.assertReleaseWritesAllowed.mockRejectedValueOnce(failure());
+
+    const error = await runIntegrationWorkerMaintenance(
+      {
+        databaseUrl: "postgres://synthetic.invalid/test",
+        maintenanceLimit: 7
+      },
+      dependencies as never
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(IntegrationWorkerWriteGuardError);
+    expect(error).toMatchObject({
+      code: "RELEASE_FENCE_UNAVAILABLE",
+      message: "Integration worker writes are unavailable."
+    });
+    expect(`${String(error)} ${JSON.stringify(error)}`).not.toMatch(
+      /fence-private-beta-01|private-password|private-family/
+    );
+    expect(dependencies.assertReleaseWritesAllowed).toHaveBeenCalledExactlyOnceWith({
+      databaseUrl: "postgres://synthetic.invalid/test"
+    });
+    expect(dependencies.cleanupExpiredDirectIntegrationUploadIntents).not.toHaveBeenCalled();
+    expect(dependencies.cleanupExpiredIntegrationMediaWriteClaims).not.toHaveBeenCalled();
+  });
+
   it("gates long-running maintenance by its own interval, including after failures", async () => {
     const start = new Date("2026-07-14T20:00:00.000Z");
     const cleanup = vi.fn()
@@ -319,7 +412,10 @@ describe("bounded integration worker protocol", () => {
         maintenanceIntervalMs: 15 * 60_000,
         maintenanceLimit: 100
       },
-      { cleanupExpiredDirectIntegrationUploadIntents: cleanup }
+      {
+        assertReleaseWritesAllowed: vi.fn(async () => undefined),
+        cleanupExpiredDirectIntegrationUploadIntents: cleanup
+      }
     );
 
     await expect(runMaintenanceIfDue(start)).rejects.toThrow("private storage detail");
@@ -383,5 +479,34 @@ function leasedJob(id: string, runId: string, leaseToken: string) {
     leaseExpiresAt: new Date(now.getTime() + 60_000),
     createdAt: now,
     updatedAt: now
+  };
+}
+
+function activeFence() {
+  return {
+    fenceId: "fence-private-beta-01",
+    releaseCommitSha: "a".repeat(40),
+    state: "active" as const,
+    activationGeneration: 1,
+    firstActivatedAt: "2026-07-15T06:00:00.000Z",
+    activatedAt: "2026-07-15T06:00:00.000Z",
+    releasedAt: null,
+    updatedAt: "2026-07-15T06:00:00.000Z"
+  };
+}
+
+function batchDependencySpies() {
+  return {
+    assertReleaseWritesAllowed: vi.fn(async () => undefined),
+    listArchiveIds: vi.fn(),
+    leaseNextJob: vi.fn(),
+    processIntegrationSyncRun: vi.fn(),
+    getSyncRun: vi.fn(),
+    completeJob: vi.fn(),
+    failJob: vi.fn(),
+    renewJobLease: vi.fn(),
+    resetIntegrationPreparationForRetry: vi.fn(),
+    failIntegrationPreparationTerminally: vi.fn(),
+    reconcileTerminalIntegrationFailures: vi.fn()
   };
 }

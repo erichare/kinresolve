@@ -411,7 +411,8 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
       "009_integration_media_objects",
       "010_integration_media_write_claims",
       "011_integration_change_search",
-      "012_archive_dataset_mode"
+      "012_archive_dataset_mode",
+      "013_release_write_fence"
     ]);
     for (const table of archiveScopedTables) {
       const count = await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`);
@@ -483,7 +484,8 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
       "009_integration_media_objects",
       "010_integration_media_write_claims",
       "011_integration_change_search",
-      "012_archive_dataset_mode"
+      "012_archive_dataset_mode",
+      "013_release_write_fence"
     ]);
     await exerciseCompositeKeyWriters(pool);
     await expect(pool.query("SELECT count(*)::integer AS count FROM legacy_users")).resolves.toMatchObject({ rows: [{ count: 1 }] });

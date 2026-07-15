@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { cleanupAllStaleGedcomUploads } from "@/lib/gedcom/blob-storage";
+import { getActiveReleaseFence } from "@/lib/release-fence";
+import { releaseFenceLockedResponse } from "@/lib/release-fence-http";
+import { getScheduledWritesStatus } from "@/lib/scheduled-writes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,7 +17,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const scheduledWrites = getScheduledWritesStatus();
+  if (!scheduledWrites.valid || !scheduledWrites.enabled) {
+    return NextResponse.json({ error: "Scheduled work is unavailable." }, { status: 503 });
+  }
+
   try {
+    const activeFence = await getActiveReleaseFence();
+    if (activeFence) return releaseFenceLockedResponse(activeFence, { discloseControlIdentity: true });
     const deleted = await cleanupAllStaleGedcomUploads();
     return NextResponse.json({ deleted });
   } catch (error) {

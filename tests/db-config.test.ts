@@ -1,7 +1,12 @@
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getDatabaseConnectionString, getDatabasePoolMax, isDatabaseAutoMigrateEnabled } from "@/lib/db";
+import {
+  getDatabaseConnectionString,
+  getDatabasePoolMax,
+  isDatabaseAutoMigrateEnabled,
+  isDatabaseTransportVerified
+} from "@/lib/db";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -45,6 +50,19 @@ describe("database runtime configuration", () => {
     expect(parsed.searchParams.get("sslrootcert")).toBe(
       path.join(process.cwd(), "certs", "supabase-prod-ca-2021.crt")
     );
+  });
+
+  it("also verifies Supabase direct connections and exposes the effective transport status", () => {
+    const source =
+      "postgresql://postgres:secret@db.abcdefghijklmnopqrst.supabase.co:5432/postgres?sslmode=disable";
+    const parsed = new URL(getDatabaseConnectionString(source));
+
+    expect(parsed.searchParams.get("sslmode")).toBe("verify-full");
+    expect(parsed.searchParams.get("sslrootcert")).toBe(
+      path.join(process.cwd(), "certs", "supabase-prod-ca-2021.crt")
+    );
+    expect(isDatabaseTransportVerified(source)).toBe(true);
+    expect(isDatabaseTransportVerified("postgresql://app@db.example.com/postgres?sslmode=require")).toBe(false);
   });
 
   it("leaves non-Supabase database URLs unchanged", () => {

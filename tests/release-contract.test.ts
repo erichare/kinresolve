@@ -1,4 +1,6 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import type { SpawnSyncReturns } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -30,16 +32,22 @@ function validInput(overrides: Partial<ReleaseContractInput> = {}): ReleaseContr
     },
     expectedProjectId: "prj_kinresolve",
     expectedOrgId: "team_kinresolve",
+    expectedAppBaseUrl: "https://app.kinresolve.com",
+    expectedDatasetMode: "pilot",
+    expectedScheduledWritesEnabled: true,
+    expectedArchiveId: "pilot-household-01",
     productionEnvironment: {
-      DATABASE_URL: "postgresql://app:secret@database.example.com:6543/kinresolve?sslmode=require",
       DATABASE_POOL_MAX: "2",
       DATABASE_AUTO_MIGRATE: "false",
-      AUTH_SECRET: "auth-secret-that-is-at-least-32-characters",
       APP_BASE_URL: "https://app.kinresolve.com",
-      BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_release_contract_value",
-      CRON_SECRET: "cron-secret-that-is-at-least-32-characters",
       KINRESOLVE_DEPLOYMENT_MODE: "hosted",
       KINRESOLVE_DATASET_MODE: "pilot",
+      KINRESOLVE_DATABASE_IDENTITY: "a".repeat(64),
+      KINRESOLVE_EXPORT_REFRESH_ENABLED: "true",
+      KINRESOLVE_GUIDED_RESEARCH_ENABLED: "true",
+      KINRESOLVE_OBJECT_STORAGE_BACKEND: "vercel-blob",
+      KINRESOLVE_OBJECT_STORAGE_IDENTITY: "b".repeat(64),
+      KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true",
       KINRESOLVE_DNA_ENABLED: "false",
       KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
       KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
@@ -58,7 +66,12 @@ describe("stable release contract", () => {
   it("accepts a complete production contract without returning secret values", () => {
     expect(validateReleaseContract(validInput())).toEqual({
       version: "0.17.4",
-      appOrigin: "https://app.kinresolve.com"
+      appOrigin: "https://app.kinresolve.com",
+      datasetMode: "pilot",
+      archiveId: "pilot-household-01",
+      databaseIdentity: "a".repeat(64),
+      objectStorageIdentity: "b".repeat(64),
+      scheduledWritesEnabled: true
     });
   });
 
@@ -67,12 +80,27 @@ describe("stable release contract", () => {
     expect(() => validateReleaseContract(validInput({ releaseIsOnMain: false }))).toThrow(/ancestor of origin\/main/i);
   });
 
-  it("requires the released tag commit to be the checked-out revision", () => {
+  it("requires a stable package version and canonical release commit identifiers", () => {
+    expect(() =>
+      validateReleaseContract(validInput({ packageVersion: "0.17.4-beta.1", releaseTag: "v0.17.4-beta.1" }))
+    ).toThrow(/stable semantic version/i);
+    expect(() =>
+      validateReleaseContract(validInput({
+        releaseCommit: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+        checkedOutCommit: "ABCDEF0123456789ABCDEF0123456789ABCDEF01"
+      }))
+    ).toThrow(/release commit.*40-character lowercase/i);
+    expect(() =>
+      validateReleaseContract(validInput({ checkedOutCommit: "main" }))
+    ).toThrow(/checked-out commit.*40-character lowercase/i);
+  });
+
+  it("requires the requested release commit to be the checked-out revision", () => {
     expect(() =>
       validateReleaseContract(
         validInput({ checkedOutCommit: "fedcba9876543210fedcba9876543210fedcba98" })
       )
-    ).toThrow(/tag commit.*checked-out revision/i);
+    ).toThrow(/release commit.*checked-out revision/i);
   });
 
   it("requires the expected linked Vercel project and Next.js framework preset", () => {
@@ -95,15 +123,17 @@ describe("stable release contract", () => {
     ).toThrow(/organization ID.*expected Vercel organization/i);
   });
 
-  it("requires actual pulled values for every production setting", () => {
+  it("requires actual pulled values for every readable production setting", () => {
     const input = validInput();
     delete input.productionEnvironment.APP_BASE_URL;
-    input.productionEnvironment.AUTH_SECRET = "";
+    input.productionEnvironment.KINRESOLVE_OBJECT_STORAGE_BACKEND = "";
 
-    expect(() => validateReleaseContract(input)).toThrow(/missing required production settings.*APP_BASE_URL.*AUTH_SECRET/i);
+    expect(() => validateReleaseContract(input)).toThrow(
+      /missing required production settings.*APP_BASE_URL.*KINRESOLVE_OBJECT_STORAGE_BACKEND/i
+    );
   });
 
-  it("requires disabled auto-migration, a valid pool size, and PostgreSQL", () => {
+  it("requires disabled auto-migration, a valid pool size, and private Vercel Blob storage", () => {
     expect(() =>
       validateReleaseContract(
         validInput({ productionEnvironment: { ...validInput().productionEnvironment, DATABASE_AUTO_MIGRATE: "true" } })
@@ -116,19 +146,14 @@ describe("stable release contract", () => {
     ).toThrow(/DATABASE_POOL_MAX.*positive integer/i);
     expect(() =>
       validateReleaseContract(
-        validInput({ productionEnvironment: { ...validInput().productionEnvironment, DATABASE_URL: "https://database.example.com" } })
+        validInput({
+          productionEnvironment: {
+            ...validInput().productionEnvironment,
+            KINRESOLVE_OBJECT_STORAGE_BACKEND: "s3"
+          }
+        })
       )
-    ).toThrow(/DATABASE_URL.*PostgreSQL/i);
-    expect(() =>
-      validateReleaseContract(
-        validInput({ productionEnvironment: { ...validInput().productionEnvironment, DATABASE_URL: "postgresql:///kinresolve" } })
-      )
-    ).toThrow(/DATABASE_URL.*host/i);
-    expect(() =>
-      validateReleaseContract(
-        validInput({ productionEnvironment: { ...validInput().productionEnvironment, DATABASE_URL: "postgresql://database.example.com" } })
-      )
-    ).toThrow(/DATABASE_URL.*database name/i);
+    ).toThrow(/KINRESOLVE_OBJECT_STORAGE_BACKEND.*vercel-blob/i);
   });
 
   it("requires an explicit hosted dataset and safe archive identity", () => {
@@ -166,6 +191,75 @@ describe("stable release contract", () => {
     const missing = validInput();
     delete missing.productionEnvironment.KINRESOLVE_DATASET_MODE;
     expect(() => validateReleaseContract(missing)).toThrow(/missing required production settings.*KINRESOLVE_DATASET_MODE/i);
+
+    expect(() => validateReleaseContract(validInput({
+      expectedDatasetMode: "pilot",
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_DATASET_MODE: "demo"
+      }
+    }))).toThrow(/KINRESOLVE_DATASET_MODE.*expected release cell/i);
+
+    expect(() => validateReleaseContract(validInput({
+      expectedArchiveId: "pilot-household-01",
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINSLEUTH_ARCHIVE_ID: "other-pilot"
+      }
+    }))).toThrow(/KINSLEUTH_ARCHIVE_ID.*expected release cell/i);
+  });
+
+  it("requires core guided-research and export workflows to stay enabled", () => {
+    for (const name of ["KINRESOLVE_GUIDED_RESEARCH_ENABLED", "KINRESOLVE_EXPORT_REFRESH_ENABLED"] as const) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: { ...validInput().productionEnvironment, [name]: "false" }
+      })), name).toThrow(new RegExp(`${name}.*true`, "i"));
+    }
+  });
+
+  it("requires the exact scheduled-write value assigned to each release cell", () => {
+    expect(validateReleaseContract(validInput({
+      expectedScheduledWritesEnabled: false,
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
+      }
+    })).scheduledWritesEnabled).toBe(false);
+
+    for (const value of ["", "yes"] as const) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: {
+          ...validInput().productionEnvironment,
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: value
+        }
+      }))).toThrow(/(?:missing required production settings: KINRESOLVE_SCHEDULED_WRITES_ENABLED|KINRESOLVE_SCHEDULED_WRITES_ENABLED.*true or false)/i);
+    }
+
+    expect(() => validateReleaseContract(validInput({
+      expectedScheduledWritesEnabled: false
+    }))).toThrow(/KINRESOLVE_SCHEDULED_WRITES_ENABLED.*false.*release cell/i);
+  });
+
+  it("requires a full lowercase database identity fingerprint", () => {
+    for (const value of ["", "a".repeat(63), "A".repeat(64), "not-a-fingerprint"]) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: {
+          ...validInput().productionEnvironment,
+          KINRESOLVE_DATABASE_IDENTITY: value
+        }
+      }))).toThrow(/(?:missing required production settings: KINRESOLVE_DATABASE_IDENTITY|KINRESOLVE_DATABASE_IDENTITY.*SHA-256)/i);
+    }
+  });
+
+  it("requires a full lowercase object-storage identity fingerprint", () => {
+    for (const value of ["", "a".repeat(63), "A".repeat(64), "not-a-fingerprint"]) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: {
+          ...validInput().productionEnvironment,
+          KINRESOLVE_OBJECT_STORAGE_IDENTITY: value
+        }
+      }))).toThrow(/(?:missing required production settings: KINRESOLVE_OBJECT_STORAGE_IDENTITY|KINRESOLVE_OBJECT_STORAGE_IDENTITY.*SHA-256)/i);
+    }
   });
 
   it("requires the exact cohort-one hosted capability manifest", () => {
@@ -202,40 +296,39 @@ describe("stable release contract", () => {
     );
   });
 
-  it("requires an HTTPS origin and rejects placeholder secrets without leaking them", () => {
+  it("requires an HTTPS canonical origin", () => {
     expect(() =>
       validateReleaseContract(
         validInput({ productionEnvironment: { ...validInput().productionEnvironment, APP_BASE_URL: "http://app.kinresolve.com/path" } })
       )
     ).toThrow(/APP_BASE_URL.*HTTPS origin/i);
 
-    const marker = "replace-me-sensitive-marker";
-    try {
-      validateReleaseContract(
-        validInput({ productionEnvironment: { ...validInput().productionEnvironment, CRON_SECRET: marker } })
-      );
-      throw new Error("Expected placeholder validation to fail.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      expect(message).toMatch(/CRON_SECRET.*placeholder/i);
-      expect(message).not.toContain(marker);
-    }
-
-    try {
+    expect(() =>
       validateReleaseContract(
         validInput({
+          expectedAppBaseUrl: "https://app.kinresolve.com",
           productionEnvironment: {
             ...validInput().productionEnvironment,
-            AUTH_SECRET: `${" ".repeat(32)}${marker}`
+            APP_BASE_URL: "https://other.kinresolve.com"
           }
         })
-      );
-      throw new Error("Expected whitespace-prefixed placeholder validation to fail.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      expect(message).toMatch(/AUTH_SECRET.*placeholder/i);
-      expect(message).not.toContain(marker);
-    }
+      )
+    ).toThrow(/APP_BASE_URL.*expected canonical origin/i);
+
+    expect(() =>
+      validateReleaseContract(
+        validInput({
+          forbiddenAppBaseUrl: "https://app.kinresolve.com"
+        })
+      )
+    ).toThrow(/APP_BASE_URL.*isolated.*forbidden/i);
+
+  });
+
+  it("rejects a Vercel project reserved for another release cell", () => {
+    expect(() => validateReleaseContract(validInput({
+      forbiddenProjectId: "prj_kinresolve"
+    }))).toThrow(/project.*isolated.*forbidden/i);
   });
 
   it("loads and parses the expected pulled environment and project files", async () => {
@@ -309,4 +402,102 @@ describe("stable release contract", () => {
       })
     ).toThrow(/exactly \/login\?next=\/app/i);
   });
+
+  it("validates an intended tag that does not exist and appends only safe workflow outputs", async () => {
+    const root = await createCandidateRepository();
+    const outputPath = path.join(root.path, "github-output.txt");
+    await writeFile(outputPath, "existing=value\n", "utf8");
+
+    const result = runReleaseContractCli(root.path, {
+      RELEASE_COMMIT: root.commit,
+      RELEASE_TAG: "v0.17.4",
+      GITHUB_OUTPUT: outputPath
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/candidate release contract verified/i);
+    expect(result.stderr).toBe("");
+    expect(await readFile(outputPath, "utf8")).toBe(
+      "existing=value\n" +
+      "app_base_url=https://app.kinresolve.com\n" +
+      "dataset_mode=pilot\n" +
+      "archive_id=pilot-household-01\n" +
+      `database_identity=${"a".repeat(64)}\n` +
+      `object_storage_identity=${"b".repeat(64)}\n` +
+      "scheduled_writes_enabled=true\n" +
+      "version=0.17.4\n"
+    );
+    expect(git(root.path, ["tag", "--list"]).stdout).toBe("");
+  });
+
+  it("rejects malformed or mismatched candidate commits before writing workflow outputs", async () => {
+    const root = await createCandidateRepository();
+    const outputPath = path.join(root.path, "github-output.txt");
+
+    for (const releaseCommit of ["main", root.commit.toUpperCase(), "0".repeat(40)]) {
+      await rm(outputPath, { force: true });
+      const result = runReleaseContractCli(root.path, {
+        RELEASE_COMMIT: releaseCommit,
+        RELEASE_TAG: "v0.17.4",
+        GITHUB_OUTPUT: outputPath
+      });
+
+      expect(result.status).toBe(1);
+      await expect(readFile(outputPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
 });
+
+async function createCandidateRepository(): Promise<{ path: string; commit: string }> {
+  const root = await mkdtemp(path.join(tmpdir(), "kinresolve-release-cli-"));
+  scratchDirectories.push(root);
+  await mkdir(path.join(root, ".vercel"), { recursive: true });
+  await writeFile(
+    path.join(root, ".vercel", ".env.production.local"),
+    Object.entries(validInput().productionEnvironment)
+      .map(([name, value]) => `${name}=${JSON.stringify(value)}`)
+      .join("\n"),
+    "utf8"
+  );
+  await writeFile(path.join(root, ".vercel", "project.json"), JSON.stringify(validInput().project), "utf8");
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ version: "0.17.4" }), "utf8");
+
+  expect(git(root, ["init", "--quiet"]).status).toBe(0);
+  expect(git(root, ["config", "user.email", "release-contract@example.invalid"]).status).toBe(0);
+  expect(git(root, ["config", "user.name", "Release Contract"]).status).toBe(0);
+  expect(git(root, ["add", "."]).status).toBe(0);
+  expect(git(root, ["-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "candidate fixture"]).status).toBe(0);
+  const commit = git(root, ["rev-parse", "HEAD"]).stdout.trim();
+  expect(git(root, ["update-ref", "refs/remotes/origin/main", commit]).status).toBe(0);
+  return { path: root, commit };
+}
+
+function runReleaseContractCli(
+  cwd: string,
+  environment: Record<string, string>
+): SpawnSyncReturns<string> {
+  return spawnSync(
+    process.execPath,
+    [
+      "--no-warnings",
+      "--experimental-strip-types",
+      path.join(process.cwd(), "scripts", "validate-release-contract.mjs")
+    ],
+    {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        VERCEL_PROJECT_ID: "prj_kinresolve",
+        EXPECTED_VERCEL_PROJECT_ID: "prj_kinresolve",
+        VERCEL_ORG_ID: "team_kinresolve",
+        EXPECTED_SCHEDULED_WRITES_ENABLED: "true",
+        ...environment
+      }
+    }
+  );
+}
+
+function git(cwd: string, args: string[]): SpawnSyncReturns<string> {
+  return spawnSync("git", args, { cwd, encoding: "utf8" });
+}

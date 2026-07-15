@@ -1,0 +1,199 @@
+import { spawnSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+
+import {
+  forbiddenWorkflowOnlyEnvironmentNames,
+  requiredReadableProductionEnvironmentNames,
+  requiredSensitiveProductionEnvironmentNames,
+  validatePulledVercelEnvironmentContract,
+  validateVercelEnvironmentContract
+} from "@/lib/vercel-environment-contract";
+
+const scratchDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(scratchDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+describe("Vercel hosted environment metadata contract", () => {
+  it("accepts production-only readable settings and unreadable Sensitive credentials", () => {
+    expect(validateVercelEnvironmentContract(metadata())).toEqual({
+      readableSettings: requiredReadableProductionEnvironmentNames.length,
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length
+    });
+  });
+
+  it.each(requiredSensitiveProductionEnvironmentNames)("requires %s to use the Sensitive type", (key) => {
+    expect(() => validateVercelEnvironmentContract(metadata({ [key]: { type: "encrypted" } })))
+      .toThrow(new RegExp(`${key}.*sensitive`, "i"));
+  });
+
+  it.each(requiredReadableProductionEnvironmentNames)("requires %s to remain readable", (key) => {
+    expect(() => validateVercelEnvironmentContract(metadata({ [key]: { type: "sensitive" } })))
+      .toThrow(new RegExp(`${key}.*readable`, "i"));
+  });
+
+  it.each(forbiddenWorkflowOnlyEnvironmentNames)(
+    "rejects workflow-only %s from Vercel environment metadata",
+    (key) => {
+      const input = metadata() as { envs: Array<Record<string, unknown>> };
+      input.envs.push({ key, type: "sensitive", target: ["production"] });
+      expect(() => validateVercelEnvironmentContract(input)).toThrow(
+        new RegExp(`forbidden workflow-only setting ${key}`, "i")
+      );
+    }
+  );
+
+  it.each(forbiddenWorkflowOnlyEnvironmentNames)(
+    "rejects workflow-only %s from the pulled deployment environment",
+    (key) => {
+      expect(() => validatePulledVercelEnvironmentContract(`${key}=control-plane-secret\n`)).toThrow(
+        new RegExp(`forbidden workflow-only setting ${key}`, "i")
+      );
+    }
+  );
+
+  it("allows the legitimate runtime credentials and parses multiline pulled values without exposing them", () => {
+    const marker = "runtime-secret-that-must-not-print";
+    const contents = [
+      "# Pulled by Vercel CLI",
+      ...requiredSensitiveProductionEnvironmentNames.map((name) => `${name}=${marker}`),
+      "export MULTILINE_RUNTIME_VALUE=\"first line",
+      "second line\" # comment",
+      ""
+    ].join("\n");
+
+    expect(validatePulledVercelEnvironmentContract(contents)).toEqual({
+      settings: requiredSensitiveProductionEnvironmentNames.length + 1
+    });
+  });
+
+  it("fails closed on malformed or duplicate pulled environment assignments", () => {
+    expect(() => validatePulledVercelEnvironmentContract("not an assignment\n")).toThrow(/could not be parsed/i);
+    expect(() => validatePulledVercelEnvironmentContract("AUTH_SECRET=one\nAUTH_SECRET=two\n"))
+      .toThrow(/duplicate AUTH_SECRET/i);
+    expect(() => validatePulledVercelEnvironmentContract("AUTH_SECRET='unterminated\n"))
+      .toThrow(/could not be parsed/i);
+  });
+
+  it("rejects missing, duplicate, preview-shared, branch-scoped, and custom-environment settings", () => {
+    const missing = metadata();
+    missing.envs = missing.envs.filter((entry) => entry.key !== "AUTH_SECRET");
+    expect(() => validateVercelEnvironmentContract(missing)).toThrow(/missing.*AUTH_SECRET/i);
+
+    const duplicate = metadata();
+    duplicate.envs.push({ ...duplicate.envs[0] });
+    expect(() => validateVercelEnvironmentContract(duplicate)).toThrow(/duplicate/i);
+
+    expect(() => validateVercelEnvironmentContract(metadata({
+      DATABASE_URL: { target: ["production", "preview"] }
+    }))).toThrow(/DATABASE_URL.*production only/i);
+    expect(() => validateVercelEnvironmentContract(metadata({
+      DATABASE_URL: { gitBranch: "main" }
+    }))).toThrow(/DATABASE_URL.*branch/i);
+    expect(() => validateVercelEnvironmentContract(metadata({
+      DATABASE_URL: { customEnvironmentIds: ["env_staging"] }
+    }))).toThrow(/DATABASE_URL.*custom environment/i);
+  });
+
+  it("accepts array and envs response shapes but rejects malformed metadata", () => {
+    expect(() => validateVercelEnvironmentContract(metadata().envs)).not.toThrow();
+    expect(() => validateVercelEnvironmentContract({ envs: "not-an-array" })).toThrow(/metadata/i);
+    expect(() => validateVercelEnvironmentContract({ envs: [{ key: "AUTH_SECRET" }] })).toThrow(/metadata/i);
+  });
+
+  it("fails closed when Vercel reports another metadata page", () => {
+    expect(() => validateVercelEnvironmentContract({
+      ...metadata(),
+      pagination: { count: 100, next: 1234567890, prev: null }
+    })).toThrow(/pagination|complete|unpaginated/i);
+    expect(() => validateVercelEnvironmentContract({
+      ...metadata(),
+      pagination: { count: requiredReadableProductionEnvironmentNames.length +
+        requiredSensitiveProductionEnvironmentNames.length + 1, next: null, prev: null }
+    })).toThrow(/pagination|complete|unpaginated/i);
+  });
+
+  it("never includes environment values in validation errors", () => {
+    const marker = "secret-value-that-must-never-leak";
+    const input = metadata({ AUTH_SECRET: { type: "encrypted", value: marker } });
+    try {
+      validateVercelEnvironmentContract(input);
+      throw new Error("Expected validation to fail.");
+    } catch (error) {
+      expect(String(error)).not.toContain(marker);
+    }
+  });
+
+  it("validates a metadata file without printing values", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "kinresolve-vercel-env-"));
+    scratchDirectories.push(directory);
+    const filePath = path.join(directory, "metadata.json");
+    const pulledEnvironmentPath = path.join(directory, "production.env");
+    const marker = "secret-value-that-must-never-print";
+    await writeFile(filePath, JSON.stringify(metadata({ AUTH_SECRET: { value: marker } })), "utf8");
+    await writeFile(pulledEnvironmentPath, `AUTH_SECRET=${marker}\n`, "utf8");
+
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      path.join(process.cwd(), "scripts", "validate-vercel-environment.mjs"),
+      filePath,
+      pulledEnvironmentPath
+    ], { encoding: "utf8", cwd: process.cwd() });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/verified.*readable.*sensitive/i);
+    expect(`${result.stdout}${result.stderr}`).not.toContain(marker);
+  });
+
+  it("rejects a forbidden pulled setting without printing its value", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "kinresolve-vercel-env-forbidden-"));
+    scratchDirectories.push(directory);
+    const metadataPath = path.join(directory, "metadata.json");
+    const pulledEnvironmentPath = path.join(directory, "production.env");
+    const marker = "forbidden-secret-value-that-must-never-print";
+    await writeFile(metadataPath, JSON.stringify(metadata()), "utf8");
+    await writeFile(pulledEnvironmentPath, `MIGRATION_DATABASE_URL=${marker}\n`, "utf8");
+
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      path.join(process.cwd(), "scripts", "validate-vercel-environment.mjs"),
+      metadataPath,
+      pulledEnvironmentPath
+    ], { encoding: "utf8", cwd: process.cwd() });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/forbidden workflow-only setting MIGRATION_DATABASE_URL/i);
+    expect(`${result.stdout}${result.stderr}`).not.toContain(marker);
+  });
+});
+
+type Override = Partial<{
+  type: string;
+  target: string[];
+  gitBranch: string;
+  customEnvironmentIds: string[];
+  value: string;
+}>;
+
+function metadata(overrides: Record<string, Override> = {}) {
+  return {
+    envs: [
+      ...requiredSensitiveProductionEnvironmentNames.map((key) => ({
+        key,
+        type: "sensitive",
+        target: ["production"],
+        ...overrides[key]
+      })),
+      ...requiredReadableProductionEnvironmentNames.map((key) => ({
+        key,
+        type: "encrypted",
+        target: ["production"],
+        ...overrides[key]
+      }))
+    ]
+  };
+}

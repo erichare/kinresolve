@@ -1,0 +1,298 @@
+name: Repair failed Kin Resolve holding safety
+run-name: Repair holding run ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}
+
+on:
+  workflow_run:
+    workflows:
+      - Deploy Kin Resolve static holding page
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  authorize:
+    name: Authorize the exact failed holding attempt
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'cancelled' ||
+      github.event.workflow_run.conclusion == 'timed_out'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      authorized: ${{ steps.event.outputs.authorized }}
+      promotion_exposure: ${{ steps.promotion.outputs.promotion_exposure }}
+      safety_environment: ${{ steps.event.outputs.safety_environment }}
+      target: ${{ steps.event.outputs.target }}
+    steps:
+      - name: Validate the exact failed holding event without protected credentials
+        id: event
+        shell: bash
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_ACTION" = "completed"
+          test "$EVENT_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_WORKFLOW_NAME" = "Deploy Kin Resolve static holding page"
+          test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/vercel-holding.yml"
+          test "$SOURCE_EVENT" = "workflow_dispatch"
+          test "$SOURCE_HEAD_BRANCH" = "main"
+          test "$SOURCE_HEAD_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_RUN_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_CONCLUSION" = "failure" || \
+            test "$SOURCE_CONCLUSION" = "cancelled" || \
+            test "$SOURCE_CONCLUSION" = "timed_out"
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$SOURCE_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+
+          case "$SOURCE_DISPLAY_TITLE" in
+            "Kin Resolve static holding beta-staging run $SOURCE_RUN_ID attempt $SOURCE_RUN_ATTEMPT")
+              target="beta-staging"
+              safety_environment="beta-staging-containment"
+              ;;
+            "Kin Resolve static holding production run $SOURCE_RUN_ID attempt $SOURCE_RUN_ATTEMPT")
+              target="production"
+              safety_environment="production-containment"
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+          {
+            printf 'authorized=true\n'
+            printf 'safety_environment=%s\n' "$safety_environment"
+            printf 'target=%s\n' "$target"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact failed holding revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact protected-main provenance without protected credentials
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SOURCE_HEAD_SHA"
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" origin/main
+
+      - name: Set up the pinned Node.js runtime for credential-free classification
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Classify whether promotion could have changed the target
+        id: promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/attempts/$SOURCE_RUN_ATTEMPT/jobs?per_page=100" \
+            > "$RUNNER_TEMP/holding-source-jobs.json"
+          promotion_exposure="$(node - <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const document = JSON.parse(readFileSync(
+            `${process.env.RUNNER_TEMP}/holding-source-jobs.json`,
+            "utf8"
+          ));
+          if (!Number.isSafeInteger(document?.total_count) || document.total_count < 0 ||
+              !Array.isArray(document?.jobs) || document.jobs.length !== document.total_count ||
+              document.total_count > 100) process.exit(1);
+          const promotionSteps = document.jobs.flatMap((job) =>
+            Array.isArray(job?.steps)
+              ? job.steps.filter((step) =>
+                  step?.name === "Promote the explicitly acknowledged static holding deployment"
+                )
+              : []
+          );
+          if (promotionSteps.length > 1) process.exit(1);
+          if (promotionSteps.length === 0) {
+            const holdingJobs = document.jobs.filter((job) => job?.name === "holding");
+            if (holdingJobs.length !== 1 || holdingJobs[0]?.conclusion !== "skipped") process.exit(1);
+            process.stdout.write("false");
+            process.exit(0);
+          }
+          const step = promotionSteps[0];
+          if (step?.status !== "completed" ||
+              !["success", "failure", "cancelled", "skipped"].includes(step?.conclusion)) {
+            process.exit(1);
+          }
+          process.stdout.write(step.conclusion === "skipped" ? "false" : "true");
+          NODE
+          )"
+          test "$promotion_exposure" = "true" || test "$promotion_exposure" = "false"
+          printf 'promotion_exposure=%s\n' "$promotion_exposure" >> "$GITHUB_OUTPUT"
+
+  repair:
+    name: Repair target domain auto-assignment
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ needs.authorize.outputs.safety_environment }}
+    concurrency:
+      group: kinresolve-beta-holding-safety-${{ needs.authorize.outputs.target }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - name: Check out the exact authorized holding revision again
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reverify exact protected-main provenance before repair
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SOURCE_HEAD_SHA"
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" origin/main
+
+      - name: Set up the pinned Node.js runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Repair and independently attest target domain auto-assignment
+        id: repair-auto-assignment
+        continue-on-error: true
+        env:
+          EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          TARGET: ${{ needs.authorize.outputs.target }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          case "$TARGET" in
+            production)
+              test "$EXPECTED_VERCEL_PROJECT_ID" = "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+              ;;
+            beta-staging)
+              test "$EXPECTED_VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+              ;;
+            *) exit 1 ;;
+          esac
+          test -n "$VERCEL_TOKEN"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          project_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request PATCH \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"autoAssignCustomDomains":false}' \
+            "$project_api" --output "$RUNNER_TEMP/holding-safety-auto-assignment-patch.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$project_api" --output "$RUNNER_TEMP/holding-safety-project.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/holding-safety-project.json"
+
+      - name: Fail closed by pausing the target when repair cannot be proved
+        id: pause-fallback
+        if: >-
+          always() &&
+          steps.repair-auto-assignment.outcome == 'failure' &&
+          needs.authorize.outputs.promotion_exposure == 'true'
+        env:
+          EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          EXPECTED_VERCEL_PROJECT_PAUSED: "true"
+          TARGET: ${{ needs.authorize.outputs.target }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          case "$TARGET" in
+            production)
+              test "$EXPECTED_VERCEL_PROJECT_ID" = "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+              ;;
+            beta-staging)
+              test "$EXPECTED_VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+              ;;
+            *) exit 1 ;;
+          esac
+          test -n "$VERCEL_TOKEN"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query" \
+            --output "$RUNNER_TEMP/holding-safety-emergency-pause.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/holding-safety-project-after-pause.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/holding-safety-project-after-pause.json"
+
+      - name: Require a verified automatic repair or fail-closed pause
+        if: always()
+        env:
+          PAUSE_OUTCOME: ${{ steps.pause-fallback.outcome }}
+          PROMOTION_EXPOSURE: ${{ needs.authorize.outputs.promotion_exposure }}
+          REPAIR_OUTCOME: ${{ steps.repair-auto-assignment.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$REPAIR_OUTCOME" == "success" ]]; then exit 0; fi
+          test "$PROMOTION_EXPOSURE" = "true"
+          test "$PAUSE_OUTCOME" = "success"
+
+      - name: Record the holding safety receipt
+        if: success()
+        env:
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          TARGET: ${{ needs.authorize.outputs.target }}
+        run: |
+          {
+            printf '## Kin Resolve holding safety repair\n\n'
+            printf -- '- Source holding run: %s attempt %s\n' "$SOURCE_RUN_ID" "$SOURCE_RUN_ATTEMPT"
+            printf -- '- Target: %s\n' "$TARGET"
+            printf -- '- Domain auto-assignment disabled or project fail-closed paused: true\n'
+          } >> "$GITHUB_STEP_SUMMARY"

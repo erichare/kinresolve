@@ -12,7 +12,8 @@ export type ApiRequestPolicy =
   | "read-only"
   | "same-origin-cookie"
   | "better-auth-managed"
-  | "service-bearer";
+  | "service-bearer"
+  | "release-fence-control";
 
 export type ApiMethodRegistration = {
   access: ApiAccess;
@@ -115,6 +116,22 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
     methods: { GET: register(permission("archive:export"), "read-only") }
   },
   { path: "/api/health", methods: { GET: register(publicAccess, "read-only") } },
+  {
+    path: "/api/release/fence/acquire",
+    methods: { POST: register(serviceAccess, "release-fence-control") }
+  },
+  {
+    path: "/api/release/fence/assert",
+    methods: { POST: register(serviceAccess, "release-fence-control") }
+  },
+  {
+    path: "/api/release/fence/reacquire",
+    methods: { POST: register(serviceAccess, "release-fence-control") }
+  },
+  {
+    path: "/api/release/fence/release",
+    methods: { POST: register(serviceAccess, "release-fence-control") }
+  },
   {
     path: "/api/integration-runs/[id]",
     methods: {
@@ -243,6 +260,21 @@ export function resolveApiAccess(pathname: string, method: string): ApiAccess | 
 
 export function resolveApiMethodPolicy(pathname: string, method: string): ApiRequestPolicy | null {
   return resolveApiMethodRegistration(pathname, method)?.requestPolicy ?? null;
+}
+
+export function isApiWriteBlockedByReleaseFence(pathname: string, method: string): boolean {
+  const registration = resolveApiMethodRegistration(pathname, method);
+  if (!registration) return false;
+  if (registration.requestPolicy === "read-only" || registration.requestPolicy === "release-fence-control") {
+    return false;
+  }
+  // Service-bearer handlers authenticate before checking the fence so an
+  // unsigned request cannot discover release-control state.
+  if (registration.requestPolicy === "service-bearer") return false;
+  if (registration.requestPolicy === "better-auth-managed") {
+    return method.toUpperCase() !== "GET";
+  }
+  return true;
 }
 
 function resolveApiMethodRegistration(pathname: string, method: string): ApiMethodRegistration | null {

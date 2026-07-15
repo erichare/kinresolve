@@ -3,7 +3,7 @@ import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg
 import { getDatabaseConnectionString } from "./connection-string";
 import { runPendingMigrations } from "./migrations";
 
-export { getDatabaseConnectionString } from "./connection-string";
+export { getDatabaseConnectionString, isDatabaseTransportVerified } from "./connection-string";
 
 export type DatabaseOptions = {
   databaseUrl?: string;

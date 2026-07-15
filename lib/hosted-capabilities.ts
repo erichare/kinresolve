@@ -1,17 +1,10 @@
 import { resolveDatasetConfiguration, type DatasetMode, type DeploymentMode } from "./hosted-config";
+import { hostedCapabilityEnvironmentNames } from "./hosted-capability-names";
+
+export { hostedCapabilityEnvironmentNames } from "./hosted-capability-names";
 
 export const hostedGedcomFileLimitBytes = 10 * 1024 * 1024;
 export const hostedGedcomPersonLimit = 40_000;
-
-export const hostedCapabilityEnvironmentNames = [
-  "KINRESOLVE_DNA_ENABLED",
-  "KINRESOLVE_EXTERNAL_AI_ENABLED",
-  "KINRESOLVE_PUBLIC_ARCHIVE_ENABLED",
-  "KINRESOLVE_PUBLIC_PUBLISHING_ENABLED",
-  "KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED",
-  "KINRESOLVE_PACKAGE_MEDIA_ENABLED",
-  "KINRESOLVE_PLAIN_GEDCOM_ENABLED"
-] as const;
 
 export type HostedCapabilityName =
   | "dna"

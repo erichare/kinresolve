@@ -4,6 +4,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { closeDatabasePools, query } from "@/lib/db";
 import { hostedGedcomFileLimitBytes } from "@/lib/hosted-capabilities";
 import {
+  acquireReleaseFence,
+  releaseReleaseFence,
+  ReleaseFenceActiveError
+} from "@/lib/release-fence";
+import {
   cleanupExpiredDirectIntegrationUploadIntents,
   completeDirectIntegrationUpload,
   maximumDirectIntegrationArtifactBytes,
@@ -119,6 +124,33 @@ describeIfDatabase("direct private integration uploads", () => {
       consumed: true,
       artifact_id: completed.artifact.id
     });
+  });
+
+  it("refuses to create a direct-upload intent or ticket while the release fence is active", async () => {
+    const connection = await ancestryConnection(firstOptions, "Fenced direct upload");
+    const identity = {
+      fenceId: `fence-upload-${randomUUID().replaceAll("-", "")}`,
+      releaseCommitSha: "c".repeat(40)
+    };
+    await acquireReleaseFence(identity, firstOptions);
+
+    try {
+      await expect(stageDirectIntegrationUpload(
+        connection.id,
+        { fileName: "fenced-tree.ged", contentType: "text/plain", size: 128 },
+        firstOptions
+      )).rejects.toBeInstanceOf(ReleaseFenceActiveError);
+      expect(ticketIssuer.issue).not.toHaveBeenCalled();
+      const intents = await query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM integration_upload_intents WHERE archive_id = $1",
+        [firstArchiveId],
+        firstOptions
+      );
+      expect(intents.rows[0]).toEqual({ count: "0" });
+    } finally {
+      await releaseReleaseFence(identity, firstOptions);
+      await query("DELETE FROM public.release_write_fences WHERE fence_id = $1", [identity.fenceId], firstOptions);
+    }
   });
 
   it("rechecks hosted plain-GEDCOM policy before replaying a completed ZIP intent", async () => {

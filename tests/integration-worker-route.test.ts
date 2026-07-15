@@ -5,16 +5,23 @@ const workerMocks = vi.hoisted(() => ({
   runIntegrationWorkerBatch: vi.fn(),
   runIntegrationWorkerMaintenance: vi.fn()
 }));
+const releaseFenceMocks = vi.hoisted(() => ({
+  getActiveReleaseFence: vi.fn().mockResolvedValue(null)
+}));
 
 vi.mock("@/lib/integrations/worker", () => workerMocks);
+vi.mock("@/lib/release-fence", () => releaseFenceMocks);
 
 import { GET } from "@/app/api/cron/integration-jobs/route";
 
-const originalSecret = process.env.CRON_SECRET;
+const originalEnvironment = { ...process.env };
 
 beforeEach(() => {
   vi.resetAllMocks();
+  releaseFenceMocks.getActiveReleaseFence.mockResolvedValue(null);
   process.env.CRON_SECRET = "synthetic-cron-secret";
+  process.env.KINRESOLVE_DEPLOYMENT_MODE = "self-hosted";
+  delete process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED;
   workerMocks.integrationWorkerConfiguration.mockReturnValue({
     databaseUrl: "postgres://synthetic.invalid/test",
     workerId: "hosted-cron",
@@ -39,8 +46,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  if (originalSecret === undefined) delete process.env.CRON_SECRET;
-  else process.env.CRON_SECRET = originalSecret;
+  process.env = { ...originalEnvironment };
 });
 
 describe("hosted integration worker invocation", () => {
@@ -58,6 +64,56 @@ describe("hosted integration worker invocation", () => {
     const response = await GET(request("wrong-secret"));
 
     expect(response.status).toBe(401);
+    expect(workerMocks.runIntegrationWorkerBatch).not.toHaveBeenCalled();
+    expect(workerMocks.runIntegrationWorkerMaintenance).not.toHaveBeenCalled();
+  });
+
+  it("authenticates before checking a disabled hosted scheduled-write gate", async () => {
+    setHostedScheduledWrites("false");
+
+    const response = await GET(request("wrong-secret"));
+
+    expect(response.status).toBe(401);
+    expect(releaseFenceMocks.getActiveReleaseFence).not.toHaveBeenCalled();
+    expect(workerMocks.runIntegrationWorkerBatch).not.toHaveBeenCalled();
+    expect(workerMocks.runIntegrationWorkerMaintenance).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "invalid"])(
+    "fails closed without inspecting the fence for a hosted scheduled-write value of %s",
+    async (value) => {
+      setHostedScheduledWrites(value);
+
+      const response = await GET(request("synthetic-cron-secret"));
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: "Scheduled work is unavailable." });
+      expect(releaseFenceMocks.getActiveReleaseFence).not.toHaveBeenCalled();
+      expect(workerMocks.runIntegrationWorkerBatch).not.toHaveBeenCalled();
+      expect(workerMocks.runIntegrationWorkerMaintenance).not.toHaveBeenCalled();
+    }
+  );
+
+  it("returns a generic non-mutating response while hosted scheduled writes are disabled", async () => {
+    setHostedScheduledWrites("false");
+    releaseFenceMocks.getActiveReleaseFence.mockResolvedValue({
+      fenceId: "fence-private-beta-01",
+      releaseCommitSha: "a".repeat(40),
+      state: "active",
+      activationGeneration: 1,
+      firstActivatedAt: "2026-07-15T06:00:00.000Z",
+      activatedAt: "2026-07-15T06:00:00.000Z",
+      releasedAt: null,
+      updatedAt: "2026-07-15T06:00:00.000Z"
+    });
+
+    const response = await GET(request("synthetic-cron-secret"));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toEqual({ error: "Scheduled work is unavailable." });
+    expect(JSON.stringify(body)).not.toContain("fence-private-beta-01");
+    expect(releaseFenceMocks.getActiveReleaseFence).not.toHaveBeenCalled();
     expect(workerMocks.runIntegrationWorkerBatch).not.toHaveBeenCalled();
     expect(workerMocks.runIntegrationWorkerMaintenance).not.toHaveBeenCalled();
   });
@@ -87,6 +143,29 @@ describe("hosted integration worker invocation", () => {
       deadlineAt: new Date("2026-07-14T20:04:30.000Z")
     });
     vi.useRealTimers();
+  });
+
+  it("returns 423 with the exact active fence before leasing or maintenance", async () => {
+    releaseFenceMocks.getActiveReleaseFence.mockResolvedValue({
+      fenceId: "fence-private-beta-01",
+      releaseCommitSha: "a".repeat(40),
+      state: "active",
+      activationGeneration: 1,
+      firstActivatedAt: "2026-07-15T06:00:00.000Z",
+      activatedAt: "2026-07-15T06:00:00.000Z",
+      releasedAt: null,
+      updatedAt: "2026-07-15T06:00:00.000Z"
+    });
+
+    const response = await GET(request("synthetic-cron-secret"));
+
+    expect(response.status).toBe(423);
+    await expect(response.json()).resolves.toMatchObject({
+      fenceId: "fence-private-beta-01",
+      releaseCommitSha: "a".repeat(40)
+    });
+    expect(workerMocks.runIntegrationWorkerBatch).not.toHaveBeenCalled();
+    expect(workerMocks.runIntegrationWorkerMaintenance).not.toHaveBeenCalled();
   });
 
   it("runs upload-intent cleanup even when the parse queue has no archives", async () => {
@@ -132,4 +211,11 @@ function request(secret: string): Request {
   return new Request("https://kinresolve.example/api/cron/integration-jobs", {
     headers: { authorization: `Bearer ${secret}` }
   });
+}
+
+function setHostedScheduledWrites(value: string | undefined) {
+  process.env.KINRESOLVE_DEPLOYMENT_MODE = "hosted";
+  process.env.KINRESOLVE_DATASET_MODE = "pilot";
+  if (value === undefined) delete process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED;
+  else process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED = value;
 }
