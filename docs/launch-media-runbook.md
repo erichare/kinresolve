@@ -46,7 +46,10 @@ node scripts/run-launch-media-capture.mjs
 
 The ignored output directory is `output/launch-media/<source-commit>/`. Generation does
 not copy anything into the public site. Even a successful run leaves
-`REVIEW_REQUIRED.txt` and stops before publication.
+`REVIEW_REQUIRED.txt` and stops before publication. If the synthetic capture or video
+command fails, the terminal receives only a bounded diagnostic with local paths and all
+credential-shaped synthetic environment values redacted; production credentials are never
+passed into the cell.
 
 ## Mandatory human privacy review
 

@@ -292,10 +292,12 @@ try {
 
   runAt(workspaceRoot, process.execPath, ["--import", "tsx", "scripts/capture-launch-media.ts"], {
     env: environment,
+    safeSyntheticDiagnostics: true,
     timeout: 10 * 60_000
   });
   runAt(workspaceRoot, process.execPath, ["scripts/build-launch-video.mjs", sourceCommit], {
     env: environment,
+    safeSyntheticDiagnostics: true,
     timeout: 15 * 60_000
   });
   const capture = JSON.parse(await readFile(path.join(workspaceOutputDirectory, "capture.json"), "utf8"));
@@ -359,9 +361,32 @@ function runAt(cwd, command, args, options = {}) {
     timeout: options.timeout ?? 120_000
   });
   if (result.error || result.status !== 0) {
-    throw new Error(`${path.basename(command)} failed while orchestrating the disposable launch-media cell.`);
+    const diagnostic = options.safeSyntheticDiagnostics
+      ? safeSyntheticFailureDiagnostic(result.stderr)
+      : "";
+    throw new Error(
+      `${path.basename(command)} failed while orchestrating the disposable launch-media cell.`
+      + (diagnostic ? `\nSynthetic-only redacted diagnostic:\n${diagnostic}` : "")
+    );
   }
   return result.stdout.trim();
+}
+
+function safeSyntheticFailureDiagnostic(stderr) {
+  let diagnostic = typeof stderr === "string" ? stderr.slice(-8 * 1024) : "";
+  const redactedValues = Object.entries(environment)
+    .filter(([name]) => /(?:SECRET|PASSWORD|TOKEN|DATABASE_URL|ACCESS_KEY_ID)/.test(name))
+    .map(([, value]) => value)
+    .filter((value) => typeof value === "string" && value.length > 0)
+    .sort((left, right) => right.length - left.length);
+  for (const value of [temporaryRoot, callerRoot, ...redactedValues]) {
+    diagnostic = diagnostic.replaceAll(value, "<redacted>");
+  }
+  return diagnostic
+    .replace(/\b(?:postgres(?:ql)?:\/\/)[^\s'"<>]+/giu, "<redacted-database-url>")
+    .replace(/\bkr_beta_[A-Za-z0-9_-]+/gu, "<redacted-api-token>")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "")
+    .trim();
 }
 
 function gitAt(cwd, args) {

@@ -125,6 +125,11 @@ describe("synthetic launch-media contract", () => {
       orchestrator.indexOf('minioImage, "server", "/data", "--address", ":9000"\n  ]);')
     );
     expect(orchestrator).toContain("for (const filename of approvedPackageFiles)");
+    expect(orchestrator.match(/safeSyntheticDiagnostics: true/g)).toHaveLength(2);
+    expect(orchestrator).toContain("safeSyntheticFailureDiagnostic(result.stderr)");
+    expect(orchestrator).toContain('diagnostic.replaceAll(value, "<redacted>")');
+    expect(orchestrator).toContain('"<redacted-database-url>"');
+    expect(orchestrator).toContain('"<redacted-api-token>"');
     expect(orchestrator).toContain("Source provenance changed before launch-media copy-back.");
     expect(orchestrator).toContain("Do not publish automatically.");
     expect(orchestrator).not.toContain("publish-launch-media.mjs");
