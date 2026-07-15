@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeDatabasePools, query } from "@/lib/db";
 import type { DnaMatch } from "@/lib/models";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 import {
   addCaseTask,
   applyGedcomImport,
@@ -20,9 +21,10 @@ const describeIfDatabase = databaseUrl ? describe : describe.skip;
 
 let storeOptions: { databaseUrl: string; archiveId: string };
 
-beforeEach(() => {
+beforeEach(async () => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `test-row-${randomUUID()}` };
+  await provisionTestArchive(storeOptions);
 });
 
 afterEach(async () => {
@@ -85,7 +87,6 @@ const smallGedcom = [
 
 describeIfDatabase("row-level workspace persistence", () => {
   it("does not rewrite people, sources, or DNA rows when case tasks change", async () => {
-    await readWorkspace(storeOptions);
     const created = await createCase({ title: "Task stability", question: "Do writes stay scoped?" }, storeOptions);
 
     const peopleBefore = await captureRowVersions(storeOptions.archiveId, "people");
@@ -108,7 +109,6 @@ describeIfDatabase("row-level workspace persistence", () => {
   });
 
   it("does not rewrite unrelated tables when an AI run is saved", async () => {
-    await readWorkspace(storeOptions);
     const peopleBefore = await captureRowVersions(storeOptions.archiveId, "people");
     const casesBefore = await captureRowVersions(storeOptions.archiveId, "research_cases");
     const rawBefore = await captureRowVersions(storeOptions.archiveId, "raw_records");
@@ -145,7 +145,6 @@ describeIfDatabase("row-level workspace persistence", () => {
   });
 
   it("keeps newest-first ordering for prepended entities", async () => {
-    await readWorkspace(storeOptions);
     const first = await createCase({ title: "First case", question: "One?" }, storeOptions);
     const second = await createCase({ title: "Second case", question: "Two?" }, storeOptions);
 
@@ -167,8 +166,6 @@ describeIfDatabase("row-level workspace persistence", () => {
   });
 
   it("caps AI run history at 25 without rewriting other tables", async () => {
-    await readWorkspace(storeOptions);
-
     for (let index = 0; index < 27; index += 1) {
       await saveAIAnalysisRun(
         {
@@ -193,7 +190,6 @@ describeIfDatabase("row-level workspace persistence", () => {
   });
 
   it("removes the derived hypothesis row when a DNA match is deleted", async () => {
-    await readWorkspace(storeOptions);
     const match = testDnaMatch();
     await saveDnaMatch(match, storeOptions);
 
@@ -215,7 +211,6 @@ describeIfDatabase("row-level workspace persistence", () => {
   });
 
   it("scopes GEDCOM apply writes to import-related tables and stores a real backup snapshot", async () => {
-    await readWorkspace(storeOptions);
     const casesBefore = await captureRowVersions(storeOptions.archiveId, "research_cases");
     const dnaBefore = await captureRowVersions(storeOptions.archiveId, "dna_matches");
 
@@ -238,7 +233,6 @@ describeIfDatabase("row-level workspace persistence", () => {
   });
 
   it("preserves curation flags and avoids duplicates on re-import", async () => {
-    await readWorkspace(storeOptions);
     await applyGedcomImport({ sourceName: "row-test.ged", content: smallGedcom }, storeOptions);
     await updatePersonCuration("@I1@", { privacy: "public", livingStatus: "deceased" }, storeOptions);
 

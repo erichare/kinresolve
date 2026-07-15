@@ -11,7 +11,7 @@ import {
   registerIntegrationMediaWriteClaim
 } from "@/lib/integrations/media-claims";
 import { createArchiveObjectStorage } from "@/lib/storage/object-storage";
-import { readWorkspace } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -50,7 +50,7 @@ describeIfDatabase("durable integration media write claims", () => {
     const archiveId = `test-media-claims-${randomUUID()}`;
     createdArchives.add(archiveId);
     const options = { archiveId, databaseUrl: databaseUrl! };
-    await readWorkspace(options);
+    await provisionTestArchive(options);
     const connectionId = `connection-${randomUUID()}`;
     const secondConnectionId = `connection-${randomUUID()}`;
     const firstRunId = `run-${randomUUID()}`;

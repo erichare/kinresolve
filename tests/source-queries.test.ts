@@ -4,15 +4,17 @@ import { closeDatabasePools, query } from "@/lib/db";
 import { buildCaseLinkOptions, buildPersonLinkOptions, searchSourcesPage, type SourceSearchFilters } from "@/lib/source-search";
 import { listCaseLinkOptions, listPersonLinkOptions, searchSourcesPageFromDb } from "@/lib/store/source-queries";
 import { createCase, readWorkspace, saveSourceDocument, writeWorkspace, type WorkspaceData } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
 
 let storeOptions: { databaseUrl: string; archiveId: string };
 
-beforeEach(() => {
+beforeEach(async () => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `test-sq-${randomUUID()}` };
+  await provisionTestArchive(storeOptions);
 });
 
 afterEach(async () => {

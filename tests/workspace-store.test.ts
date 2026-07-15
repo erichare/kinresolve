@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDatabasePools, query } from "@/lib/db";
 import type { DnaMatch } from "@/lib/models";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 import {
   addCaseTask,
   createCase,
@@ -28,9 +29,10 @@ beforeAll(async () => {
   await query("DELETE FROM archives WHERE id LIKE 'test-%'", [], { databaseUrl });
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `test-${randomUUID()}` };
+  await provisionTestArchive(storeOptions);
 });
 
 afterEach(async () => {
@@ -43,7 +45,7 @@ afterAll(async () => {
 });
 
 describeIfDatabase("workspace store", () => {
-  it("seeds a Postgres archive when storage is empty", async () => {
+  it("reads an explicitly provisioned Postgres demo archive", async () => {
     const workspace = await readWorkspace(storeOptions);
 
     expect(workspace.people.length).toBeGreaterThan(0);
@@ -383,6 +385,7 @@ describeIfDatabase("workspace store", () => {
     const otherOptions = { ...storeOptions, archiveId: `test-${randomUUID()}` };
 
     try {
+      await provisionTestArchive(otherOptions);
       const first = await readWorkspace(storeOptions);
       const second = await readWorkspace(otherOptions);
 

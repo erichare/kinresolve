@@ -410,7 +410,8 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
       "008_integration_upload_intents",
       "009_integration_media_objects",
       "010_integration_media_write_claims",
-      "011_integration_change_search"
+      "011_integration_change_search",
+      "012_archive_dataset_mode"
     ]);
     for (const table of archiveScopedTables) {
       const count = await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`);
@@ -431,6 +432,14 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
       )
     ).resolves.toMatchObject({
       rows: [{ status: "done", outcomes: [], completed_at: null, work_fingerprint: "eric s gro r odz search" }]
+    });
+    await expect(
+      pool.query("SELECT id, dataset_mode, demo_fixture_version FROM archives ORDER BY id")
+    ).resolves.toMatchObject({
+      rows: [
+        { id: "archive-a", dataset_mode: "pilot", demo_fixture_version: null },
+        { id: "archive-b", dataset_mode: "pilot", demo_fixture_version: null }
+      ]
     });
     await pool.query(
       "INSERT INTO tasks (id, archive_id, case_id, title, status, sort_order) VALUES ('old-writer-task', 'archive-a', 'case-a', 'Old writer task', 'todo', 99)"
@@ -473,7 +482,8 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
       "008_integration_upload_intents",
       "009_integration_media_objects",
       "010_integration_media_write_claims",
-      "011_integration_change_search"
+      "011_integration_change_search",
+      "012_archive_dataset_mode"
     ]);
     await exerciseCompositeKeyWriters(pool);
     await expect(pool.query("SELECT count(*)::integer AS count FROM legacy_users")).resolves.toMatchObject({ rows: [{ count: 1 }] });

@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { closeDatabasePools, query } from "@/lib/db";
 import { applyGedcomImport, readWorkspace, repairGedcomRelationshipLinks, updatePersonCuration } from "@/lib/workspace-store";
 import { prepareGedcomImport } from "@/lib/gedcom/apply";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -22,9 +23,10 @@ beforeAll(async () => {
   await deleteTestArchives("LIKE 'test-%'", []);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `test-${randomUUID()}` };
+  await provisionTestArchive(storeOptions);
 });
 
 afterEach(async () => {

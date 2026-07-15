@@ -16,7 +16,7 @@ import {
 import { DESKTOP_MEDIA_RIGHTS_ACKNOWLEDGEMENT_VERSION } from "@/lib/integrations/types";
 import { createArchiveObjectStorage } from "@/lib/storage/object-storage";
 import type { DirectUploadTicketIssuer } from "@/lib/storage/direct-upload-ticket";
-import { readWorkspace } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -55,8 +55,8 @@ describeIfDatabase("direct private integration uploads", () => {
     };
     firstOptions = optionsFor(firstArchiveId, objectStorage, ticketIssuer, () => now);
     secondOptions = optionsFor(secondArchiveId, objectStorage, ticketIssuer, () => now);
-    await readWorkspace(firstOptions);
-    await readWorkspace(secondOptions);
+    await provisionTestArchive(firstOptions);
+    await provisionTestArchive(secondOptions);
   });
 
   afterEach(async () => {

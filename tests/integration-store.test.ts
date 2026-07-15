@@ -23,6 +23,7 @@ import {
 } from "@/lib/integrations/store";
 import { pruneBackupRows } from "@/lib/store/rows";
 import { readWorkspace, updatePersonCuration } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -45,8 +46,8 @@ beforeEach(async () => {
   const suffix = randomUUID();
   firstArchive = { databaseUrl, archiveId: `test-integration-a-${suffix}` };
   secondArchive = { databaseUrl, archiveId: `test-integration-b-${suffix}` };
-  await readWorkspace(firstArchive);
-  await readWorkspace(secondArchive);
+  await provisionTestArchive(firstArchive);
+  await provisionTestArchive(secondArchive);
 });
 
 afterEach(async () => {
