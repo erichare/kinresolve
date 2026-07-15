@@ -68,7 +68,8 @@ describe("hosted capability route contract", () => {
 
   it.each([
     ["app/api/imports/route.ts", "readImportRequest(request"],
-    ["app/api/imports/uploads/route.ts", "process.env.BLOB_READ_WRITE_TOKEN"]
+    ["app/api/imports/uploads/route.ts", "process.env.BLOB_READ_WRITE_TOKEN"],
+    ["app/api/integrations/[id]/artifacts/route.ts", "request.formData()"]
   ] as const)("disables the legacy hosted mutation in %s before processing", async (file, processingMarker) => {
     const source = await readFile(file, "utf8");
     const guard = "hostedDeploymentUnavailableResponse()";

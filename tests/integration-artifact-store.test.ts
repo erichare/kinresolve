@@ -18,6 +18,7 @@ import {
 
 afterEach(() => {
   vi.resetAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("integration artifact reads", () => {
@@ -227,6 +228,39 @@ describe("integration artifact deletion", () => {
 });
 
 describe("integration artifact creation cleanup", () => {
+  it("rejects a hosted ZIP before buffered object storage", async () => {
+    const bytes = Buffer.from("PK synthetic private export");
+    const storage = objectStorageReturning(bytes);
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (/pg_advisory_xact_lock/i.test(sql)) return { rows: [{}], rowCount: 1 };
+        if (/integration_connections/i.test(sql)) {
+          return { rows: [{ id: "connection-1", provider: "gedcom" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      })
+    };
+    dbMocks.withTransaction.mockImplementation(async (_options, operation) => operation(client));
+    for (const [name, value] of Object.entries({
+      KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+      KINRESOLVE_DATASET_MODE: "pilot",
+      KINRESOLVE_DNA_ENABLED: "false",
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+      KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+      KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+      KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+      KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+      KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+    })) vi.stubEnv(name, value);
+
+    await expect(createIntegrationArtifact(
+      "connection-1",
+      { fileName: "family.zip", contentType: "application/zip", bytes },
+      { archiveId: "archive-synthetic", objectStorage: storage as never }
+    )).rejects.toMatchObject({ code: "PLAIN_GEDCOM_REQUIRED" });
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
   it("rejects a desktop ZIP before object storage when either media release gate is closed", async () => {
     const bytes = Buffer.from("PK synthetic private export");
     const storage = objectStorageReturning(bytes);
