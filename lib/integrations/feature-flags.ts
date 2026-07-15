@@ -37,6 +37,28 @@ export function getIntegrationFeatureFlags(environment: Environment = process.en
   };
 }
 
+export function resolveIntegrationFeatureFlags(
+  overrides?: IntegrationFeatureFlags,
+  environment: Environment = process.env
+): IntegrationFeatureFlags {
+  const configured = getIntegrationFeatureFlags(environment);
+  if (!configured.plainGedcomOnly || !overrides) {
+    return overrides ?? configured;
+  }
+
+  // Hosted policy is authoritative. Injectable flags are useful for tests and
+  // self-hosted operators, but in hosted mode they may only make gates stricter.
+  return {
+    exportRefresh: configured.exportRefresh && overrides.exportRefresh,
+    desktopMedia: configured.desktopMedia && overrides.desktopMedia,
+    desktopMediaLegalReviewApproved: configured.desktopMediaLegalReviewApproved
+      && overrides.desktopMediaLegalReviewApproved,
+    ancestryPartnerApi: configured.ancestryPartnerApi && overrides.ancestryPartnerApi,
+    packageMedia: Boolean(configured.packageMedia && (overrides.packageMedia ?? true)),
+    plainGedcomOnly: true
+  };
+}
+
 export function isIntegrationProviderEnabled(
   provider: IntegrationProvider,
   flags = getIntegrationFeatureFlags()

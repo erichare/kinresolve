@@ -256,7 +256,18 @@ describe("integration artifact creation cleanup", () => {
     await expect(createIntegrationArtifact(
       "connection-1",
       { fileName: "family.zip", contentType: "application/zip", bytes },
-      { archiveId: "archive-synthetic", objectStorage: storage as never }
+      {
+        archiveId: "archive-synthetic",
+        objectStorage: storage as never,
+        featureFlags: {
+          exportRefresh: true,
+          desktopMedia: true,
+          desktopMediaLegalReviewApproved: true,
+          ancestryPartnerApi: true,
+          packageMedia: true,
+          plainGedcomOnly: false
+        }
+      }
     )).rejects.toMatchObject({ code: "PLAIN_GEDCOM_REQUIRED" });
     expect(storage.put).not.toHaveBeenCalled();
   });

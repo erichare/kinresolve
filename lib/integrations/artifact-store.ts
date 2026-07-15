@@ -8,8 +8,8 @@ import {
   type ArchiveObjectStorage
 } from "../storage/object-storage";
 import {
-  getIntegrationFeatureFlags,
   isIntegrationProviderEnabled,
+  resolveIntegrationFeatureFlags,
   type IntegrationFeatureFlags
 } from "./feature-flags";
 import {
@@ -82,7 +82,7 @@ export async function createIntegrationArtifact(
   if (bytes.length === 0 || (input.size !== undefined && input.size !== bytes.length)) {
     throw integrationArtifactError("INVALID_INPUT", "artifact content is empty or has an invalid size");
   }
-  const featureFlags = options.featureFlags ?? getIntegrationFeatureFlags();
+  const featureFlags = resolveIntegrationFeatureFlags(options.featureFlags);
   if (featureFlags.plainGedcomOnly) {
     validateHostedGedcomFile({ fileName, contentType, size: bytes.length });
   }

@@ -147,28 +147,39 @@ describeIfDatabase("direct private integration uploads", () => {
       KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
     } as const;
     for (const [name, value] of Object.entries(hostedEnvironment)) vi.stubEnv(name, value);
+    const hostedOptions = {
+      ...firstOptions,
+      featureFlags: {
+        exportRefresh: true,
+        desktopMedia: true,
+        desktopMediaLegalReviewApproved: true,
+        ancestryPartnerApi: true,
+        packageMedia: true,
+        plainGedcomOnly: false
+      }
+    };
 
     try {
-      await expect(completeDirectIntegrationUpload(connection.id, stagedBeforeFlip.intent.id, firstOptions))
+      await expect(completeDirectIntegrationUpload(connection.id, stagedBeforeFlip.intent.id, hostedOptions))
         .rejects.toMatchObject({ code: "PLAIN_GEDCOM_REQUIRED" });
       expect(backend.stream).not.toHaveBeenCalled();
 
       await expect(stageDirectIntegrationUpload(
         connection.id,
         { fileName: "family.zip", contentType: "application/zip", size: 1024 },
-        firstOptions
+        hostedOptions
       )).rejects.toMatchObject({ code: "PLAIN_GEDCOM_REQUIRED" });
       await expect(stageDirectIntegrationUpload(
         connection.id,
         { fileName: "family.ged", contentType: "text/plain", size: hostedGedcomFileLimitBytes + 1 },
-        firstOptions
+        hostedOptions
       )).rejects.toMatchObject({ code: "GEDCOM_FILE_TOO_LARGE" });
       expect(ticketIssuer.issue).not.toHaveBeenCalled();
 
       await expect(stageDirectIntegrationUpload(
         connection.id,
         { fileName: "family.ged", contentType: "text/plain", size: hostedGedcomFileLimitBytes },
-        firstOptions
+        hostedOptions
       )).resolves.toMatchObject({ intent: { size: hostedGedcomFileLimitBytes } });
       expect(ticketIssuer.issue).toHaveBeenCalledOnce();
     } finally {

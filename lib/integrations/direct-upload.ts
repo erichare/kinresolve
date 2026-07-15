@@ -16,8 +16,8 @@ import {
   type DirectUploadTicketIssuer
 } from "../storage/direct-upload-ticket";
 import {
-  getIntegrationFeatureFlags,
-  isIntegrationProviderEnabled
+  isIntegrationProviderEnabled,
+  resolveIntegrationFeatureFlags
 } from "./feature-flags";
 import {
   resolveArtifactRightsAcknowledgement,
@@ -110,7 +110,7 @@ export async function stageDirectIntegrationUpload(
   const archiveId = required(options.archiveId, "archiveId");
   const normalizedConnectionId = required(connectionId, "connection id");
   const file = validateUploadDeclaration(input);
-  const featureFlags = options.featureFlags ?? getIntegrationFeatureFlags();
+  const featureFlags = resolveIntegrationFeatureFlags(options.featureFlags);
   if (featureFlags.plainGedcomOnly) {
     validateHostedGedcomFile(file);
   }
@@ -193,7 +193,7 @@ export async function completeDirectIntegrationUpload(
     throw directUploadError("INVALID_STATE", "Upload intent has already been consumed");
   }
 
-  const featureFlags = options.featureFlags ?? getIntegrationFeatureFlags();
+  const featureFlags = resolveIntegrationFeatureFlags(options.featureFlags);
   if (featureFlags.plainGedcomOnly) {
     validateHostedGedcomFile({
       fileName: intent.file_name,
@@ -766,7 +766,7 @@ async function requireEnabledConnection(
   if (!connection.rows[0]) throw directUploadError("NOT_FOUND", "Data source not found");
   if (!isIntegrationProviderEnabled(
     connection.rows[0].provider,
-    options.featureFlags ?? getIntegrationFeatureFlags()
+    resolveIntegrationFeatureFlags(options.featureFlags)
   )) {
     throw directUploadError("FEATURE_DISABLED", "This data-source provider is disabled");
   }
