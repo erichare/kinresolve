@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/app-shell";
 import { PaginationLinks } from "@/components/pagination-links";
 import { Metric, Status } from "@/components/ui";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger, type SearchParamValue } from "@/lib/pagination";
 import { buildQualityReportPage } from "@/lib/quality";
 import { readWorkspace } from "@/lib/workspace-store";
@@ -12,20 +13,21 @@ const reportPageSize = 50;
 type ReportsSearchParams = Record<string, SearchParamValue>;
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<ReportsSearchParams> }) {
+  const capabilities = resolveHostedCapabilities();
   const params = await searchParams;
   const workspace = await readWorkspace();
-  const report = buildQualityReportPage(workspace.people, workspace.dnaMatches, workspace.cases, {
+  const report = buildQualityReportPage(workspace.people, capabilities.dna ? workspace.dnaMatches : [], workspace.cases, {
     page: parsePositiveInteger(params.issuesPage, 1),
     pageSize: reportPageSize
-  });
+  }, { dnaEnabled: capabilities.dna });
 
   return (
     <AppShell title="Quality Reports" active="/app/reports" archiveName={workspace.archiveName}>
       <div className="metric-row">
         <Metric label="Archive quality" value={`${report.score}%`} detail="from automated checks" />
-        <Metric label="High severity" value={report.summary.high} detail="fix before publishing" />
+        <Metric label="High severity" value={report.summary.high} detail={capabilities.publicPublishing ? "fix before publishing" : "review before sharing"} />
         <Metric label="Source gaps" value={report.summary.sourceGaps} detail="vital facts" />
-        <Metric label="DNA gaps" value={report.summary.dnaGaps} detail="triage blockers" />
+        {capabilities.dna ? <Metric label="DNA gaps" value={report.summary.dnaGaps} detail="triage blockers" /> : null}
       </div>
 
       <section className="app-card">

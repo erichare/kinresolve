@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import type { DnaMatch, DnaSide, DnaTreeStatus } from "@/lib/models";
 import { deleteDnaMatch, updateDnaMatch } from "@/lib/workspace-store";
 
@@ -10,6 +11,9 @@ const treeStatuses = new Set<DnaTreeStatus>(["none", "private", "partial", "publ
 const triageStatuses = new Set<DnaMatch["triageStatus"]>(["needs_review", "triaged", "ignored", "high_priority"]);
 
 export const PATCH = withPermission("dna:write", async (request: Request, _authorization, { params }: { params: Promise<{ id: string }> }) => {
+  const unavailable = capabilityUnavailableResponse("dna");
+  if (unavailable) return unavailable;
+
   const { id } = await params;
   const input = (await request.json()) as Partial<DnaMatch>;
 
@@ -32,6 +36,9 @@ export const PATCH = withPermission("dna:write", async (request: Request, _autho
 });
 
 export const DELETE = withPermission("dna:write", async (_request: Request, _authorization, { params }: { params: Promise<{ id: string }> }) => {
+  const unavailable = capabilityUnavailableResponse("dna");
+  if (unavailable) return unavailable;
+
   const { id } = await params;
 
   try {

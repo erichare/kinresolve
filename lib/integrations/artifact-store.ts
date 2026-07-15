@@ -2,13 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
 import { query, withTransaction, type DatabaseOptions } from "../db";
+import { validateHostedGedcomFile } from "../hosted-capabilities";
 import {
   createConfiguredArchiveObjectStorage,
   type ArchiveObjectStorage
 } from "../storage/object-storage";
 import {
-  getIntegrationFeatureFlags,
   isIntegrationProviderEnabled,
+  resolveIntegrationFeatureFlags,
   type IntegrationFeatureFlags
 } from "./feature-flags";
 import {
@@ -68,6 +69,10 @@ type ArtifactRow = {
   updated_at: Date | string;
 };
 
+type DownloadableArtifactRow = ArtifactRow & {
+  provider: IntegrationProvider;
+};
+
 export async function createIntegrationArtifact(
   connectionId: string,
   input: CreateIntegrationArtifactInput,
@@ -80,6 +85,10 @@ export async function createIntegrationArtifact(
   const bytes = Buffer.from(input.bytes);
   if (bytes.length === 0 || (input.size !== undefined && input.size !== bytes.length)) {
     throw integrationArtifactError("INVALID_INPUT", "artifact content is empty or has an invalid size");
+  }
+  const featureFlags = resolveIntegrationFeatureFlags(options.featureFlags);
+  if (featureFlags.plainGedcomOnly) {
+    validateHostedGedcomFile({ fileName, contentType, size: bytes.length });
   }
 
   const storage = options.objectStorage ?? createConfiguredArchiveObjectStorage();
@@ -101,7 +110,7 @@ export async function createIntegrationArtifact(
       }
       if (!isIntegrationProviderEnabled(
         connection.rows[0].provider,
-        options.featureFlags ?? getIntegrationFeatureFlags()
+        featureFlags
       )) {
         throw integrationArtifactError("FEATURE_DISABLED", "this data-source provider is disabled");
       }
@@ -109,7 +118,7 @@ export async function createIntegrationArtifact(
         provider: connection.rows[0].provider,
         fileName,
         acknowledgement: input.mediaRightsAcknowledgement,
-        featureFlags: options.featureFlags ?? getIntegrationFeatureFlags(),
+        featureFlags,
         acknowledgedAt: new Date()
       });
 
@@ -220,10 +229,15 @@ export async function streamIntegrationArtifact(
   options: IntegrationArtifactStoreOptions
 ): Promise<{ artifact: PublicIntegrationArtifact; body: AsyncIterable<Uint8Array> }> {
   const archiveId = required(options.archiveId, "archiveId");
-  const result = await query<ArtifactRow>(
-    `SELECT * FROM integration_artifacts
-     WHERE archive_id = $1 AND connection_id = $2 AND id = $3
-       AND state = 'ready'`,
+  const result = await query<DownloadableArtifactRow>(
+    `SELECT artifact.*, connection.provider
+     FROM integration_artifacts artifact
+     JOIN integration_connections connection
+       ON connection.archive_id = artifact.archive_id
+      AND connection.id = artifact.connection_id
+      AND connection.status = 'active'
+     WHERE artifact.archive_id = $1 AND artifact.connection_id = $2 AND artifact.id = $3
+       AND artifact.state = 'ready'`,
     [archiveId, required(connectionId, "connection id"), required(artifactId, "artifact id")],
     options
   );
@@ -231,7 +245,20 @@ export async function streamIntegrationArtifact(
     throw integrationArtifactError("NOT_FOUND", "downloadable integration artifact not found");
   }
 
-  const artifact = mapArtifact(result.rows[0], false);
+  const row = result.rows[0];
+  const featureFlags = resolveIntegrationFeatureFlags(options.featureFlags);
+  if (featureFlags.plainGedcomOnly) {
+    validateHostedGedcomFile({
+      fileName: row.file_name,
+      contentType: row.content_type,
+      size: Number(row.size_bytes)
+    });
+  }
+  if (!isIntegrationProviderEnabled(row.provider, featureFlags)) {
+    throw integrationArtifactError("FEATURE_DISABLED", "this data-source provider is disabled");
+  }
+
+  const artifact = mapArtifact(row, false);
   const storage = options.objectStorage ?? createConfiguredArchiveObjectStorage();
   try {
     const metadata = await storage.stat({ archiveId, key: artifact.artifactKey });

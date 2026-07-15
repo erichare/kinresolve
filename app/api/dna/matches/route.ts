@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import {
   type DnaHelpfulnessFilter,
   type DnaSideFilter,
@@ -19,6 +20,9 @@ const helpfulnessValues = new Set<DnaHelpfulnessFilter>(["all", "high", "medium"
 const sortValues = new Set<DnaSortKey>(["helpfulness", "cm", "name"]);
 
 export const GET = withPermission("dna:read", async (request: Request) => {
+  const unavailable = capabilityUnavailableResponse("dna");
+  if (unavailable) return unavailable;
+
   const url = new URL(request.url);
 
   const result = await searchDnaMatchesPageFromDb(

@@ -17,6 +17,7 @@ type Props = {
   initialResult: SourceSearchResult;
   initialPersonOptions: PersonLinkOption[];
   caseOptions: CaseLinkOption[];
+  evidenceBinaryUploadsEnabled?: boolean;
 };
 
 const pageSizeOptions = [25, 50, 100, 250];
@@ -34,7 +35,34 @@ const initialForm = {
   confidence: "0.70"
 };
 
-export function SourceWorkspace({ initialResult, initialPersonOptions, caseOptions }: Props) {
+type SourceForm = typeof initialForm;
+
+export function buildSourceSubmission(
+  form: SourceForm,
+  file: File | null,
+  evidenceBinaryUploadsEnabled: boolean
+): { body: BodyInit; headers?: Record<string, string> } {
+  if (!evidenceBinaryUploadsEnabled) {
+    return {
+      body: JSON.stringify(form),
+      headers: { "content-type": "application/json" }
+    };
+  }
+
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(form)) {
+    formData.set(key, value);
+  }
+  if (file) formData.set("file", file);
+  return { body: formData };
+}
+
+export function SourceWorkspace({
+  initialResult,
+  initialPersonOptions,
+  caseOptions,
+  evidenceBinaryUploadsEnabled = true
+}: Props) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [privacy, setPrivacy] = useState<SourcePrivacyFilter>("all");
@@ -161,18 +189,12 @@ export function SourceWorkspace({ initialResult, initialPersonOptions, caseOptio
     setStatus("saving");
     setError("");
 
-    const formData = new FormData();
-    for (const [key, value] of Object.entries(form)) {
-      formData.set(key, value);
-    }
-    if (file) {
-      formData.set("file", file);
-    }
+    const submission = buildSourceSubmission(form, file, evidenceBinaryUploadsEnabled);
 
     try {
       const response = await fetch("/api/uploads", {
         method: "POST",
-        body: formData
+        ...submission
       });
 
       if (!response.ok) {
@@ -369,6 +391,11 @@ export function SourceWorkspace({ initialResult, initialPersonOptions, caseOptio
 
         <aside aria-busy={status === "saving"} className="app-card">
           <h2>Add source</h2>
+          {!evidenceBinaryUploadsEnabled ? (
+            <p className="muted" role="status">
+              Transcript-only in this private beta. Paste text or a transcript below; binary files stay on your device.
+            </p>
+          ) : null}
           <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
             <Field label="Title" value={form.title} onChange={(value) => updateForm({ title: value })} />
             <Field label="Type" value={form.sourceType} onChange={(value) => updateForm({ sourceType: value })} />
@@ -389,17 +416,19 @@ export function SourceWorkspace({ initialResult, initialPersonOptions, caseOptio
               ]}
             />
             <Field inputMode="decimal" label="Confidence 0-1" max={1} min={0} step={0.05} type="number" value={form.confidence} onChange={(value) => updateForm({ confidence: value })} />
-            <label className="field">
-              <span>File</span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={(event) => {
-                  setFile(event.target.files?.[0] ?? null);
-                  setStatus((current) => (current === "saved" ? "idle" : current));
-                }}
-              />
-            </label>
+            {evidenceBinaryUploadsEnabled ? (
+              <label className="field">
+                <span>File</span>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={(event) => {
+                    setFile(event.target.files?.[0] ?? null);
+                    setStatus((current) => (current === "saved" ? "idle" : current));
+                  }}
+                />
+              </label>
+            ) : null}
             <TextArea label="Transcript" value={form.transcript} onChange={(value) => updateForm({ transcript: value })} />
             <TextArea label="Notes" value={form.notes} onChange={(value) => updateForm({ notes: value })} />
             <button aria-busy={status === "saving"} className="button" disabled={status === "saving"} onClick={saveSource} type="button">
@@ -412,7 +441,7 @@ export function SourceWorkspace({ initialResult, initialPersonOptions, caseOptio
             ) : null}
             {status === "error" || error ? (
               <div aria-atomic="true" role="alert">
-                {status === "error" ? <Status tone="warning">Upload failed</Status> : null}
+                {status === "error" ? <Status tone="warning">{sourceSaveFailureLabel(evidenceBinaryUploadsEnabled)}</Status> : null}
                 {error ? <p className={status === "error" ? "muted" : "form-error"}>{error}</p> : null}
               </div>
             ) : null}
@@ -442,6 +471,10 @@ export function SourceWorkspace({ initialResult, initialPersonOptions, caseOptio
       </section>
     </div>
   );
+}
+
+export function sourceSaveFailureLabel(evidenceBinaryUploadsEnabled: boolean): string {
+  return evidenceBinaryUploadsEnabled ? "Upload failed" : "Save failed";
 }
 
 function PaginationControls({ page, pageCount, onPageChange }: { page: number; pageCount: number; onPageChange: (page: number) => void }) {

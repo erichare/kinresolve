@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import { parseCsvRows } from "@/lib/csv";
 import { mapDnaCsvRows } from "@/lib/dna-import";
 import { saveDnaMatches } from "@/lib/workspace-store";
@@ -8,6 +9,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export const POST = withPermission("dna:write", async (request: Request) => {
+  const unavailable = capabilityUnavailableResponse("dna");
+  if (unavailable) return unavailable;
+
   const csv = await readCsvRequest(request);
 
   if (!csv.trim()) {

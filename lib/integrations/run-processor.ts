@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { query } from "../db";
 import { prepareGedcomImport, type PreparedGedcomImport } from "../gedcom/apply";
+import { validateHostedGedcomFile, validateHostedGedcomPeople } from "../hosted-capabilities";
 import type { PersonFact, PersonSummary, SourceDocument } from "../models";
 import {
   createConfiguredArchiveObjectStorage,
@@ -9,7 +10,7 @@ import {
 } from "../storage/object-storage";
 import { readWorkspace } from "../workspace-store";
 import { classifyRefreshChange } from "./refresh";
-import { getIntegrationFeatureFlags } from "./feature-flags";
+import { getIntegrationFeatureFlags, isIntegrationProviderEnabled } from "./feature-flags";
 import {
   hashRetainedGedcomExtensions,
   normalizeGedcomSnapshotEntities,
@@ -36,6 +37,7 @@ import {
 } from "./source-package";
 import {
   applySyncRun,
+  getIntegrationArtifact,
   getIntegrationConnection,
   getIntegrationSnapshot,
   getSyncRun,
@@ -120,6 +122,18 @@ export async function processIntegrationSyncRun(
   const run = await getSyncRun(runId, options);
   if (!run.artifactId) throw integrationProcessingError("ARTIFACT_REQUIRED", "Refresh has no staged artifact");
   const connection = await getIntegrationConnection(run.connectionId, options);
+  const flags = getIntegrationFeatureFlags();
+  if (!isIntegrationProviderEnabled(connection.provider, flags)) {
+    throw integrationProcessingError("FEATURE_DISABLED", "This data-source provider is disabled");
+  }
+  const pendingArtifact = await getIntegrationArtifact(connection.id, run.artifactId, options);
+  if (flags.plainGedcomOnly) {
+    validateHostedGedcomFile({
+      fileName: pendingArtifact.fileName,
+      contentType: pendingArtifact.contentType,
+      size: pendingArtifact.size
+    });
+  }
   await markSyncRunParsing(runId, options);
   await setIntegrationArtifactState(connection.id, run.artifactId, "quarantined", options);
 
@@ -133,7 +147,6 @@ export async function processIntegrationSyncRun(
       bytes,
       provider: packageProvider(connection.provider)
     });
-    const flags = getIntegrationFeatureFlags();
     const warnings = [...inspected.warnings];
     const scannedPackageFiles = await scanImportPackageFiles(
       inspected.quarantineFiles,
@@ -172,6 +185,7 @@ export async function processIntegrationSyncRun(
     const baseManifest = snapshotManifest(baseSnapshot);
     const baseValues = snapshotEntityValues(baseSnapshot);
     const unnamespaced = prepareGedcomImport(inspected.gedcom.fileName, inspected.gedcom.content);
+    if (flags.plainGedcomOnly) validateHostedGedcomPeople(unnamespaced.people.length);
     const identities = buildIdentityDescriptors(unnamespaced);
     const rememberedIdentityRefs = await loadRememberedIdentityRefs(connection.id, options);
     const resolvedIdentities = resolveEntityIdentities(
@@ -481,10 +495,10 @@ export async function applyPreparedIntegrationSyncRun(
   options: RunProcessorOptions
 ) {
   const run = await getSyncRun(runId, options);
-  if (run.status === "applied" || run.status === "rolled_back") {
+  if (run.status === "rolled_back") {
     return applySyncRun(runId, input, options);
   }
-  if (run.status !== "review_ready") {
+  if (run.status !== "review_ready" && run.status !== "applied") {
     throw integrationProcessingError("RUN_STATE", "Sync run is not ready to apply");
   }
   if (!run.incomingSnapshotId || !run.artifactId) {
@@ -495,6 +509,22 @@ export async function applyPreparedIntegrationSyncRun(
   }
 
   const connection = await getIntegrationConnection(run.connectionId, options);
+  const flags = getIntegrationFeatureFlags();
+  if (!isIntegrationProviderEnabled(connection.provider, flags)) {
+    throw integrationProcessingError("FEATURE_DISABLED", "This data-source provider is disabled");
+  }
+  const pendingArtifact = await getIntegrationArtifact(connection.id, run.artifactId, options);
+  if (flags.plainGedcomOnly) {
+    validateHostedGedcomFile({
+      fileName: pendingArtifact.fileName,
+      contentType: pendingArtifact.contentType,
+      size: pendingArtifact.size
+    });
+  }
+  if (run.status === "applied") {
+    return applySyncRun(runId, input, options);
+  }
+
   const snapshot = await getIntegrationSnapshot(run.incomingSnapshotId, options);
   const { artifact, bytes } = await readIntegrationArtifact(connection.id, run.artifactId, options);
   if (artifact.sha256 !== snapshot.sha256) {
@@ -506,6 +536,7 @@ export async function applyPreparedIntegrationSyncRun(
     provider: packageProvider(connection.provider)
   });
   const unnamespaced = prepareGedcomImport(inspected.gedcom.fileName, inspected.gedcom.content);
+  if (flags.plainGedcomOnly) validateHostedGedcomPeople(unnamespaced.people.length);
   const identities = buildIdentityDescriptors(unnamespaced);
   const preparedManifest = snapshotManifest(snapshot);
   const changes = await allSyncChanges(runId, options);

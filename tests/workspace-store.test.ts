@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDatabasePools, query } from "@/lib/db";
 import type { DnaMatch } from "@/lib/models";
 import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
@@ -45,6 +45,81 @@ afterAll(async () => {
 });
 
 describeIfDatabase("workspace store", () => {
+  it("rechecks disabled hosted mutations at the canonical store boundary", async () => {
+    const match: DnaMatch = {
+      id: "dna-disabled-boundary",
+      displayName: "Disabled boundary",
+      totalCm: 88,
+      side: "unknown",
+      treeStatus: "unknown",
+      surnames: [],
+      places: [],
+      sharedMatches: [],
+      notes: "",
+      triageStatus: "needs_review"
+    };
+    const researchCase = await createCase({
+      id: "case-disabled-dna",
+      title: "Disabled DNA",
+      question: "Should no DNA mutation cross the boundary?"
+    }, storeOptions);
+    await updatePersonCuration("p-amalia-bellandi", { published: false }, storeOptions);
+
+    const hostedEnvironment = {
+      KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+      KINRESOLVE_DATASET_MODE: "demo",
+      KINRESOLVE_DNA_ENABLED: "false",
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+      KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+      KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+      KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+      KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+      KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+    } as const;
+    for (const [name, value] of Object.entries(hostedEnvironment)) vi.stubEnv(name, value);
+
+    try {
+      await expect(saveDnaMatch(match, storeOptions)).rejects.toMatchObject({ code: "CAPABILITY_DISABLED" });
+      await expect(saveDnaMatches([match], storeOptions)).rejects.toMatchObject({ code: "CAPABILITY_DISABLED" });
+      await expect(updateDnaMatch(match.id, { notes: "bypass" }, storeOptions)).rejects.toMatchObject({
+        code: "CAPABILITY_DISABLED"
+      });
+      await expect(deleteDnaMatch(match.id, storeOptions)).rejects.toMatchObject({
+        code: "CAPABILITY_DISABLED"
+      });
+      await expect(linkDnaMatchToCase(researchCase.id, match.id, {}, storeOptions)).rejects.toMatchObject({
+        code: "CAPABILITY_DISABLED"
+      });
+      await expect(updatePersonCuration("p-amalia-bellandi", { published: true }, storeOptions)).rejects.toMatchObject({
+        code: "CAPABILITY_DISABLED"
+      });
+      await expect(updatePersonCuration(
+        "p-amalia-bellandi",
+        { published: "true" as unknown as boolean },
+        storeOptions
+      )).rejects.toThrow(/published.*boolean/i);
+      await expect(saveSourceDocument({
+        title: "Forbidden binary",
+        fileName: "record.pdf",
+        storageKey: "uploads/record.pdf",
+        mimeType: "application/pdf",
+        size: 100
+      }, storeOptions)).rejects.toMatchObject({ code: "CAPABILITY_DISABLED" });
+
+      await expect(updatePersonCuration(
+        "p-amalia-bellandi",
+        { published: false, privacy: "sensitive" },
+        storeOptions
+      )).resolves.toMatchObject({ published: false, privacy: "sensitive" });
+      await expect(saveSourceDocument({
+        title: "Transcript-only source",
+        transcript: "No binary content retained."
+      }, storeOptions)).resolves.toMatchObject({ title: "Transcript-only source", fileName: undefined });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("reads an explicitly provisioned Postgres demo archive", async () => {
     const workspace = await readWorkspace(storeOptions);
 

@@ -235,6 +235,66 @@ describeIfDatabase("guided research store", () => {
     );
   });
 
+  it("accepts the capability-projected guide key when stored DNA evidence is hidden", async () => {
+    const researchCase = await createCase(
+      {
+        id: "case-capability-guide-key",
+        title: "Documentary guide key",
+        question: "Which documentary record should be reviewed next?",
+        focus: "Parish records",
+        hypotheses: [
+          {
+            id: "hyp-capability-documentary",
+            statement: "The two parish households describe the same family.",
+            confidence: 0.55,
+            status: "open"
+          }
+        ],
+        evidence: [
+          {
+            id: "ev-capability-hidden",
+            title: "Private cluster estimate",
+            type: "DNA analysis",
+            summary: "A hidden relationship-range estimate.",
+            confidence: 0.1
+          },
+          {
+            id: "ev-capability-documentary",
+            title: "Parish register",
+            type: "Vital record",
+            summary: "A documentary household entry.",
+            confidence: 0.7
+          }
+        ]
+      },
+      storeOptions
+    );
+    const before = await callReadResearchCase(researchCase.id, storeOptions);
+    const proposed = guideAssignment(
+      (buildResearchGuide as unknown as (
+        researchCase: unknown,
+        options: { dnaEnabled: boolean }
+      ) => unknown)(before, { dnaEnabled: false })
+    );
+    const guideKey = requiredString(proposed.guideKey, "capability-projected guide key");
+    const restoreEnvironment = stubHostedPrivateBeta();
+
+    try {
+      const accepted = resultEntity(
+        await callAcceptGuideAssignment(researchCase.id, guideKey, storeOptions),
+        "task"
+      );
+
+      expect(accepted.guideKey).toBe(guideKey);
+      expect(JSON.stringify(accepted)).not.toMatch(/ev-capability-hidden|DNA analysis/i);
+      expect(accepted.contextRefs).toEqual(expect.arrayContaining([
+        { type: "evidence", id: "ev-capability-documentary" }
+      ]));
+    } finally {
+      restoreEnvironment();
+    }
+  });
+
   it("atomically appends an attributed outcome and optional hypothesis decision, then makes an identical retry a no-op", async () => {
     const { caseId, hypothesis } = await createCaseWithHypothesis("atomic-outcome");
     const addedTask = resultEntity(
@@ -923,3 +983,29 @@ describeIfDatabase("guided research store", () => {
     });
   });
 });
+
+function stubHostedPrivateBeta(): () => void {
+  const environment = {
+    KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+    KINRESOLVE_DATASET_MODE: "demo",
+    KINRESOLVE_DNA_ENABLED: "false",
+    KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+    KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+    KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+    KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+    KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+  } as const;
+  const previous = new Map(
+    Object.keys(environment).map((name) => [name, process.env[name]])
+  );
+  for (const [name, value] of Object.entries(environment)) {
+    process.env[name] = value;
+  }
+  return () => {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
+}

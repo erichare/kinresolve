@@ -8,6 +8,15 @@ import { getRuntimeStatus } from "@/lib/runtime-status";
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
 const originalEnvironment = { ...process.env };
+const hostedCohortCapabilities = {
+  KINRESOLVE_DNA_ENABLED: "false",
+  KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+  KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+  KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+  KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+  KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+  KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+};
 
 let archiveId = "";
 
@@ -18,6 +27,7 @@ beforeEach(() => {
   process.env.KINSLEUTH_ARCHIVE_ID = archiveId;
   process.env.KINRESOLVE_DEPLOYMENT_MODE = "hosted";
   process.env.KINRESOLVE_DATASET_MODE = "pilot";
+  Object.assign(process.env, hostedCohortCapabilities);
 });
 
 afterEach(async () => {

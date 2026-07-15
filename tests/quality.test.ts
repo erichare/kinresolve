@@ -54,4 +54,16 @@ describe("quality reports", () => {
 
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it("does not recommend disabled DNA work for an evidence-empty case", () => {
+    const report = buildQualityReport([], [], [{
+      ...demoCases[0],
+      id: "case-no-evidence",
+      evidence: []
+    }], { dnaEnabled: false });
+    const actions = report.issues.map((issue) => issue.action).join(" ");
+
+    expect(actions).not.toMatch(/DNA/i);
+    expect(actions).toMatch(/source or research note/i);
+  });
 });

@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { hostedDeploymentUnavailableResponse } from "@/lib/api-capabilities";
 import { cleanupStaleGedcomUploadsForArchive, deleteStagedGedcomUploads } from "@/lib/gedcom/blob-storage";
 import {
   gedcomUploadTokenLifetimeMs,
@@ -18,6 +19,9 @@ export const GET = withPermission("imports:manage", async (_request, authorizati
 });
 
 export const POST = withPermission("imports:manage", async (request, authorization) => {
+  const unavailable = hostedDeploymentUnavailableResponse();
+  if (unavailable) return unavailable;
+
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json({ error: "Private GEDCOM upload storage is not configured." }, { status: 503 });
   }

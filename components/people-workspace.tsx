@@ -8,11 +8,17 @@ import { type PeopleListItem, type PeopleLivingFilter, type PeoplePrivacyFilter,
 
 type Props = {
   initialResult: PeopleSearchResult;
+  publicArchiveEnabled?: boolean;
+  publicPublishingEnabled?: boolean;
 };
 
 const pageSizeOptions = [25, 50, 100, 250];
 
-export function PeopleWorkspace({ initialResult }: Props) {
+export function PeopleWorkspace({
+  initialResult,
+  publicArchiveEnabled = true,
+  publicPublishingEnabled = true
+}: Props) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [publication, setPublication] = useState<PeoplePublicationFilter>("all");
@@ -24,6 +30,7 @@ export function PeopleWorkspace({ initialResult }: Props) {
   const [result, setResult] = useState(initialResult);
   const [error, setError] = useState("");
   const privateRecordCount = Math.max(result.stats.total - result.stats.published, 0);
+  const publicationEnabled = publicArchiveEnabled && publicPublishingEnabled;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query), 250);
@@ -65,19 +72,32 @@ export function PeopleWorkspace({ initialResult }: Props) {
       <div className="metric-row">
         <Metric label="People" value={result.stats.total.toLocaleString()} detail="in workspace" />
         <Metric label="Current set" value={result.total.toLocaleString()} detail={`${result.start}-${result.end} shown`} />
-        <Metric label="Published" value={result.stats.published.toLocaleString()} detail="public profiles" />
+        {publicationEnabled ? (
+          <Metric label="Published" value={result.stats.published.toLocaleString()} detail="public profiles" />
+        ) : (
+          <Metric label="Private beta" value={result.stats.total.toLocaleString()} detail="workspace records" />
+        )}
         <Metric label="Protected" value={result.stats.protectedCount.toLocaleString()} detail={`${result.stats.living.toLocaleString()} living`} />
       </div>
 
-      {privateRecordCount > 0 ? (
+      {!publicationEnabled || privateRecordCount > 0 ? (
         <div className="workspace-notice">
           <Icons.Lock size={18} aria-hidden />
           <div>
-            <strong>{privateRecordCount.toLocaleString()} people are private or unpublished</strong>
-            <p className="muted">Imported people get private workspace pages immediately. Public profiles only appear after curation marks them public, deceased, and published.</p>
+            {publicationEnabled ? (
+              <>
+                <strong>{privateRecordCount.toLocaleString()} people are private or unpublished</strong>
+                <p className="muted">Imported people get private workspace pages immediately. Public profiles only appear after curation marks them public, deceased, and published.</p>
+              </>
+            ) : (
+              <>
+                <strong>Private beta: all {result.stats.total.toLocaleString()} people stay in this workspace</strong>
+                <p className="muted">Public archive and publishing are disabled. Use privacy readiness to review living, private, and sensitive records.</p>
+              </>
+            )}
           </div>
           <Link className="button-secondary" href="/app/publishing">
-            Publication review
+            {publicationEnabled ? "Publication review" : "Privacy readiness"}
           </Link>
         </div>
       ) : null}
@@ -121,19 +141,21 @@ export function PeopleWorkspace({ initialResult }: Props) {
               />
             </span>
           </label>
-          <SelectField
-            label="Publication"
-            value={publication}
-            options={[
-              ["all", "All"],
-              ["published", "Published"],
-              ["unpublished", "Unpublished"]
-            ]}
-            onChange={(value) => {
-              setPublication(value as PeoplePublicationFilter);
-              resetPaging();
-            }}
-          />
+          {publicationEnabled ? (
+            <SelectField
+              label="Publication"
+              value={publication}
+              options={[
+                ["all", "All"],
+                ["published", "Published"],
+                ["unpublished", "Unpublished"]
+              ]}
+              onChange={(value) => {
+                setPublication(value as PeoplePublicationFilter);
+                resetPaging();
+              }}
+            />
+          ) : null}
           <SelectField
             label="Privacy"
             value={privacy}
@@ -225,7 +247,11 @@ export function PeopleWorkspace({ initialResult }: Props) {
                 <td>{formatVital(person.deathDate, person.deathPlace)}</td>
                 <td>
                   <div className="status-stack">
-                    <Status tone={person.published ? "ok" : "private"}>{person.published ? "published" : "private"}</Status>
+                    {publicationEnabled ? (
+                      <Status tone={person.published ? "ok" : "private"}>{person.published ? "published" : "private"}</Status>
+                    ) : (
+                      <Status tone="private">private beta</Status>
+                    )}
                     <Status tone={privacyTone(person.privacy)}>{person.privacy}</Status>
                     {person.livingStatus === "living" ? <Status tone="warning">living</Status> : null}
                   </div>

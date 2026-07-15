@@ -129,6 +129,50 @@ describeIfDatabase("SQL source search", () => {
     expect(personLinked.items[0].transcriptPreview).toContain("Baptismal entry");
   });
 
+  it("omits legacy binary names from hosted results and search when binary metadata is disabled", async () => {
+    await saveSourceDocument(
+      {
+        id: "src-sq-legacy-binary",
+        title: "Harbor register",
+        sourceType: "Register",
+        fileName: "private-family-record-1892.pdf",
+        storageKey: "uploads/sources/private-family-record-1892.pdf",
+        mimeType: "application/pdf",
+        size: 12_345,
+        transcript: "Amalia Bellandi arrived in 1892.",
+        privacy: "private",
+        confidence: 0.8
+      },
+      storeOptions
+    );
+
+    const hostedOptions = { ...storeOptions, includeBinaryMetadata: false };
+    const visible = await searchSourcesPageFromDb(
+      { query: "Harbor register" },
+      { page: 1, pageSize: 10 },
+      hostedOptions
+    );
+    expect(visible.items).toEqual([
+      expect.objectContaining({ id: "src-sq-legacy-binary", fileName: undefined })
+    ]);
+
+    const hiddenFileName = await searchSourcesPageFromDb(
+      { query: "private-family-record-1892.pdf" },
+      { page: 1, pageSize: 10 },
+      hostedOptions
+    );
+    expect(hiddenFileName.items).toEqual([]);
+
+    const selfHosted = await searchSourcesPageFromDb(
+      { query: "private-family-record-1892.pdf" },
+      { page: 1, pageSize: 10 },
+      storeOptions
+    );
+    expect(selfHosted.items).toEqual([
+      expect.objectContaining({ id: "src-sq-legacy-binary", fileName: "private-family-record-1892.pdf" })
+    ]);
+  });
+
   it("searches by linked person name and linked case title", async () => {
     const workspace = await seededWorkspace();
     const firstName = workspace.people[0].displayName.split(" ")[0];
@@ -201,5 +245,25 @@ describeIfDatabase("source link options", () => {
     const expectedCases = buildCaseLinkOptions(workspace.cases);
     const actualCases = await listCaseLinkOptions(storeOptions);
     expect(actualCases).toEqual(expectedCases);
+  });
+
+  it("omits whole DNA cases from hosted case-link options", async () => {
+    await seededWorkspace();
+    await createCase(
+      {
+        id: "case-source-dna-cluster",
+        title: "Fictional DNA cluster for source linking",
+        question: "Which branch explains the invented matches?",
+        focus: "Invented match cluster"
+      },
+      storeOptions
+    );
+
+    const selfHosted = await listCaseLinkOptions(storeOptions);
+    const hosted = await listCaseLinkOptions({ ...storeOptions, includeDnaCases: false });
+
+    expect(selfHosted.map((item) => item.id)).toContain("case-source-dna-cluster");
+    expect(hosted.map((item) => item.id)).not.toContain("case-source-dna-cluster");
+    expect(hosted.map((item) => item.id)).toContain("case-sq-test");
   });
 });

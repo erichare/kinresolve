@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { withPermission } from "@/lib/api-authorization";
+import { hostedDeploymentUnavailableResponse } from "@/lib/api-capabilities";
 import {
   integrationErrorResponse,
   nonEmptyString,
@@ -30,6 +31,9 @@ const executableMime = new Set([
 ]);
 
 export const POST = withPermission("imports:manage", async (request, authorization, context: RouteContext) => {
+  const unavailable = hostedDeploymentUnavailableResponse();
+  if (unavailable) return unavailable;
+
   const { id } = await context.params;
   let form: FormData;
   try {

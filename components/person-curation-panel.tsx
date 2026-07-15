@@ -4,8 +4,14 @@ import { useState } from "react";
 import type { PersonSummary, PrivacyLevel } from "@/lib/models";
 import { Status } from "./ui";
 
-export function PersonCurationPanel({ person }: { person: PersonSummary }) {
-  const [published, setPublished] = useState(person.published);
+export function PersonCurationPanel({
+  person,
+  publicPublishingEnabled = true
+}: {
+  person: PersonSummary;
+  publicPublishingEnabled?: boolean;
+}) {
+  const [published, setPublished] = useState(publicPublishingEnabled && person.published);
   const [privacy, setPrivacy] = useState<PrivacyLevel>(person.privacy);
   const [livingStatus, setLivingStatus] = useState<PersonSummary["livingStatus"]>(person.livingStatus);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -26,13 +32,31 @@ export function PersonCurationPanel({ person }: { person: PersonSummary }) {
 
   return (
     <div className="panel curation-panel" style={{ boxShadow: "none" }}>
-      <strong>Public curation</strong>
-      <p className="muted">Review privacy before a profile appears on public pages.</p>
+      <strong>{publicPublishingEnabled ? "Public curation" : "Privacy curation"}</strong>
+      <p className="muted">
+        {publicPublishingEnabled
+          ? "Review privacy before a profile appears on public pages."
+          : "Public publishing is disabled for this private beta. Privacy review remains available."}
+      </p>
       <div aria-busy={status === "saving"} className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-        <label className="check-row">
-          <input checked={published} type="checkbox" onChange={(event) => setPublished(event.target.checked)} />
-          Published
-        </label>
+        {publicPublishingEnabled ? (
+          <label className="check-row">
+            <input checked={published} type="checkbox" onChange={(event) => setPublished(event.target.checked)} />
+            Published
+          </label>
+        ) : person.published ? (
+          <button
+            aria-busy={status === "saving"}
+            className="button-secondary"
+            disabled={status === "saving"}
+            onClick={save}
+            type="button"
+          >
+            Remove from public archive
+          </button>
+        ) : (
+          <Status tone="private">Publishing is disabled</Status>
+        )}
         <label className="field">
           <span>Privacy</span>
           <select value={privacy} onChange={(event) => setPrivacy(event.target.value as PrivacyLevel)}>

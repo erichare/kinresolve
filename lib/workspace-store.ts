@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
+import { projectResearchCaseForDnaCapability } from "./case-search";
 import { withTransaction, type DatabaseOptions } from "./db";
 import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoFictionNotice, demoPeople } from "./demo-data";
 import { prepareGedcomImport, type PreparedGedcomImport } from "./gedcom/apply";
 import { buildFamilyRelationshipMap, parseGedcom } from "./gedcom/parser";
+import {
+  requireHostedCapability,
+  resolveHostedCapabilities,
+  validateHostedGedcomPeople
+} from "./hosted-capabilities";
 import { datasetModes, resolveDatasetConfiguration, type DatasetMode } from "./hosted-config";
 import { buildResearchGuide } from "./research-guide";
 import {
@@ -843,13 +849,15 @@ export async function acceptGuideAssignment(
     if (!researchCase) {
       throw new Error("case not found");
     }
+    const dnaEnabled = resolveHostedCapabilities().dna;
+    const visibleResearchCase = projectResearchCaseForDnaCapability(researchCase, dnaEnabled);
 
-    const existing = researchCase.tasks.find((task) => task.guideKey === guideKey);
+    const existing = visibleResearchCase.tasks.find((task) => task.guideKey === guideKey);
     if (existing) {
       return { created: false, case: researchCase, task: existing };
     }
 
-    const assignment = buildResearchGuide(researchCase).assignment;
+    const assignment = buildResearchGuide(visibleResearchCase, { dnaEnabled: true }).assignment;
     if (!assignment || assignment.source !== "generated" || assignment.guideKey !== guideKey) {
       throw guidedResearchError("STALE_GUIDE_KEY", "guide assignment is no longer available");
     }
@@ -1031,6 +1039,7 @@ export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptio
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }> {
+  requireHostedCapability("dna");
   const normalized = normalizeDnaMatch(match);
   const helpfulnessScore = scoreDnaMatch(normalized);
   const triaged = autoPrioritizeDnaMatch(normalized, helpfulnessScore);
@@ -1055,6 +1064,7 @@ export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStor
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }>> {
+  requireHostedCapability("dna");
   return withArchiveMutation(options, async (client, archiveId) => {
     const people = await loadPeopleForHypotheses(client, archiveId);
     const results = matches.map((match) => {
@@ -1084,6 +1094,7 @@ export async function updateDnaMatch(matchId: string, input: Partial<DnaMatch>, 
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }> {
+  requireHostedCapability("dna");
   return withArchiveMutation(options, async (client, archiveId) => {
     const current = await loadDnaMatchById(client, archiveId, matchId);
     if (!current) {
@@ -1114,6 +1125,7 @@ export async function updateDnaMatch(matchId: string, input: Partial<DnaMatch>, 
 }
 
 export async function deleteDnaMatch(matchId: string, options: WorkspaceStoreOptions = {}): Promise<{ deleted: string }> {
+  requireHostedCapability("dna");
   return withArchiveMutation(options, async (client, archiveId) => {
     const deleted = await deleteDnaMatchRows(client, archiveId, matchId);
     if (deleted === 0) {
@@ -1134,6 +1146,7 @@ export async function linkDnaMatchToCase(
   match: ScoredDnaMatch;
   created: boolean;
 }> {
+  requireHostedCapability("dna");
   return withArchiveMutation(options, async (client, archiveId) => {
     const researchCase = await loadCaseData(client, archiveId, caseId);
     if (!researchCase) {
@@ -1189,6 +1202,9 @@ export async function saveSourceDocument(input: Partial<SourceDocument>, options
   if (!input.title?.trim()) {
     throw new Error("title is required");
   }
+  if (input.fileName || input.storageKey || input.mimeType || input.size !== undefined) {
+    requireHostedCapability("evidenceBinaryUploads");
+  }
 
   const created: SourceDocument = {
     id: input.id ?? `src-${randomUUID()}`,
@@ -1225,6 +1241,12 @@ export async function updatePersonCuration(
   input: { published?: boolean; privacy?: PrivacyLevel; livingStatus?: PersonSummary["livingStatus"] },
   options: WorkspaceStoreOptions = {}
 ): Promise<PersonSummary> {
+  if (input.published !== undefined && typeof input.published !== "boolean") {
+    throw new Error("published must be a boolean");
+  }
+  if (input.published === true) {
+    requireHostedCapability("publicPublishing");
+  }
   return withArchiveMutation(options, async (client, archiveId) => {
     const person = await loadPersonWithFacts(client, archiveId, personId);
     if (!person) {
@@ -1301,6 +1323,16 @@ export async function applyPreparedGedcomImportInTransaction(
   // the import actually touches — cases, DNA matches, and AI runs are not
   // rewritten anymore.
   const workspace = await loadWorkspace(client, archiveId);
+  // mergeImportedPeople returns the merged imports first, then untouched
+  // existing people; only the imported slice needs to be written.
+  const mergedPeople = mergeImportedPeople(
+    workspace.people,
+    prepared.people,
+    options.preserveCurationByStableId === true
+  );
+  if (resolveHostedCapabilities().deploymentMode === "hosted") {
+    validateHostedGedcomPeople(mergedPeople.length);
+  }
   const backup = await persistWorkspaceBackupInTransaction(
     client,
     archiveId,
@@ -1312,13 +1344,6 @@ export async function applyPreparedGedcomImportInTransaction(
     backupId: backup.id
   };
 
-  // mergeImportedPeople returns the merged imports first, then untouched
-  // existing people; only the imported slice needs to be written.
-  const mergedPeople = mergeImportedPeople(
-    workspace.people,
-    prepared.people,
-    options.preserveCurationByStableId === true
-  );
   const mergedImported = mergedPeople.slice(0, prepared.people.length);
   const peopleStart = await prependSortOrderRange(client, "people", archiveId, mergedImported.length);
   await upsertPeopleRows(client, archiveId, mergedImported, peopleStart);

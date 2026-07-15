@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import { integrationErrorResponse, readJsonObject } from "@/lib/integrations/api-response";
 import {
   MEDIA_OWNERSHIP_ATTESTATION_VERSION,
@@ -11,6 +12,9 @@ import { toPublicIntegrationMedia } from "@/lib/integrations/public-projections"
 type RouteContext = { params: Promise<{ id: string }> };
 
 export const PATCH = withPermission("imports:manage", async (request, authorization, context: RouteContext) => {
+  const unavailable = capabilityUnavailableResponse("packageMedia");
+  if (unavailable) return unavailable;
+
   const body = await readJsonObject(request);
   if (!body.ok) return body.response;
   const attestation = body.value.ownershipAttestation;

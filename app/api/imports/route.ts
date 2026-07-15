@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { hostedDeploymentUnavailableResponse } from "@/lib/api-capabilities";
 import { createImportSnapshot, diffImportSnapshots } from "@/lib/gedcom/importer";
 import { prepareGedcomImport } from "@/lib/gedcom/apply";
 import { decodeGedcomBuffer } from "@/lib/gedcom/charset";
@@ -17,6 +18,9 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export const POST = withPermission("imports:manage", async (request, authorization) => {
+  const unavailable = hostedDeploymentUnavailableResponse();
+  if (unavailable) return unavailable;
+
   let body: ResolvedImportRequest;
   try {
     body = await readImportRequest(request, authorization.archiveId);

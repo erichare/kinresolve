@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { runAIAnalysis } from "@/lib/ai";
 import { withPermission } from "@/lib/api-authorization";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { createWorkspaceDnaHypotheses, readWorkspace, saveAIAnalysisRun } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,9 @@ export const POST = withPermission("ai:whole-tree", async (request, authorizatio
   const body = parsed.data;
 
   try {
-    const workspace = await readWorkspace();
+    const capabilities = resolveHostedCapabilities();
+    const archiveOptions = { archiveId: authorization.archiveId };
+    const workspace = await readWorkspace(archiveOptions);
     const linkedCaseId = body.caseId && workspace.cases.some((researchCase) => researchCase.id === body.caseId) ? body.caseId : undefined;
     const result = await runAIAnalysis({
       role: authorization.role,
@@ -29,11 +32,13 @@ export const POST = withPermission("ai:whole-tree", async (request, authorizatio
       people: workspace.people,
       cases: workspace.cases,
       sources: workspace.sources,
-      dnaMatches: workspace.dnaMatches,
-      dnaHypotheses: createWorkspaceDnaHypotheses(workspace),
+      dnaMatches: capabilities.dna ? workspace.dnaMatches : [],
+      dnaHypotheses: capabilities.dna ? createWorkspaceDnaHypotheses(workspace) : [],
       provider: {
         baseUrl: process.env.AI_BASE_URL ?? "https://api.openai.com/v1",
-        apiKey: process.env.AI_API_KEY ?? process.env.OPENAI_API_KEY,
+        apiKey: capabilities.externalAi
+          ? process.env.AI_API_KEY ?? process.env.OPENAI_API_KEY
+          : undefined,
         chatModel: process.env.AI_CHAT_MODEL ?? "gpt-5-mini",
         embeddingModel: process.env.AI_EMBEDDING_MODEL ?? "text-embedding-3-small",
         mode: process.env.AI_API_MODE === "chat" ? "chat" : "responses"
@@ -54,7 +59,7 @@ export const POST = withPermission("ai:whole-tree", async (request, authorizatio
       promptPreview: result.promptPreview,
       error: result.error,
       linkedCaseId
-    });
+    }, archiveOptions);
 
     return NextResponse.json({ ...result, run });
   } catch (error) {

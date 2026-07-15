@@ -204,15 +204,24 @@ const sourceCards: Array<{
 export function DataSourcesWorkspace({
   initialConnections,
   exportRefreshEnabled,
-  desktopMediaRetentionEnabled
+  desktopMediaRetentionEnabled,
+  plainGedcomOnly = false
 }: {
   initialConnections: DataSourceConnection[];
   exportRefreshEnabled: boolean;
   desktopMediaRetentionEnabled: boolean;
+  plainGedcomOnly?: boolean;
 }) {
-  const [connections, setConnections] = useState(initialConnections);
+  const availableCards = plainGedcomOnly
+    ? sourceCards.filter((card) => card.provider === "gedcom")
+    : sourceCards;
+  const availableConnections = plainGedcomOnly
+    ? initialConnections.filter((connection) => connection.provider === "gedcom")
+    : initialConnections;
+  const [connections, setConnections] = useState(availableConnections);
   const [newSourceAuthority, setNewSourceAuthority] = useState(
-    initialConnections.find((connection) => connection.status === "active")?.authority ?? "ancestry"
+    availableConnections.find((connection) => connection.status === "active")?.authority
+      ?? (plainGedcomOnly ? "another_genealogy_app" : "ancestry")
   );
   const [states, setStates] = useState<Record<string, ImportState>>({});
   const resumeChecked = useRef(new Set<string>());
@@ -608,12 +617,14 @@ export function DataSourcesWorkspace({
         </div>
         <fieldset>
           <legend>Choose where authoritative tree edits happen for the next data source</legend>
-          {[
+          {(plainGedcomOnly ? [
+            ["another_genealogy_app", "Another genealogy app"]
+          ] : [
             ["ancestry", "Ancestry"],
             ["family_tree_maker", "Family Tree Maker"],
             ["rootsmagic", "RootsMagic"],
             ["another_genealogy_app", "Another genealogy app"]
-          ].map(([value, label]) => (
+          ]).map(([value, label]) => (
             <label key={value}>
               <input
                 checked={newSourceAuthority === value}
@@ -629,7 +640,7 @@ export function DataSourcesWorkspace({
       </section>
 
       <section className="data-source-grid" aria-label="Available data sources">
-        {sourceCards.map((card) => (
+        {availableCards.map((card) => (
           <SourceCard
             card={card}
             connectionStates={states}
@@ -1614,7 +1625,9 @@ function SourceCard({
             ? `Add another ${card.title} ${sourceKind}`
             : card.provider === "ancestry_export"
               ? "Choose Ancestry export"
-              : "Choose import package"}
+              : card.provider === "gedcom"
+                ? "Choose GEDCOM file"
+                : "Choose import package"}
         </button>
       </div>
 

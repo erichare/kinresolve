@@ -171,6 +171,37 @@ describe("direct integration upload routes", () => {
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "This data-source import is not enabled" });
   });
+
+  it("maps a completed replay denied by current hosted policy to 415", async () => {
+    uploadMocks.completeDirectIntegrationUpload.mockRejectedValueOnce(
+      Object.assign(new Error("private hosted replay denial detail"), { code: "PLAIN_GEDCOM_REQUIRED" })
+    );
+
+    const response = await completeUpload(jsonRequest("complete", { intentId: "completed-zip-intent" }), context());
+
+    expect(response.status).toBe(415);
+    await expect(response.json()).resolves.toEqual({ error: "Only a plain GEDCOM file is accepted" });
+  });
+
+  it.each([
+    ["CAPABILITY_DISABLED", 404],
+    ["PLAIN_GEDCOM_REQUIRED", 415],
+    ["GEDCOM_FILE_INVALID", 400],
+    ["GEDCOM_FILE_TOO_LARGE", 413]
+  ])("preserves safe hosted GEDCOM denial %s as HTTP %i", async (code, status) => {
+    uploadMocks.stageDirectIntegrationUpload.mockRejectedValueOnce(
+      Object.assign(new Error("private hosted denial detail"), { code })
+    );
+
+    const response = await stageUpload(jsonRequest("stage", {
+      fileName: "synthetic.ged",
+      contentType: "text/plain",
+      size: 15
+    }), context());
+
+    expect(response.status).toBe(status);
+    expect(await response.json()).toHaveProperty("error");
+  });
 });
 
 function jsonRequest(action: "stage" | "complete", body: Record<string, unknown>) {

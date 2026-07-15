@@ -17,6 +17,8 @@ type Props = {
     dnaHypotheses: number;
   };
   dnaHypotheses: DnaConnectionHypothesis[];
+  dnaEnabled?: boolean;
+  externalAiEnabled?: boolean;
 };
 
 type AIAnalysisResponse = AIAnalysisResult & {
@@ -29,7 +31,16 @@ const suggestedQuestions = [
   "Which vital events need better source coverage?"
 ];
 
-export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomalies, counts, dnaHypotheses }: Props) {
+export function AIAnalystWorkspace({
+  initialQuestion,
+  cases,
+  initialRuns,
+  anomalies,
+  counts,
+  dnaHypotheses,
+  dnaEnabled = true,
+  externalAiEnabled = true
+}: Props) {
   const [question, setQuestion] = useState(initialQuestion);
   const [result, setResult] = useState<AIAnalysisResult | null>(null);
   const [runs, setRuns] = useState(initialRuns);
@@ -45,6 +56,9 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
   const [pendingSuggestion, setPendingSuggestion] = useState("");
   const visibleAnomalies = anomalies.slice(0, 75);
   const hiddenAnomalyCount = anomalies.length - visibleAnomalies.length;
+  const visibleSuggestedQuestions = dnaEnabled
+    ? suggestedQuestions
+    : suggestedQuestions.filter((suggestion) => !/\bDNA\b/i.test(suggestion));
 
   function applySuggestedQuestion(suggestion: string) {
     const currentQuestion = question.trim();
@@ -168,7 +182,7 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
       <div className="metric-row ai-metric-row">
         <Metric label="People indexed" value={counts.people.toLocaleString()} detail="available to local checks" />
         <Metric label="Cases" value={counts.cases.toLocaleString()} detail="research questions" />
-        <Metric label="DNA hypotheses" value={counts.dnaHypotheses.toLocaleString()} detail="ranked leads" />
+        {dnaEnabled ? <Metric label="DNA hypotheses" value={counts.dnaHypotheses.toLocaleString()} detail="ranked leads" /> : null}
         <Metric label="Structured flags" value={anomalies.length.toLocaleString()} detail="privacy and source checks" />
       </div>
 
@@ -177,10 +191,20 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
           <div className="app-card-header">
             <div>
               <h2>Ask the analyst</h2>
-              <p className="muted">Runs deterministic checks, sends full private workspace context when configured, and stages follow-up work for review.</p>
+              <p className="muted">
+                {externalAiEnabled
+                  ? "Runs deterministic checks, sends full private workspace context when configured, and stages follow-up work for review."
+                  : "Runs deterministic local checks inside Kin Resolve, makes no external provider call, and stages follow-up work for review."}
+              </p>
             </div>
             <Status tone={result?.status === "ready" ? "ok" : result?.status === "provider_error" ? "warning" : "private"}>
-              {result?.status === "ready" ? "Provider answered" : result?.status === "provider_error" ? "Provider fallback" : "Local mode"}
+              {!externalAiEnabled
+                ? "Local only"
+                : result?.status === "ready"
+                  ? "Provider answered"
+                  : result?.status === "provider_error"
+                    ? "Provider fallback"
+                    : "Local mode"}
             </Status>
           </div>
 
@@ -209,7 +233,7 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
               />
             </label>
             <div className="prompt-row" aria-label="Suggested research questions">
-              {suggestedQuestions.map((suggestion) => (
+              {visibleSuggestedQuestions.map((suggestion) => (
                 <button
                   aria-label={pendingSuggestion === suggestion ? `Replace current question with: ${suggestion}` : undefined}
                   className="prompt-chip"
@@ -231,7 +255,7 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
             {error ? <p aria-atomic="true" className="form-error" id="ai-analysis-error" role="alert">{error}</p> : null}
           </form>
 
-          <AnalysisResult result={result} />
+          <AnalysisResult externalAiEnabled={externalAiEnabled} result={result} />
           <TaskAction
             cases={cases}
             isCreating={isCreatingTask}
@@ -273,7 +297,8 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
               <div className="evidence-item">
                 <strong>No high-risk anomalies in demo data</strong>
                 <p className="muted">
-                  {counts.people.toLocaleString()} people, {counts.cases.toLocaleString()} cases, and {counts.dnaHypotheses.toLocaleString()} DNA hypotheses checked.
+                  {counts.people.toLocaleString()} people and {counts.cases.toLocaleString()} cases checked
+                  {dnaEnabled ? `, with ${counts.dnaHypotheses.toLocaleString()} DNA hypotheses` : ""}.
                 </p>
               </div>
             )}
@@ -295,11 +320,13 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
               <div className="evidence-item analysis-run-item" key={run.id}>
                 <div className="evidence-item-heading">
                   <strong>{run.question}</strong>
-                  <Status tone={run.status === "ready" ? "ok" : "warning"}>{formatAnalysisStatus(run.status)}</Status>
+                  <Status tone={!externalAiEnabled || run.status === "ready" ? "ok" : "warning"}>
+                    {externalAiEnabled ? formatAnalysisStatus(run.status) : "local"}
+                  </Status>
                 </div>
                 <p>{summarizeAnswer(run.answer)}</p>
                 <p className="muted">
-                  <ClientDate value={run.createdAt} /> · {run.provider ?? "local"} · {run.evidenceUsed.length.toLocaleString()} evidence notes · {run.suggestions.length.toLocaleString()} staged
+                  <ClientDate value={run.createdAt} /> · {externalAiEnabled ? run.provider ?? "local" : "local analysis"} · {run.evidenceUsed.length.toLocaleString()} evidence notes · {run.suggestions.length.toLocaleString()} staged
                 </p>
               </div>
             ))
@@ -309,27 +336,29 @@ export function AIAnalystWorkspace({ initialQuestion, cases, initialRuns, anomal
         </div>
       </section>
 
-      <section className="app-card">
-        <div className="app-card-header">
-          <div>
-            <h2>Connection hypotheses</h2>
-            <p className="muted">Current DNA leads ranked before an external provider is involved.</p>
-          </div>
-          <Icons.Dna size={18} aria-hidden />
-        </div>
-        <div className="hypothesis-grid">
-          {dnaHypotheses.map((hypothesis) => (
-            <div className="hypothesis-panel" key={hypothesis.matchId}>
-              <strong>{hypothesis.likelyBranch}</strong>
-              <p>{hypothesis.explanation}</p>
-              <div className="evidence-inline">
-                <Confidence value={hypothesis.confidence} />
-                <span className="muted">{hypothesis.likelyGeneration}</span>
-              </div>
+      {dnaEnabled ? (
+        <section className="app-card">
+          <div className="app-card-header">
+            <div>
+              <h2>Connection hypotheses</h2>
+              <p className="muted">Current DNA leads ranked before an external provider is involved.</p>
             </div>
-          ))}
-        </div>
-      </section>
+            <Icons.Dna size={18} aria-hidden />
+          </div>
+          <div className="hypothesis-grid">
+            {dnaHypotheses.map((hypothesis) => (
+              <div className="hypothesis-panel" key={hypothesis.matchId}>
+                <strong>{hypothesis.likelyBranch}</strong>
+                <p>{hypothesis.explanation}</p>
+                <div className="evidence-inline">
+                  <Confidence value={hypothesis.confidence} />
+                  <span className="muted">{hypothesis.likelyGeneration}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -423,7 +452,13 @@ function TaskAction({
   );
 }
 
-function AnalysisResult({ result }: { result: AIAnalysisResult | null }) {
+export function AnalysisResult({
+  externalAiEnabled,
+  result
+}: {
+  externalAiEnabled: boolean;
+  result: AIAnalysisResult | null;
+}) {
   if (!result) {
     return (
       <div className="analysis-empty">
@@ -440,10 +475,14 @@ function AnalysisResult({ result }: { result: AIAnalysisResult | null }) {
     <div className="analysis-result">
       <div aria-atomic="true" aria-live="polite" className="analysis-result-header">
         <h2>Recommendation</h2>
-        <Status tone={result.status === "ready" ? "ok" : "warning"}>{formatAnalysisStatus(result.status)}</Status>
+        <Status tone={result.status === "ready" ? "ok" : "warning"}>
+          {externalAiEnabled ? formatAnalysisStatus(result.status) : "local"}
+        </Status>
       </div>
       <p className="muted">
-        {result.provider} · {result.model} · {result.providerStatus === "completed" ? "provider response saved" : result.providerStatus === "failed" ? "local fallback saved" : "local analysis saved"}
+        {externalAiEnabled
+          ? `${result.provider} · ${result.model} · ${result.providerStatus === "completed" ? "provider response saved" : result.providerStatus === "failed" ? "local fallback saved" : "local analysis saved"}`
+          : "Deterministic local analysis · saved in this private workspace"}
       </p>
       <div className="analysis-answer">
         {result.answer.split("\n\n").map((paragraph, index) => (

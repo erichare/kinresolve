@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
 import { query, withTransaction, type DatabaseOptions } from "../db";
+import { validateHostedGedcomFile } from "../hosted-capabilities";
 import {
   createConfiguredArchiveObjectStorage,
   type ArchiveObjectStorage,
@@ -15,8 +16,8 @@ import {
   type DirectUploadTicketIssuer
 } from "../storage/direct-upload-ticket";
 import {
-  getIntegrationFeatureFlags,
-  isIntegrationProviderEnabled
+  isIntegrationProviderEnabled,
+  resolveIntegrationFeatureFlags
 } from "./feature-flags";
 import {
   resolveArtifactRightsAcknowledgement,
@@ -109,6 +110,10 @@ export async function stageDirectIntegrationUpload(
   const archiveId = required(options.archiveId, "archiveId");
   const normalizedConnectionId = required(connectionId, "connection id");
   const file = validateUploadDeclaration(input);
+  const featureFlags = resolveIntegrationFeatureFlags(options.featureFlags);
+  if (featureFlags.plainGedcomOnly) {
+    validateHostedGedcomFile(file);
+  }
   const now = currentTime(options);
   const lifetime = normalizeIntentLifetime(options.intentLifetimeMilliseconds);
   const expiresAt = new Date(now.getTime() + lifetime);
@@ -122,7 +127,7 @@ export async function stageDirectIntegrationUpload(
       provider,
       fileName: file.fileName,
       acknowledgement: input.mediaRightsAcknowledgement,
-      featureFlags: options.featureFlags ?? getIntegrationFeatureFlags(),
+      featureFlags,
       acknowledgedAt: now
     });
     const inserted = await client.query<UploadIntentRow>(
@@ -175,7 +180,24 @@ export async function completeDirectIntegrationUpload(
   const normalizedConnectionId = required(connectionId, "connection id");
   const normalizedIntentId = required(intentId, "upload intent id");
   const intent = await getUploadIntent(normalizedConnectionId, normalizedIntentId, options);
-  if (intent.status === "completed" && intent.artifact_id) {
+  const completedReplay = intent.status === "completed" && Boolean(intent.artifact_id);
+  if (!completedReplay && intent.status !== "pending") {
+    throw directUploadError("INVALID_STATE", "Upload intent has already been consumed");
+  }
+
+  const featureFlags = resolveIntegrationFeatureFlags(options.featureFlags);
+  if (featureFlags.plainGedcomOnly) {
+    validateHostedGedcomFile({
+      fileName: intent.file_name,
+      contentType: intent.content_type,
+      size: Number(intent.declared_size_bytes)
+    });
+  }
+  await withTransaction(options, (client) =>
+    requireEnabledConnection(client, archiveId, normalizedConnectionId, { ...options, featureFlags })
+  );
+
+  if (completedReplay && intent.artifact_id) {
     return {
       artifact: withDuplicate(
         await getIntegrationArtifact(normalizedConnectionId, intent.artifact_id, options),
@@ -183,9 +205,6 @@ export async function completeDirectIntegrationUpload(
       ),
       replayed: true
     };
-  }
-  if (intent.status !== "pending") {
-    throw directUploadError("INVALID_STATE", "Upload intent has already been consumed");
   }
 
   const storage = configuredObjectStorage(options);
@@ -749,7 +768,7 @@ async function requireEnabledConnection(
   if (!connection.rows[0]) throw directUploadError("NOT_FOUND", "Data source not found");
   if (!isIntegrationProviderEnabled(
     connection.rows[0].provider,
-    options.featureFlags ?? getIntegrationFeatureFlags()
+    resolveIntegrationFeatureFlags(options.featureFlags)
   )) {
     throw directUploadError("FEATURE_DISABLED", "This data-source provider is disabled");
   }

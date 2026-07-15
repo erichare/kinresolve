@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { Icons } from "./icons";
 
 const navGroups = [
@@ -32,18 +33,33 @@ const navGroups = [
   }
 ];
 
-function PrivateNavigation({ active, className, label }: { active: string; className: string; label: string }) {
+function PrivateNavigation({
+  active,
+  className,
+  dnaEnabled,
+  label,
+  publicPublishingEnabled
+}: {
+  active: string;
+  className: string;
+  dnaEnabled: boolean;
+  label: string;
+  publicPublishingEnabled: boolean;
+}) {
   return (
     <nav className={className} aria-label={label}>
       {navGroups.map((group) => (
         <div className="sidebar-nav-group" key={group.label}>
           <span className="sidebar-nav-label">{group.label}</span>
-          {group.items.map((item) => {
+          {group.items.filter((item) => dnaEnabled || item.href !== "/app/dna").map((item) => {
             const Icon = item.icon;
+            const itemLabel = item.href === "/app/publishing" && !publicPublishingEnabled
+              ? "Readiness"
+              : item.label;
             return (
               <Link aria-current={active === item.href ? "page" : undefined} className={active === item.href ? "active" : undefined} href={item.href} key={item.href}>
                 <Icon size={16} aria-hidden />
-                {item.label}
+                {itemLabel}
               </Link>
             );
           })}
@@ -78,6 +94,11 @@ export function AppShell({
   actions?: React.ReactNode;
   archiveName?: string;
 }) {
+  const {
+    dna: dnaEnabled,
+    publicPublishing: publicPublishingEnabled
+  } = resolveHostedCapabilities();
+
   return (
     <div className="app-layout">
       <aside className="app-sidebar">
@@ -90,7 +111,13 @@ export function AppShell({
             <small>Private research</small>
           </span>
         </Link>
-        <PrivateNavigation active={active} className="sidebar-nav" label="Private navigation" />
+        <PrivateNavigation
+          active={active}
+          className="sidebar-nav"
+          dnaEnabled={dnaEnabled}
+          label="Private navigation"
+          publicPublishingEnabled={publicPublishingEnabled}
+        />
         <ArchiveCard archiveName={archiveName} />
         <form action="/api/auth/logout" className="sidebar-auth" method="post">
           <button type="submit">Sign out</button>
@@ -104,7 +131,13 @@ export function AppShell({
         <details className="mobile-menu private-mobile-menu">
           <summary><Icons.Menu size={19} aria-hidden />Menu</summary>
           <div className="mobile-menu-panel">
-            <PrivateNavigation active={active} className="mobile-menu-links private-mobile-links" label="Mobile private navigation" />
+            <PrivateNavigation
+              active={active}
+              className="mobile-menu-links private-mobile-links"
+              dnaEnabled={dnaEnabled}
+              label="Mobile private navigation"
+              publicPublishingEnabled={publicPublishingEnabled}
+            />
             <ArchiveCard archiveName={archiveName} />
             <form action="/api/auth/logout" className="sidebar-auth" method="post">
               <button type="submit">Sign out</button>

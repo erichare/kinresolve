@@ -32,6 +32,22 @@ Most genealogy tools make you choose between *sharing everything* and *sharing n
 
 The repository ships with the wholly fictional **Hartwell–Mercer Family Archive**. Every included name, date, place, record, photograph, story, and DNA value was invented for Kin Resolve; no detail represents a real person or family. Real GEDCOM exports, DNA match files, and uploads belong in ignored local storage (`data/`, `uploads/`).
 
+## Hosted private beta — proposed, not live
+
+The hosted private beta at `app.kinresolve.com` is a gated proposal, not a currently available service. Owner and counsel approval remains pending, and real family data must not be accepted until the launch gates in the [hosted beta contract](docs/hosted-beta-contract.md) pass.
+
+The proposed first cohort is intentionally narrow:
+
+- Plain GEDCOM imports only: up to 10 MiB (10,485,760 bytes) and 40,000 people.
+- Sources are transcript-only: metadata, links, and pasted text/transcripts are allowed; binary source and evidence uploads are disabled.
+- Deterministic local analysis makes no external provider call; external-provider AI is disabled.
+- DNA is disabled.
+- The public archive is disabled.
+- Real-data public publishing is disabled.
+- ZIP and package media are disabled.
+
+These hosted limits do not narrow the features available to local/self-hosted operators. Hosted deployment requires the exact seven-flag manifest documented below and in the beta contract.
+
 ## Feature tour
 
 ### Public family archive
@@ -143,6 +159,13 @@ Compose provisions Postgres with pgvector, explicitly provisions the versioned f
 | `DATABASE_AUTO_MIGRATE` | Applies pending versioned migrations at boot; set `false` in production and run `npm run db:migrate` at deploy time instead |
 | `KINRESOLVE_DEPLOYMENT_MODE` | `self-hosted` or `hosted`; required in hosted production and set explicitly by the bundled Compose stack |
 | `KINRESOLVE_DATASET_MODE` | Persisted archive contract: `empty`, versioned fictional `demo`, or real-data `pilot`; required for hosted deployments and provisioning |
+| `KINRESOLVE_DNA_ENABLED` | Hosted cohort one: `false`; server-side DNA capability gate |
+| `KINRESOLVE_EXTERNAL_AI_ENABLED` | Hosted cohort one: `false`; prevents external-provider analysis calls |
+| `KINRESOLVE_PUBLIC_ARCHIVE_ENABLED` | Hosted cohort one: `false`; disables anonymous archive surfaces |
+| `KINRESOLVE_PUBLIC_PUBLISHING_ENABLED` | Hosted cohort one: `false`; disables publication mutations independently from archive visibility |
+| `KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED` | Hosted cohort one: `false`; permits transcript-only sources while rejecting binary source/evidence uploads |
+| `KINRESOLVE_PACKAGE_MEDIA_ENABLED` | Hosted cohort one: `false`; disables ZIP/package media retention |
+| `KINRESOLVE_PLAIN_GEDCOM_ENABLED` | Hosted cohort one: `true`; admits only `.ged`/`.gedcom` files subject to the fixed 10 MiB and 40,000-person limits |
 | `KINRESOLVE_GUIDED_RESEARCH_ENABLED` | Server-side kill switch for the private case guide and its mutation APIs; defaults to `true`, set `false` to disable without deleting research history |
 | `KINRESOLVE_EXPORT_REFRESH_ENABLED` | Data-source tree import/refresh gate; defaults to `true` |
 | `KINRESOLVE_DESKTOP_MEDIA_ENABLED` | Requests the private FTM/RootsMagic media path; defaults to `false` and is ineffective without the legal-review gate and per-package rights acknowledgement |
@@ -167,6 +190,8 @@ Compose provisions Postgres with pgvector, explicitly provisions the versioned f
 | `AI_API_MODE` | `responses` (default) or `chat` |
 | `AI_CHAT_MODEL` / `AI_EMBEDDING_MODEL` | Chat model for analysis; the embedding model is reserved for planned pgvector retrieval (not implemented yet) |
 | `APP_BASE_URL` | Canonical origin of the running app; production requires an HTTPS origin such as `https://app.kinresolve.com` |
+
+The seven hosted capability flags are required together and fail closed when absent or invalid. They remain commented in `.env.example` so copying that file does not change self-hosted defaults; a hosted operator must uncomment the complete cohort-one manifest. The 10 MiB (10,485,760-byte) and 40,000-person GEDCOM limits are fixed application boundaries, not environment overrides.
 
 Archive name and tagline are edited in **Settings → Archive branding** and flow through both the private workspace and the public site. Settings also reports live database, storage, and AI-provider health.
 
