@@ -68,6 +68,8 @@ describe("DNA workspace capability UI", () => {
 
     expect(html).not.toContain('href="/app/dna"');
     expect(html).not.toMatch(/DNA Matches/i);
+    expect(html).not.toMatch(/>Publishing</i);
+    expect(html.match(/>Readiness</g)).toHaveLength(2);
   });
 
   it("short-circuits the direct DNA page before any private data read when DNA is disabled", async () => {
@@ -93,6 +95,7 @@ describe("DNA workspace capability UI", () => {
       createElement("p", null, "Private dashboard")
     ));
     expect(html.match(/href="\/app\/dna"/g)).toHaveLength(2);
+    expect(html.match(/>Publishing</g)).toHaveLength(2);
 
     await expect(DnaPage()).resolves.toBeDefined();
     expect(navigationMocks.notFound).not.toHaveBeenCalled();
