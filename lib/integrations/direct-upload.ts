@@ -180,16 +180,8 @@ export async function completeDirectIntegrationUpload(
   const normalizedConnectionId = required(connectionId, "connection id");
   const normalizedIntentId = required(intentId, "upload intent id");
   const intent = await getUploadIntent(normalizedConnectionId, normalizedIntentId, options);
-  if (intent.status === "completed" && intent.artifact_id) {
-    return {
-      artifact: withDuplicate(
-        await getIntegrationArtifact(normalizedConnectionId, intent.artifact_id, options),
-        intent.artifact_duplicate
-      ),
-      replayed: true
-    };
-  }
-  if (intent.status !== "pending") {
+  const completedReplay = intent.status === "completed" && Boolean(intent.artifact_id);
+  if (!completedReplay && intent.status !== "pending") {
     throw directUploadError("INVALID_STATE", "Upload intent has already been consumed");
   }
 
@@ -204,6 +196,16 @@ export async function completeDirectIntegrationUpload(
   await withTransaction(options, (client) =>
     requireEnabledConnection(client, archiveId, normalizedConnectionId, { ...options, featureFlags })
   );
+
+  if (completedReplay && intent.artifact_id) {
+    return {
+      artifact: withDuplicate(
+        await getIntegrationArtifact(normalizedConnectionId, intent.artifact_id, options),
+        intent.artifact_duplicate
+      ),
+      replayed: true
+    };
+  }
 
   const storage = configuredObjectStorage(options);
   if (isExpired(intent, currentTime(options))) {

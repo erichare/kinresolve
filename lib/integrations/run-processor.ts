@@ -495,10 +495,10 @@ export async function applyPreparedIntegrationSyncRun(
   options: RunProcessorOptions
 ) {
   const run = await getSyncRun(runId, options);
-  if (run.status === "applied" || run.status === "rolled_back") {
+  if (run.status === "rolled_back") {
     return applySyncRun(runId, input, options);
   }
-  if (run.status !== "review_ready") {
+  if (run.status !== "review_ready" && run.status !== "applied") {
     throw integrationProcessingError("RUN_STATE", "Sync run is not ready to apply");
   }
   if (!run.incomingSnapshotId || !run.artifactId) {
@@ -509,7 +509,6 @@ export async function applyPreparedIntegrationSyncRun(
   }
 
   const connection = await getIntegrationConnection(run.connectionId, options);
-  const snapshot = await getIntegrationSnapshot(run.incomingSnapshotId, options);
   const flags = getIntegrationFeatureFlags();
   if (!isIntegrationProviderEnabled(connection.provider, flags)) {
     throw integrationProcessingError("FEATURE_DISABLED", "This data-source provider is disabled");
@@ -522,6 +521,11 @@ export async function applyPreparedIntegrationSyncRun(
       size: pendingArtifact.size
     });
   }
+  if (run.status === "applied") {
+    return applySyncRun(runId, input, options);
+  }
+
+  const snapshot = await getIntegrationSnapshot(run.incomingSnapshotId, options);
   const { artifact, bytes } = await readIntegrationArtifact(connection.id, run.artifactId, options);
   if (artifact.sha256 !== snapshot.sha256) {
     throw integrationProcessingError("STALE_BASELINE", "The staged artifact no longer matches the prepared snapshot");
