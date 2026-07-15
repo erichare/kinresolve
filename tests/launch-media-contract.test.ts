@@ -52,6 +52,8 @@ describe("synthetic launch-media contract", () => {
     expect(capture).toContain("body.api.configured !== true");
     expect(capture).toContain("body.storage.configured !== true");
     expect(capture).toContain('getByText("Synthetic demo", { exact: true })');
+    expect(capture).toContain('hasText: "Changes are ready to review."');
+    expect(capture).toContain('name: "Reopen review", exact: true');
     expect(capture).toContain('locator(".sync-change-groups")');
     expect(capture).toContain("did not observe the GEDCOM connection response");
     expect(capture).toContain("did not observe the GEDCOM refresh-queue response");
