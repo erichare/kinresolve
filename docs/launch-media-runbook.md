@@ -31,7 +31,10 @@ only a small allowlist of non-secret host variables, uses an isolated home and n
 refuses root Next environment files and remote Docker endpoints, supplies fixed synthetic
 credentials, and the application guard rejects any Vercel marker, mixed canary mode,
 non-loopback origin, non-disposable database path, mismatched build SHA, or missing
-acknowledgement.
+acknowledgement. Browser traffic is limited to the exact disposable app origin plus
+`POST`/`OPTIONS` requests to the exact loopback MinIO origin and synthetic bucket path used
+by the private direct-upload flow; every other origin, storage path, method, and WebSocket is
+blocked.
 
 ## Capture
 

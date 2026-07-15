@@ -41,7 +41,11 @@ describe("synthetic launch-media contract", () => {
     expect(capture).toContain('hostname !== "127.0.0.1"');
     expect(capture).toContain('context.route("**/*"');
     expect(capture).toContain("context.routeWebSocket");
-    expect(capture).toContain("requestOrigin !== configuration.origin");
+    expect(capture).toContain("requestUrl.origin === configuration.origin");
+    expect(capture).toContain("requestUrl.origin === storageOrigin");
+    expect(capture).toContain('new Set(["OPTIONS", "POST"])');
+    expect(capture).toContain("requestUrl.pathname === storagePathPrefix");
+    expect(capture).toContain('url.hostname !== "127.0.0.1"');
     expect(capture).toContain('response.status() !== 200');
     expect(capture).toContain('body.status !== "ok"');
     expect(capture).toContain("body.database.datasetModeMatches !== true");

@@ -53,6 +53,13 @@ async function main(): Promise<void> {
     throw new Error("The repository-owned synthetic GEDCOM fixture does not match its pinned digest.");
   }
   const contentBytes = await readFile(path.join(process.cwd(), "site", "lib", "launch-media-content.json"));
+  const storageOrigin = requiredLoopbackOrigin("S3_PUBLIC_ENDPOINT");
+  const storageBucket = requiredEnvironment("S3_BUCKET");
+  if (!/^[a-z0-9][a-z0-9.-]{2,62}$/.test(storageBucket) || storageOrigin === configuration.origin) {
+    throw new Error("Launch-media capture requires one distinct safe synthetic storage origin and bucket.");
+  }
+  const storagePathPrefix = `/${storageBucket}`;
+  const storageMethods = new Set(["OPTIONS", "POST"]);
 
   const outputDirectory = path.join(
     process.cwd(),
@@ -74,14 +81,18 @@ async function main(): Promise<void> {
     viewport: { width: outputWidth, height: outputHeight }
   });
   await context.route("**/*", async (route) => {
-    let requestOrigin: string;
+    let requestUrl: URL;
     try {
-      requestOrigin = new URL(route.request().url()).origin;
+      requestUrl = new URL(route.request().url());
     } catch {
       await route.abort("blockedbyclient");
       return;
     }
-    if (requestOrigin !== configuration.origin) {
+    const applicationRequest = requestUrl.origin === configuration.origin;
+    const storageRequest = requestUrl.origin === storageOrigin
+      && storageMethods.has(route.request().method())
+      && (requestUrl.pathname === storagePathPrefix || requestUrl.pathname.startsWith(`${storagePathPrefix}/`));
+    if (!applicationRequest && !storageRequest) {
       await route.abort("blockedbyclient");
       return;
     }
@@ -376,6 +387,28 @@ function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required for launch-media capture.`);
   return value;
+}
+
+function requiredLoopbackOrigin(name: string): string {
+  const raw = requiredEnvironment(name);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an exact disposable loopback origin.`);
+  }
+  if (
+    url.protocol !== "http:"
+    || url.hostname !== "127.0.0.1"
+    || url.username !== ""
+    || url.password !== ""
+    || (url.pathname !== "" && url.pathname !== "/")
+    || url.search !== ""
+    || url.hash !== ""
+  ) {
+    throw new Error(`${name} must be an exact disposable loopback origin.`);
+  }
+  return url.origin;
 }
 
 function sha256(value: Uint8Array): string {
