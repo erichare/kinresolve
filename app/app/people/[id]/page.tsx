@@ -4,12 +4,14 @@ import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
 import { PersonCurationPanel } from "@/components/person-curation-panel";
 import { Confidence, EmptyState, Status } from "@/components/ui";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import type { PersonSummary } from "@/lib/models";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppPersonPage({ params }: { params: Promise<{ id: string }> }) {
+  const capabilities = resolveHostedCapabilities();
   const { id } = await params;
   const personId = decodeURIComponent(id);
   const workspace = await readWorkspace();
@@ -50,7 +52,11 @@ export default async function AppPersonPage({ params }: { params: Promise<{ id: 
               <Status tone="private">{person.livingStatus}</Status>
             </div>
           </div>
-          <PersonCurationPanel key={person.id} person={person} />
+          <PersonCurationPanel
+            key={person.id}
+            person={person}
+            publicPublishingEnabled={capabilities.publicPublishing}
+          />
         </div>
         <div className="tabs">
           <span className="active">Facts</span>
