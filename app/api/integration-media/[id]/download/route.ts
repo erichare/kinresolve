@@ -1,10 +1,14 @@
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import { integrationErrorResponse } from "@/lib/integrations/api-response";
 import { streamIntegrationMedia } from "@/lib/integrations/media-store";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export const GET = withPermission("imports:manage", async (_request, authorization, context: RouteContext) => {
+  const unavailable = capabilityUnavailableResponse("packageMedia");
+  if (unavailable) return unavailable;
+
   const { id } = await context.params;
   try {
     const { media, body } = await streamIntegrationMedia(id, {

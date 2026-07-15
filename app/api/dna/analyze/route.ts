@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import type { DnaMatch } from "@/lib/models";
 import { saveDnaMatch } from "@/lib/workspace-store";
 
@@ -9,6 +10,9 @@ export const dynamic = "force-dynamic";
 // at GET /api/dna/matches.
 
 export const POST = withPermission("dna:write", async (request: Request) => {
+  const unavailable = capabilityUnavailableResponse("dna");
+  if (unavailable) return unavailable;
+
   const match = (await request.json()) as DnaMatch;
 
   try {

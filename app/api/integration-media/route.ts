@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import { integrationErrorResponse } from "@/lib/integrations/api-response";
 import { listIntegrationMedia } from "@/lib/integrations/media-store";
 import { toPublicIntegrationMedia } from "@/lib/integrations/public-projections";
 
 export const GET = withPermission("imports:manage", async (request, authorization) => {
+  const unavailable = capabilityUnavailableResponse("packageMedia");
+  if (unavailable) return unavailable;
+
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor")?.trim() || undefined;
   const rawPageSize = url.searchParams.get("pageSize");

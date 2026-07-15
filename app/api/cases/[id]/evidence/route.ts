@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
 import { linkDnaMatchToCase } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,9 @@ type RouteContext = {
 };
 
 export const POST = withPermission("evidence:write", async (request, _authorization, { params }: RouteContext) => {
+  const unavailable = capabilityUnavailableResponse("dna");
+  if (unavailable) return unavailable;
+
   const { id } = await params;
   const body = (await request.json()) as {
     linkedDnaMatchId?: string;
