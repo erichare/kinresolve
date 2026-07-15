@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-import { resolveProvisioningMode } from "@/scripts/provision-archive";
+import { resolveProvisioningMode } from "@/scripts/provision-archive-command";
 
 describe("archive provisioning command", () => {
   it.each(["empty", "demo", "pilot"] as const)("accepts an explicit --mode %s", (datasetMode) => {
@@ -41,6 +41,6 @@ describe("archive provisioning command", () => {
     const packageJson = JSON.parse(packageSource) as { scripts: Record<string, string> };
 
     expect(packageJson.scripts["archive:provision"]).toBe("node scripts/provision-archive.mjs");
-    expect(launcherSource).toContain('"--import", "tsx", "scripts/provision-archive.ts"');
+    expect(launcherSource).toContain('"--import", "tsx", "scripts/provision-archive-command.ts"');
   });
 });
