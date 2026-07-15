@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   demoFixtureVersion,
@@ -8,6 +8,7 @@ import {
   requireProvisionedArchive
 } from "@/lib/archive-provisioning";
 import { closeDatabasePools, query } from "@/lib/db";
+import { readArchiveBranding } from "@/lib/store/people-queries";
 import {
   createCase,
   createEmptyWorkspace,
@@ -20,20 +21,17 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
 
 let storeOptions: { databaseUrl: string; archiveId: string };
-
-beforeAll(async () => {
-  if (!databaseUrl) return;
-  await query("DELETE FROM archives WHERE id LIKE 'provision-test-%'", [], { databaseUrl });
-});
+let archiveIds: string[] = [];
 
 beforeEach(() => {
   if (!databaseUrl) return;
   storeOptions = { databaseUrl, archiveId: `provision-test-${randomUUID()}` };
+  archiveIds = [storeOptions.archiveId];
 });
 
 afterEach(async () => {
   if (!databaseUrl) return;
-  await query("DELETE FROM archives WHERE id = $1", [storeOptions.archiveId], { databaseUrl });
+  await query("DELETE FROM archives WHERE id = ANY($1::text[])", [archiveIds], { databaseUrl });
 });
 
 afterAll(async () => {
@@ -43,6 +41,10 @@ afterAll(async () => {
 describeIfDatabase("archive provisioning", () => {
   it("keeps reads and writes from creating an unprovisioned archive", async () => {
     await expect(readWorkspace(storeOptions)).rejects.toThrow(/archive.*not provisioned/i);
+    await expect(readArchiveBranding(storeOptions)).rejects.toThrow(/archive.*not provisioned/i);
+    await expect(createCase({ title: "No archive", question: "Should this exist?" }, storeOptions)).rejects.toThrow(
+      /archive.*not provisioned/i
+    );
     await expect(
       updateArchiveBranding({ name: "Should not exist", tagline: "" }, storeOptions)
     ).rejects.toThrow(/archive.*not provisioned/i);
@@ -119,6 +121,36 @@ describeIfDatabase("archive provisioning", () => {
       people: [],
       cases: []
     });
+
+    await expect(provisionArchive("demo", storeOptions)).rejects.toThrow(/already provisioned.*pilot/i);
+    expect(await getArchiveProvisioning(storeOptions)).toMatchObject({
+      datasetMode: "pilot",
+      demoFixtureVersion: null
+    });
+    await expect(readWorkspace(storeOptions)).resolves.toMatchObject({ people: [], cases: [], sources: [] });
+  });
+
+  it("serializes concurrent provisioning so exactly one caller creates the demo", async () => {
+    const results = await Promise.all([provisionArchive("demo", storeOptions), provisionArchive("demo", storeOptions)]);
+
+    expect(results.map((result) => result.created).sort()).toEqual([false, true]);
+    expect(await getArchiveProvisioning(storeOptions)).toMatchObject({
+      datasetMode: "demo",
+      demoFixtureVersion
+    });
+  });
+
+  it("creates deterministic demo fixtures in separate fresh archives", async () => {
+    const secondOptions = { databaseUrl: databaseUrl!, archiveId: `provision-test-${randomUUID()}` };
+    archiveIds.push(secondOptions.archiveId);
+
+    await provisionArchive("demo", storeOptions);
+    await provisionArchive("demo", secondOptions);
+    const [first, second] = await Promise.all([readWorkspace(storeOptions), readWorkspace(secondOptions)]);
+
+    expect(first.people.map((person) => person.id)).toEqual(second.people.map((person) => person.id));
+    expect(first.cases.map((researchCase) => researchCase.id)).toEqual(second.cases.map((researchCase) => researchCase.id));
+    expect(first.sources.map((source) => source.id)).toEqual(second.sources.map((source) => source.id));
   });
 
   it("rejects persisted and expected mode mismatches without changing the archive", async () => {

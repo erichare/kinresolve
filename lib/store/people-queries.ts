@@ -3,7 +3,7 @@ import type { PersonFact, PersonSummary } from "../models";
 import type { PeopleListItem, PeopleSearchFilters, PeopleSearchResult, PeopleSearchStats } from "../people-search";
 import { maximumPageSize, type PaginationInput } from "../pagination";
 import { canPublishPerson } from "../privacy";
-import { ensureWorkspaceSeeded, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
+import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
 
 // SQL-side people reads for the hot paths (people search, public archive
 // pages, shell branding). These run scoped queries instead of materializing
@@ -70,7 +70,7 @@ export async function searchPeoplePageFromDb(
   pagination: PaginationInput = { page: 1, pageSize: 50 },
   options: WorkspaceStoreOptions = {}
 ): Promise<PeopleSearchResult> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const params: unknown[] = [archiveId];
@@ -139,7 +139,7 @@ export async function searchPeoplePageFromDb(
 }
 
 export async function listPublicPeople(options: WorkspaceStoreOptions = {}): Promise<PersonSummary[]> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const peopleResult = await query<PersonRow>(
@@ -170,7 +170,7 @@ export async function getPublicPersonBySlug(
   slug: string,
   options: WorkspaceStoreOptions = {}
 ): Promise<{ person: PersonSummary; publishedRelatives: PersonSummary[] } | undefined> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const personResult = await query<PersonRow>(
@@ -215,7 +215,7 @@ export async function getPublicPersonBySlug(
 }
 
 export async function readArchiveBranding(options: WorkspaceStoreOptions = {}): Promise<{ name: string; tagline: string }> {
-  await ensureWorkspaceSeeded(options);
+  await ensureWorkspaceProvisioned(options);
   const archiveId = getArchiveId(options);
 
   const result = await query<{ name: string; tagline: string }>(
