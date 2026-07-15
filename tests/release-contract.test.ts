@@ -40,6 +40,19 @@ function validInput(overrides: Partial<ReleaseContractInput> = {}): ReleaseContr
       DATABASE_POOL_MAX: "2",
       DATABASE_AUTO_MIGRATE: "false",
       APP_BASE_URL: "https://app.kinresolve.com",
+      KINRESOLVE_BETA_BOUNDARY_SHA256: "c".repeat(64),
+      KINRESOLVE_BETA_BOUNDARY_URL: "https://kinresolve.com/legal/private-beta-boundary",
+      KINRESOLVE_BETA_BOUNDARY_VERSION: "private-beta-boundary-v1",
+      KINRESOLVE_BETA_LEGAL_STATUS: "approved",
+      KINRESOLVE_BETA_OPERATOR_AUDIENCE: "https://app.kinresolve.com",
+      KINRESOLVE_BETA_OPERATOR_KEY_ID: "beta-operator-1",
+      KINRESOLVE_BETA_OPERATOR_PUBLIC_KEY_SPKI: "MCowBQYDK2VwAyEAaTQgaCV2zdRSKERDMqDsUoaycbh8weTsGwWsAm29Oas",
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_SHA256: "d".repeat(64),
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_URL: "https://kinresolve.com/legal/private-beta-terms",
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_VERSION: "private-beta-terms-v1",
+      KINRESOLVE_BETA_PRIVACY_NOTICE_SHA256: "e".repeat(64),
+      KINRESOLVE_BETA_PRIVACY_NOTICE_URL: "https://kinresolve.com/legal/private-beta-privacy",
+      KINRESOLVE_BETA_PRIVACY_NOTICE_VERSION: "private-beta-privacy-v1",
       KINRESOLVE_DEPLOYMENT_MODE: "hosted",
       KINRESOLVE_DATASET_MODE: "pilot",
       KINRESOLVE_DATABASE_IDENTITY: "a".repeat(64),
@@ -48,6 +61,9 @@ function validInput(overrides: Partial<ReleaseContractInput> = {}): ReleaseContr
       KINRESOLVE_OBJECT_STORAGE_BACKEND: "vercel-blob",
       KINRESOLVE_OBJECT_STORAGE_IDENTITY: "b".repeat(64),
       KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true",
+      KINRESOLVE_TRANSACTIONAL_EMAIL_FROM: "Kin Resolve <beta@kinresolve.com>",
+      KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER: "resend",
+      KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO: "beta@kinresolve.com",
       KINRESOLVE_DNA_ENABLED: "false",
       KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
       KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
@@ -154,6 +170,50 @@ describe("stable release contract", () => {
         })
       )
     ).toThrow(/KINRESOLVE_OBJECT_STORAGE_BACKEND.*vercel-blob/i);
+  });
+
+  it("requires the approved transactional sender and an Ed25519 operator identity", () => {
+    for (const [name, value, pattern] of [
+      ["KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER", "smtp", /provider.*resend/i],
+      ["KINRESOLVE_TRANSACTIONAL_EMAIL_FROM", "Other <other@example.com>", /from.*beta@kinresolve\.com/i],
+      ["KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO", "other@example.com", /reply_to.*beta@kinresolve\.com/i],
+      ["KINRESOLVE_BETA_OPERATOR_KEY_ID", "bad key id", /operator.*public-key.*invalid/i],
+      ["KINRESOLVE_BETA_OPERATOR_PUBLIC_KEY_SPKI", "not-a-key", /operator.*public-key.*invalid/i],
+      ["KINRESOLVE_BETA_OPERATOR_AUDIENCE", "https://app.kinresolve.com/", /operator.*public-key.*invalid/i]
+    ] as const) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: {
+          ...validInput().productionEnvironment,
+          [name]: value
+        }
+      })), name).toThrow(pattern);
+    }
+  });
+
+  it("binds the operator audience to the exact release-cell origin", () => {
+    expect(() => validateReleaseContract(validInput({
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_BETA_OPERATOR_AUDIENCE: "https://staging.kinresolve.com"
+      }
+    }))).toThrow(/operator_audience.*app_base_url/i);
+  });
+
+  it("requires approved, immutable legal metadata on the Kin Resolve origin", () => {
+    for (const [name, value] of [
+      ["KINRESOLVE_BETA_LEGAL_STATUS", "proposed"],
+      ["KINRESOLVE_BETA_PARTICIPATION_TERMS_VERSION", "Terms v1"],
+      ["KINRESOLVE_BETA_PRIVACY_NOTICE_SHA256", "A".repeat(64)],
+      ["KINRESOLVE_BETA_BOUNDARY_URL", "https://example.com/legal/boundary"],
+      ["KINRESOLVE_BETA_PARTICIPATION_TERMS_URL", "https://kinresolve.com/legal/terms?mutable=true"]
+    ] as const) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: {
+          ...validInput().productionEnvironment,
+          [name]: value
+        }
+      })), name).toThrow(/approved private-beta legal document contract.*invalid/i);
+    }
   });
 
   it("requires an explicit hosted dataset and safe archive identity", () => {

@@ -13,6 +13,7 @@ export type ApiRequestPolicy =
   | "same-origin-cookie"
   | "better-auth-managed"
   | "service-bearer"
+  | "operator-signature"
   | "release-fence-control";
 
 export type ApiMethodRegistration = {
@@ -49,6 +50,31 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
     requiresAuthSecret: true
   },
   { path: "/api/auth/logout", methods: { POST: register(publicAccess, "same-origin-cookie") } },
+  {
+    path: "/api/auth/security/revoke-sessions",
+    methods: { POST: register(publicAccess, "same-origin-cookie") },
+    requiresAuthSecret: true
+  },
+  {
+    path: "/api/beta/email-verification/reissue",
+    methods: { POST: register(publicAccess, "same-origin-cookie") }
+  },
+  {
+    path: "/api/beta/email-verification/verify",
+    methods: { POST: register(publicAccess, "same-origin-cookie") }
+  },
+  {
+    path: "/api/beta/invitations/accept",
+    methods: { POST: register(publicAccess, "same-origin-cookie") }
+  },
+  {
+    path: "/api/beta/invitations/inspect",
+    methods: { POST: register(publicAccess, "same-origin-cookie") }
+  },
+  {
+    path: "/api/beta/legal/[document]",
+    methods: { GET: register(publicAccess, "read-only") }
+  },
   {
     path: "/api/cases",
     methods: {
@@ -217,6 +243,10 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
     }
   },
   {
+    path: "/api/operator/invitations",
+    methods: { POST: register(serviceAccess, "operator-signature") }
+  },
+  {
     path: "/api/people",
     methods: { GET: register(permission("archive:read-private"), "read-only") }
   },
@@ -270,7 +300,9 @@ export function isApiWriteBlockedByReleaseFence(pathname: string, method: string
   }
   // Service-bearer handlers authenticate before checking the fence so an
   // unsigned request cannot discover release-control state.
-  if (registration.requestPolicy === "service-bearer") return false;
+  if (registration.requestPolicy === "service-bearer" || registration.requestPolicy === "operator-signature") {
+    return false;
+  }
   if (registration.requestPolicy === "better-auth-managed") {
     return method.toUpperCase() !== "GET";
   }

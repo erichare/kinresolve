@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseEnv } from "node:util";
+import { loadApprovedBetaLegalManifest } from "./beta-legal-manifest.ts";
 import { requiredReadableProductionEnvironmentNames } from "./vercel-environment-contract.ts";
 import { databaseIdentityPattern } from "./database-attestation.ts";
+import { validateOperatorPublicKeyConfiguration } from "./operator-signature.ts";
 
 const requiredProductionSettings = requiredReadableProductionEnvironmentNames;
 
@@ -129,6 +131,34 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   if (environment.KINSLEUTH_ALLOW_SIGNUPS !== "false") {
     throw new Error("KINSLEUTH_ALLOW_SIGNUPS must be exactly false for production releases.");
   }
+  if (environment.KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER !== "resend") {
+    throw new Error("KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER must be exactly resend for production releases.");
+  }
+  if (environment.KINRESOLVE_TRANSACTIONAL_EMAIL_FROM !== "Kin Resolve <beta@kinresolve.com>") {
+    throw new Error("KINRESOLVE_TRANSACTIONAL_EMAIL_FROM must be the approved beta@kinresolve.com sender.");
+  }
+  if (environment.KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO !== "beta@kinresolve.com") {
+    throw new Error("KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO must be exactly beta@kinresolve.com.");
+  }
+  try {
+    validateOperatorPublicKeyConfiguration({
+      audience: environment.KINRESOLVE_BETA_OPERATOR_AUDIENCE,
+      keyId: environment.KINRESOLVE_BETA_OPERATOR_KEY_ID,
+      publicKeySpkiBase64Url: environment.KINRESOLVE_BETA_OPERATOR_PUBLIC_KEY_SPKI
+    });
+  } catch (error) {
+    throw new Error("The beta operator public-key configuration is invalid.", { cause: error });
+  }
+  try {
+    const legal = loadApprovedBetaLegalManifest(environment);
+    for (const document of [legal.participationTerms, legal.privacyNotice, legal.betaBoundary]) {
+      if (new URL(document.url).origin !== "https://kinresolve.com") {
+        throw new Error("wrong legal origin");
+      }
+    }
+  } catch (error) {
+    throw new Error("The approved private-beta legal document contract is invalid.", { cause: error });
+  }
   if (!["empty", "demo", "pilot"].includes(environment.KINRESOLVE_DATASET_MODE)) {
     throw new Error("KINRESOLVE_DATASET_MODE must be empty, demo, or pilot.");
   }
@@ -194,6 +224,9 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
     if (appUrl.origin === forbiddenAppUrl.origin) {
       throw new Error("APP_BASE_URL must be isolated from the forbidden release cell origin.");
     }
+  }
+  if (environment.KINRESOLVE_BETA_OPERATOR_AUDIENCE !== appUrl.origin) {
+    throw new Error("KINRESOLVE_BETA_OPERATOR_AUDIENCE must exactly match the canonical APP_BASE_URL origin.");
   }
 
   return {

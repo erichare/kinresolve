@@ -26,6 +26,8 @@ describe("hosted login page", () => {
 
     expect(html).toMatch(/private beta workspace/i);
     expect(html).not.toMatch(/DNA|source uploads|href="\/setup"/i);
+    expect(html).toContain('href="/forgot-password"');
+    expect(html).toContain('href="/resend-verification"');
   });
 
   it("preserves first-run guidance for self-hosted operators", async () => {
@@ -33,5 +35,7 @@ describe("hosted login page", () => {
 
     expect(html).toMatch(/DNA matches, source uploads, and investigations/i);
     expect(html).toContain('href="/setup"');
+    expect(html).not.toContain('href="/forgot-password"');
+    expect(html).not.toContain('href="/resend-verification"');
   });
 });

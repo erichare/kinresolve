@@ -21,9 +21,20 @@ import { POST as authCatchAllPost } from "@/app/api/auth/[...all]/route";
 
 const archiveId = `test-auth-${randomUUID()}`;
 const options = databaseUrl ? { databaseUrl, archiveId } : undefined;
+const testEmails = [
+  "attacker@example.com",
+  "intruder@example.com",
+  "owner@example.com",
+  "pilot@example.com",
+  "racer-a@example.com",
+  "racer-b@example.com",
+  "stranger@example.com"
+] as const;
 
 async function cleanupUsers(): Promise<void> {
-  await query('DELETE FROM "user"', [], { databaseUrl: databaseUrl! });
+  await query('DELETE FROM "user" WHERE email = ANY($1::text[])', [testEmails], {
+    databaseUrl: databaseUrl!
+  });
   await query("DELETE FROM archives WHERE id = $1", [archiveId], { databaseUrl: databaseUrl! });
 }
 

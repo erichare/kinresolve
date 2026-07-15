@@ -23,6 +23,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
                 : "Sign in to open private research tools, DNA matches, source uploads, and investigations."}
             </p>
             <LoginForm nextPath={nextPath} />
+            <div className="hero-actions">
+              {hosted ? (
+                <>
+                  <Link className="button-secondary" href="/forgot-password">
+                    Forgot password?
+                  </Link>
+                  <Link className="button-secondary" href="/resend-verification">
+                    Resend verification email
+                  </Link>
+                </>
+              ) : null}
+            </div>
             {!hosted ? (
               <div className="hero-actions">
                 <Link className="button-secondary" href="/setup">

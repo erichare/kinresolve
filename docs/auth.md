@@ -1,123 +1,89 @@
-# Identity, accounts, and tenancy design
+# Identity, invitations, and account recovery
 
-_Status: Phase 1 identity core. This document records the auth-library decision the
-roadmap deferred to "Phase 1 design" and the phased plan for replacing the shared
-password with real accounts._
+_Status: hosted private-beta identity perimeter implemented; live provider and legal approvals remain release gates._
 
-## Where this starts from
+Kin Resolve uses Better Auth with the repository's versioned PostgreSQL migrations. Hosted identity is invitation-only. Self-hosted first-run setup remains a separate, explicit path.
 
-Access control today is a single shared password: `proxy.ts` gates `/app/*` and the
-private API prefixes, and the session cookie is an HMAC-signed timestamp carrying no
-identity. `lib/rbac.ts` defines five roles and twelve permissions but is enforced in
-exactly one place — with a role read from the request body, which any authenticated
-caller can forge. The `users` table from the initial schema has never been read or
-written.
+## Hosted account boundary
 
-## Library decision: better-auth
+A hosted account can reach a private archive only when all of these are true:
 
-Considered: Auth.js (next-auth v5), better-auth, and hand-rolling on the existing
-HMAC session machinery.
+- the Better Auth session is valid;
+- the account email is verified;
+- a membership exists for the deployment-selected archive;
+- the membership is backed by a consumed, email-bound invitation; and
+- the membership is backed by immutable clickwrap evidence for the exact participation terms, privacy notice, and cohort boundary approved at onboarding, including version, URL, and SHA-256 digest.
 
-- **Hand-rolling** is disqualified for a hosted service that will store DNA-adjacent
-  data: password hashing, session revocation, reset tokens, and invitation flows are
-  exactly the code that should come from a maintained, widely-audited library.
-- **Auth.js** treats credentials (email + password) as a second-class provider — no
-  built-in verification or reset flows for it — and its adapter model fights this
-  repo's plain-`pg`, own-migrations approach.
-- **better-auth** is credentials-first, TypeScript-native, self-hostable (MIT),
-  works against a plain `pg` Pool, ships session revocation and auth-endpoint rate
-  limiting, and has organization/invitation and SSO/OIDC plugins that line up with
-  the paid-tier collaboration and enterprise items in the roadmap.
+Open signup and both implicit owner paths are disabled in hosted mode. Creating a Better Auth account directly, racing first-run setup, or becoming the earliest account does not confer archive access.
 
-Schema note: better-auth's tables are created through **our** versioned migration
-framework (hand-written SQL in `db/migrations/`, verified against the library's
-schema reference), not its CLI — migrations stay reviewable and self-hosters run
-`npm run db:migrate` as usual.
+## Invitation acceptance
 
-## Model
+Migration `014_beta_invitations.sql` adds the paused-by-default invitation control, invitations, stateful email-verification capabilities, append-only legal acceptance and redacted identity evidence, operator replay protection, and durable authentication-rate-limit buckets.
 
-- **Users** are global (better-auth `user` table). The stub `users` table from 001 is
-  preserved as `legacy_users` for operator review because it cannot be converted into
-  credential-bearing better-auth accounts.
-- **Memberships** map user → archive → role (`owner | admin | editor | contributor |
-  viewer`, the roles `lib/rbac.ts` already defines). Single-archive deployments have
-  one archive; the schema is multi-archive-ready like everything else.
-- **Self-hosted first-run setup** (Ghost/Gitea pattern): while no user exists, private routes
-  redirect to `/setup`, which creates the first account and an `owner` membership on
-  the default archive. Once a user exists, open sign-up is disabled (invitations
-  arrive in a later slice). Hosted deployments disable `/setup`, open sign-up, and
-  automatic owner promotion; accounts must arrive through a controlled provisioning
-  or invitation path.
-- **Sessions** are database-backed better-auth sessions (revocable), replacing the
-  stateless HMAC timestamp. `AUTH_SECRET` is reused as the better-auth secret.
-  `KINSLEUTH_APP_PASSWORD` is retired.
-- **Role resolution**: server surfaces derive the caller's role from session →
-  membership, never from request input. The first enforcement fix lands here (the
-  AI whole-tree route's client-supplied role); sweeping every mutating route is the
-  next slice.
+Invitation bearer values are 256-bit random capabilities. Only SHA-256 digests are stored. Invitations are single-use, expire on the database clock, and bind archive, email, role, purpose, and the exact approved legal manifest.
 
-## Phasing
+The acceptance service performs a cheap database preflight before password hashing or outbound legal checks. It then fetches and hashes all three approved documents, and finally repeats every check under a row lock in the account-creation transaction. The transaction creates the user, credential account, membership, legal acceptance, and stateful verification capability while consuming the invitation. Any failure rolls the whole transaction back.
 
-1. **This slice — identity core**: better-auth integration, migration 003 (auth
-   tables + memberships, preserve stub users as `legacy_users`), first-run setup flow, login/logout
-   replacement, proxy rewired to real sessions (Next 16 `proxy.ts` runs on the
-   Node runtime, so full session validation stays centralized), session-derived
-   role for the AI route, auth-endpoint rate limiting.
-2. **Route-level RBAC sweep**: `assertPermission` on every mutating route with the
-   session-derived role; audit log groundwork.
-3. **Invitations + multi-member archives**: invitation flow (email delivery
-   config), member management UI, per-member roles.
-4. **Tenant resolution**: archive resolved from the authenticated principal
-   (membership) instead of `KINSLEUTH_ARCHIVE_ID`; RLS policies as defense in
-   depth.
-5. **Email verification + password reset**: requires SMTP configuration surface
-   for self-hosters; deliberately deferred so the identity core doesn't grow a
-   mail dependency.
+An approved legal-manifest update invalidates outstanding invitations but does not silently lock out participants who accepted an earlier approved version. Any policy that requires existing participants to re-consent needs a dedicated, explicit re-consent flow before that version becomes an access requirement.
 
-## Preserved behaviors
+Browser action links carry capabilities only in URL fragments. The client reads the exact fragment, removes it from browser history immediately, and submits it in a bounded same-origin JSON request. Tokens never appear in query strings or token-bearing `GET` requests.
 
-- Fail-closed in production when auth is unconfigured (503, matching today).
-- `/login?next=` redirect flow for pages; JSON 401 for APIs.
-- Public archive routes stay public; `/api/health` stays open; cron keeps
-  `CRON_SECRET` bearer auth.
+The legal links shown during acceptance use `/api/beta/legal/*`. The server re-fetches the allowlisted `kinresolve.com` document, rejects redirects, streams no more than 2 MiB, verifies the configured digest, and serves only those verified bytes in a sandboxed, no-store response. Acceptance performs its own fresh verification immediately before the transaction.
 
-## Integration notes
+## Operator workflow
 
-- better-auth wraps the app's node-postgres `Pool` directly (`lib/auth.ts`);
-  the instance is a lazy singleton because `next build` runs without
-  `DATABASE_URL`.
-- The auth tables use better-auth's default singular names and camelCase
-  columns (`"user"."emailVerified"` etc.) so no field-mapping layer exists to
-  drift; migration `003_auth_accounts.sql` documents this.
-- The sign-up gate lives in our catch-all route wrapper
-  (`app/api/auth/[...all]/route.ts`) as plain route code — first account only,
-  `KINSLEUTH_ALLOW_SIGNUPS=true` overrides for self-hosted testing — rather than in
-  better-auth hook APIs. Hosted sign-up is rejected before database or better-auth
-  access regardless of the override, and the release contract requires the setting
-  to be exactly `false`.
-- Self-hosted membership resolution self-heals: the sole account becomes `owner` of
-  the default archive even if the explicit `/api/setup/claim` step never lands.
-  Hosted membership resolution never infers ownership from account creation order.
-- `jose` is pinned as a direct dependency: `@vercel/oidc` hoists `jose@5` and
-  npm mis-deduped `@better-auth/core`'s `jose@^6` onto it; the root pin gives
-  v6 the top-level slot while oidc keeps its nested v5.
-- Rate limiting uses better-auth's built-in per-instance limiter on auth
-  endpoints (enabled in production by default); durable cross-instance
-  storage is listed in the phasing above.
+The public runtime contains only an Ed25519 public key. The private key belongs in the operator environment and must not be stored in Vercel project variables, the repository, shell history, or command arguments.
 
-## Request-origin boundary
+The client requires:
 
-Every registered cookie-capable `POST`, `PUT`, `PATCH`, or `DELETE` route is protected
-before database and session work. The request must provide an `Origin` that exactly
-matches the canonical `APP_BASE_URL` origin and the Fetch Metadata header
-`Sec-Fetch-Site: same-origin`. Production fails closed when `APP_BASE_URL` is absent or
-is not one HTTPS origin. The check applies even when a request happens to omit its
-cookie, so an endpoint cannot change policy based on attacker-controlled credential
-presence.
+- `KINRESOLVE_BETA_OPERATOR_BASE_URL`
+- `KINRESOLVE_BETA_OPERATOR_AUDIENCE`
+- `KINRESOLVE_BETA_OPERATOR_KEY_ID`
+- `KINRESOLVE_BETA_OPERATOR_PRIVATE_KEY_PKCS8`
 
-Better Auth's catch-all endpoints are registered as a narrow exception because Better
-Auth validates their origin itself; that validation is explicitly enabled in the test
-environment so cross-site sign-up and sign-in regressions remain executable. Scheduled
-cron routes are a separate narrow exception and authenticate with `CRON_SECRET` bearer
-tokens. Read-only routes do not inherit the cookie-mutation policy, and only read-only
-`GET` routes inherit `HEAD`.
+The base URL and audience must be the same canonical HTTPS origin. Every command signs the audience, method, path, exact body, timestamp, UUID nonce, and key ID. The runtime verifies that signature and atomically consumes the nonce before applying the command, preventing cross-cell and same-cell replay.
+
+The invitation control begins paused. A typical first-owner sequence is:
+
+```bash
+npm run beta:operator -- control active operator
+npm run beta:operator -- issue participant@example.com owner initial-owner 86400
+```
+
+Operational containment is explicit:
+
+```bash
+npm run beta:operator -- control paused incident
+npm run beta:operator -- revoke-all
+npm run beta:operator -- cleanup 250
+```
+
+The CLI sends requests only to `/api/operator/invitations`, never connects to production PostgreSQL, never prints the participant email or private key, does not retry mutations, and allowlists its output fields.
+
+## Verification and recovery
+
+Hosted sign-in requires a verified email. Verification capabilities are random, hashed at rest, single-use, account/invitation-bound, and revocable. Reissue responses are fixed and perform all account-dependent database and email-provider work after the response so an address cannot be enumerated through response content or timing.
+
+Password reset uses Better Auth's hashed verification identifiers, a 30-minute expiry, and revokes all sessions on completion. Reset links use fragments rather than query strings. Forgot-password responses are generic, hosted credential endpoints accept only bounded JSON, and durable HMAC-keyed limits cover client address plus email or reset-token subjects. No raw email, address, or capability is stored in a rate-limit key.
+
+Transactional messages use the exact `APP_BASE_URL`, fixed templates, no family data, provider idempotency keys, and a verified `beta@kinresolve.com` sender through Resend. Provider failures are contained and redacted; no provider error body, API key, email address, or capability is logged or returned.
+
+Account settings provide a deliberate “sign out all sessions” control. Password recovery revokes every session automatically. The browser never receives Better Auth's raw session-token list.
+
+## Self-hosted behavior
+
+Self-hosted deployments preserve first-run `/setup`, optional unverified sign-in, and the deterministic earliest-account owner self-heal while the archive has no members. Hosted-only invitation, legal, and outbound-email requirements do not silently change those defaults.
+
+## Release requirements
+
+Production release validation requires:
+
+- hosted deployment mode and `KINSLEUTH_ALLOW_SIGNUPS=false`;
+- a separate `KINRESOLVE_BETA_PRIVACY_HMAC_SECRET`;
+- the operator audience, key ID, and Ed25519 public key;
+- the approved legal status plus exact version, URL, and digest for all three documents;
+- `KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER=resend`;
+- the approved sender and reply-to address; and
+- `RESEND_API_KEY` as a sensitive runtime value.
+
+The release workflow validates the legal bytes after pulling each staging and production environment contract. Real participant data remains prohibited until owner and counsel approve those external documents and the rest of the hosted launch gates pass.

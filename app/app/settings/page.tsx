@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app-shell";
+import { AccountSecurityControl } from "@/components/account-security-control";
 import { ArchiveBrandingForm } from "@/components/archive-branding-form";
 import { Status } from "@/components/ui";
 import { getRuntimeStatus } from "@/lib/runtime-status";
@@ -108,6 +109,8 @@ export default async function SettingsPage() {
           </label>
         </div>
       </section>
+
+      <AccountSecurityControl />
 
       <section className="app-card" style={{ marginTop: 20 }}>
         <div className="app-card-header">

@@ -2,7 +2,7 @@
 
 - **Status:** Execution in progress; owner, legal, and live-infrastructure approvals remain open
 - **Planning date:** 2026-07-14
-- **Planning base:** `origin/main` at `be6aca1b7b1f449a988fd496b24be9fde16ce55d`
+- **Planning base:** blueprint drafted at `be6aca1b7b1f449a988fd496b24be9fde16ce55d`; execution currently based on `main` at `f869bf821ca7ad968cf00d9c713612c0b3809113`
 - **Primary product origin:** `https://app.kinresolve.com`
 - **Marketing origin:** `https://kinresolve.com`
 - **Recommended launch window:** 30–40 engineering days for one primary engineer, or roughly 4–5 elapsed weeks with two engineering streams plus an independent owner/legal track
@@ -13,14 +13,18 @@
 - B0 and B1a–B1d are merged through PRs 36–40: truthful beta scope, explicit dataset
   provisioning, server-enforced capability limits, the private hosted surface, and the
   same-origin mutation perimeter are on `main`.
-- B2 is in final validation on `fix/beta-candidate-release`: candidate-first staging and
+- B2 merged through PR 41: candidate-first staging and
   production workflows, static zero-runtime holding deployments, durable write fencing,
   exact migration/identity proofs, attested database-plus-object recovery evidence,
   attempt-scoped cleanup leases, exact automatic-safety receipts, fail-closed Vercel
   auto-assignment repair, the archived `v0.17.4` incompatibility harness, and both
-  large-data release gates are built.
-- B3–B8 remain launch work. Invitations/recovery, operator deletion and monitoring, API
-  v1, the authenticated browser canary, coordinated marketing/legal material, and all live
+  large-data release gates are on `main`.
+- B3 is implemented and locally validated on `fix/beta-invites-recovery`:
+  paused-by-default invitations, verified-email access, recovery/session revocation,
+  exact legal-byte acceptance, durable abuse limits, transactional email, and the
+  audience-bound signed operator CLI are built.
+- B4–B8 remain launch work. Operator deletion and monitoring, API v1, the authenticated
+  browser canary, coordinated marketing/legal material, and all live
   DNS/vendor/protected-environment provisioning are not yet complete.
 - No real family data is authorized. The first public launch remains a synthetic,
   invitation-only beta until every applicable gate in section 8 has recorded evidence.
