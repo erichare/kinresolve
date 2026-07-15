@@ -6,7 +6,11 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const status = await getRuntimeStatus();
-  const ready = status.database.connected && status.storage.configured;
+  const ready =
+    status.database.connected &&
+    status.database.provisioned &&
+    status.database.datasetModeMatches &&
+    status.storage.configured;
 
   return NextResponse.json(
     {
@@ -15,7 +19,12 @@ export async function GET() {
       version: status.version,
       database: {
         configured: status.database.configured,
-        connected: status.database.connected
+        connected: status.database.connected,
+        provisioned: status.database.provisioned,
+        datasetMode: status.database.datasetMode,
+        expectedDatasetMode: status.database.expectedDatasetMode,
+        datasetModeMatches: status.database.datasetModeMatches,
+        demoFixtureVersion: status.database.demoFixtureVersion
       },
       ai: {
         configured: status.ai.configured
