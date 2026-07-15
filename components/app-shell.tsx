@@ -37,12 +37,14 @@ function PrivateNavigation({
   active,
   className,
   dnaEnabled,
-  label
+  label,
+  publicPublishingEnabled
 }: {
   active: string;
   className: string;
   dnaEnabled: boolean;
   label: string;
+  publicPublishingEnabled: boolean;
 }) {
   return (
     <nav className={className} aria-label={label}>
@@ -51,10 +53,13 @@ function PrivateNavigation({
           <span className="sidebar-nav-label">{group.label}</span>
           {group.items.filter((item) => dnaEnabled || item.href !== "/app/dna").map((item) => {
             const Icon = item.icon;
+            const itemLabel = item.href === "/app/publishing" && !publicPublishingEnabled
+              ? "Readiness"
+              : item.label;
             return (
               <Link aria-current={active === item.href ? "page" : undefined} className={active === item.href ? "active" : undefined} href={item.href} key={item.href}>
                 <Icon size={16} aria-hidden />
-                {item.label}
+                {itemLabel}
               </Link>
             );
           })}
@@ -89,7 +94,10 @@ export function AppShell({
   actions?: React.ReactNode;
   archiveName?: string;
 }) {
-  const { dna: dnaEnabled } = resolveHostedCapabilities();
+  const {
+    dna: dnaEnabled,
+    publicPublishing: publicPublishingEnabled
+  } = resolveHostedCapabilities();
 
   return (
     <div className="app-layout">
@@ -103,7 +111,13 @@ export function AppShell({
             <small>Private research</small>
           </span>
         </Link>
-        <PrivateNavigation active={active} className="sidebar-nav" dnaEnabled={dnaEnabled} label="Private navigation" />
+        <PrivateNavigation
+          active={active}
+          className="sidebar-nav"
+          dnaEnabled={dnaEnabled}
+          label="Private navigation"
+          publicPublishingEnabled={publicPublishingEnabled}
+        />
         <ArchiveCard archiveName={archiveName} />
         <form action="/api/auth/logout" className="sidebar-auth" method="post">
           <button type="submit">Sign out</button>
@@ -122,6 +136,7 @@ export function AppShell({
               className="mobile-menu-links private-mobile-links"
               dnaEnabled={dnaEnabled}
               label="Mobile private navigation"
+              publicPublishingEnabled={publicPublishingEnabled}
             />
             <ArchiveCard archiveName={archiveName} />
             <form action="/api/auth/logout" className="sidebar-auth" method="post">
