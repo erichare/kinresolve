@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "beta:legal:validate": "node --experimental-strip-types scripts/validate-beta-legal-documents.mjs",
+    "beta:operator": "node --experimental-strip-types scripts/beta-operator.mjs",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",

@@ -330,6 +330,9 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: node --experimental-strip-types scripts/validate-release-contract.mjs
 
+      - name: Verify approved staging legal document bytes
+        run: npm run beta:legal:validate -- .vercel/.env.production.local
+
       - name: Attest the staging runtime database role
         env:
           EXPECTED_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
@@ -706,6 +709,9 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: node --experimental-strip-types scripts/validate-release-contract.mjs
+
+      - name: Verify approved production legal document bytes
+        run: npm run beta:legal:validate -- .vercel/.env.production.local
 
       - name: Attest the production runtime database role
         env:

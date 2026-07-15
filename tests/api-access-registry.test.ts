@@ -80,6 +80,7 @@ describe("API access registry", () => {
       "same-origin-cookie": 0,
       "better-auth-managed": 0,
       "service-bearer": 0,
+      "operator-signature": 0,
       "release-fence-control": 0
     };
 
@@ -91,19 +92,22 @@ describe("API access registry", () => {
     }
 
     expect(counts).toEqual({
-      "read-only": 17,
-      "same-origin-cookie": 33,
+      "read-only": 18,
+      "same-origin-cookie": 38,
       "better-auth-managed": 2,
       "service-bearer": 2,
+      "operator-signature": 1,
       "release-fence-control": 4
     });
   });
 
   it("resolves parameterized routes and explicit non-membership exceptions", () => {
     expect(resolveApiAccess("/api/health", "GET")).toEqual({ kind: "public" });
+    expect(resolveApiAccess("/api/beta/legal/privacy-notice", "GET")).toEqual({ kind: "public" });
     expect(resolveApiAccess("/api/auth/session", "GET")).toEqual({ kind: "public" });
     expect(resolveApiAccess("/api/setup/claim", "POST")).toEqual({ kind: "bootstrap" });
     expect(resolveApiAccess("/api/cron/import-uploads", "GET")).toEqual({ kind: "service" });
+    expect(resolveApiAccess("/api/operator/invitations", "POST")).toEqual({ kind: "service" });
     expect(resolveApiAccess("/api/release/fence/acquire", "POST")).toEqual({ kind: "service" });
     expect(resolveApiAccess("/api/release/fence/assert", "POST")).toEqual({ kind: "service" });
     expect(resolveApiAccess("/api/release/fence/reacquire", "POST")).toEqual({ kind: "service" });
@@ -129,6 +133,7 @@ describe("API access registry", () => {
     expect(resolveApiMethodPolicy("/api/auth/session", "POST")).toBe("better-auth-managed");
     expect(resolveApiMethodPolicy("/api/auth/logout", "POST")).toBe("same-origin-cookie");
     expect(resolveApiMethodPolicy("/api/cron/import-uploads", "GET")).toBe("service-bearer");
+    expect(resolveApiMethodPolicy("/api/operator/invitations", "POST")).toBe("operator-signature");
     expect(resolveApiMethodPolicy("/api/release/fence/acquire", "POST")).toBe("release-fence-control");
     expect(resolveApiMethodPolicy("/api/release/fence/assert", "POST")).toBe("release-fence-control");
     expect(resolveApiMethodPolicy("/api/not-registered", "GET")).toBeNull();
@@ -160,6 +165,7 @@ describe("API access registry", () => {
         const expected = registration.requestPolicy !== "read-only"
           && registration.requestPolicy !== "release-fence-control"
           && registration.requestPolicy !== "service-bearer"
+          && registration.requestPolicy !== "operator-signature"
           && !(registration.requestPolicy === "better-auth-managed" && method === "GET");
         expect(isApiWriteBlockedByReleaseFence(route.path, method), `${method} ${route.path}`).toBe(expected);
       }
@@ -201,5 +207,21 @@ describe("API access registry", () => {
         "releaseFenceLockedResponse(activeFence, { discloseControlIdentity: true })"
       );
     }
+  });
+
+  it("keeps operator-signature access limited to a handler that authenticates before fencing", async () => {
+    const registrations = apiRouteAccessRegistry.flatMap((route) =>
+      Object.entries(route.methods)
+        .filter(([, registration]) => registration.requestPolicy === "operator-signature")
+        .map(([method]) => ({ method, path: route.path }))
+    );
+    expect(registrations).toEqual([{ method: "POST", path: "/api/operator/invitations" }]);
+
+    const source = await readFile(path.join(apiRoot, "operator", "invitations", "route.ts"), "utf8");
+    const authentication = source.indexOf("authenticateOperatorRequest(request)");
+    const fence = source.indexOf("getActiveReleaseFence()");
+    expect(authentication).toBeGreaterThan(0);
+    expect(fence).toBeGreaterThan(authentication);
+    expect(source).toContain("releaseFenceLockedResponse(activeFence, { discloseControlIdentity: true })");
   });
 });

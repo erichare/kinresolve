@@ -32,7 +32,12 @@ export async function getSessionContext(
     return null;
   }
 
-  const role = await resolveMembershipRole(session.user.id, archiveId, options);
+  const hosted = isHostedDeployment();
+  if (hosted && session.user.emailVerified !== true) {
+    return null;
+  }
+
+  const role = await resolveMembershipRole(session.user.id, archiveId, hosted, options);
   if (!role) {
     return null;
   }
@@ -54,8 +59,34 @@ export async function countUsers(options: WorkspaceStoreOptions = {}): Promise<n
 async function resolveMembershipRole(
   userId: string,
   archiveId: string,
+  hosted: boolean,
   options: WorkspaceStoreOptions
 ): Promise<Role | null> {
+  if (hosted) {
+    // Acceptance is immutable evidence for the document version agreed at
+    // onboarding. Pending invitations are invalidated when the release legal
+    // manifest changes, but an approved update must not silently lock out the
+    // existing cohort without a dedicated re-consent flow.
+    const membership = await query<{ role: Role }>(
+      `SELECT membership.role
+       FROM public.memberships AS membership
+       JOIN public.beta_terms_acceptances AS acceptance
+         ON acceptance.archive_id = membership.archive_id
+        AND acceptance.user_id = membership.user_id
+       JOIN public.beta_invitations AS invitation
+         ON invitation.id = acceptance.invitation_id
+        AND invitation.archive_id = membership.archive_id
+        AND invitation.consumed_by_user_id = membership.user_id
+        AND invitation.state = 'consumed'
+       WHERE membership.archive_id = $1
+         AND membership.user_id = $2
+       LIMIT 1`,
+      [archiveId, userId],
+      options
+    );
+    return membership.rows[0]?.role ?? null;
+  }
+
   const membership = await query<{ role: Role }>(
     "SELECT role FROM memberships WHERE archive_id = $1 AND user_id = $2",
     [archiveId, userId],
@@ -67,10 +98,6 @@ async function resolveMembershipRole(
 
   // Hosted accounts receive membership only through an operator-controlled
   // invitation or provisioning path. Never infer ownership from user order.
-  if (isHostedDeployment()) {
-    return null;
-  }
-
   // Self-hosted first-run self-heal: while the archive has no members yet, the
   // earliest-created account becomes owner (covers the browser closing between
   // sign-up and the explicit /api/setup/claim step). This is deterministic

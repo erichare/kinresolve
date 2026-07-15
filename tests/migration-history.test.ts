@@ -60,7 +60,8 @@ describe("migration checksum history", () => {
         "010_integration_media_write_claims.sql",
         "011_integration_change_search.sql",
         "012_archive_dataset_mode.sql",
-        "013_release_write_fence.sql"
+        "013_release_write_fence.sql",
+        "014_beta_invitations.sql"
       ],
       releaseAnchors: ["v0.17.4"]
     });
