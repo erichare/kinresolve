@@ -3,6 +3,7 @@ import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
 import { PaginationLinks } from "@/components/pagination-links";
 import { Metric, Status } from "@/components/ui";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger, type SearchParamValue } from "@/lib/pagination";
 import { buildPublicationReview, type PublicationStatus } from "@/lib/publishing";
 import { readWorkspace } from "@/lib/workspace-store";
@@ -14,6 +15,7 @@ const publishingPageSize = 50;
 type PublishingSearchParams = Record<string, SearchParamValue>;
 
 export default async function PublishingPage({ searchParams }: { searchParams: Promise<PublishingSearchParams> }) {
+  const capabilities = resolveHostedCapabilities();
   const params = await searchParams;
   const workspace = await readWorkspace();
   const review = buildPublicationReview(workspace.people, {
@@ -24,19 +26,23 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
 
   return (
     <AppShell
-      title="Publishing Review"
+      title={capabilities.publicPublishing ? "Publishing Review" : "Publication Readiness"}
       active="/app/publishing"
       archiveName={workspace.archiveName}
       actions={
-        <Link className="button-secondary" href="/people">
-          <Icons.BookOpen size={16} aria-hidden />
-          Public Index
-        </Link>
+        capabilities.publicArchive ? (
+          <Link className="button-secondary" href="/people">
+            <Icons.BookOpen size={16} aria-hidden />
+            Public Index
+          </Link>
+        ) : (
+          <Status tone="private">Readiness only</Status>
+        )
       }
     >
       <div className="metric-row">
-        <Metric label="Publishing score" value={`${review.score}%`} detail="overall readiness" />
-        <Metric label="Ready" value={review.summary.ready} detail="safe to publish" />
+        <Metric label={capabilities.publicPublishing ? "Publishing score" : "Readiness score"} value={`${review.score}%`} detail="overall readiness" />
+        <Metric label="Ready" value={review.summary.ready} detail={capabilities.publicPublishing ? "safe to publish" : "meets readiness checks"} />
         <Metric label="Needs review" value={review.summary.needsReview} detail={`${review.summary.warningCount} warnings`} />
         <Metric label="Blocked" value={review.summary.blocked} detail={`${review.summary.blockerCount} blockers`} />
       </div>
@@ -73,7 +79,9 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
                     <Link href={`/app/people/${encodeURIComponent(profile.personId)}`}>{profile.displayName}</Link>
                     <div className="muted">
                       {profile.published ? "Published" : "Draft"} ·{" "}
-                      {profile.status === "blocked" ? (
+                      {!capabilities.publicArchive ? (
+                        "Public preview disabled"
+                      ) : profile.status === "blocked" ? (
                         "No public preview"
                       ) : (
                         <Link href={profile.previewPath}>{profile.previewPath}</Link>
@@ -97,7 +105,7 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
         </section>
 
         <aside className="app-card">
-          <h2>Publication gates</h2>
+          <h2>{capabilities.publicPublishing ? "Publication gates" : "Readiness gates"}</h2>
           <div className="evidence-list">
             <div className="evidence-item">
               <strong>Private by default</strong>
@@ -108,8 +116,12 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
               <p className="muted">Only public facts are counted. Thin or poorly cited profiles are held for review.</p>
             </div>
             <div className="evidence-item">
-              <strong>Preview before sharing</strong>
-              <p className="muted">Ready profiles point to the public route that anonymous visitors will see.</p>
+              <strong>{capabilities.publicArchive ? "Preview before sharing" : "Public preview disabled"}</strong>
+              <p className="muted">
+                {capabilities.publicArchive
+                  ? "Ready profiles point to the public route that anonymous visitors will see."
+                  : "This private beta keeps readiness review available without exposing anonymous profile routes."}
+              </p>
             </div>
           </div>
         </aside>
@@ -150,7 +162,11 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
             </tbody>
           </table>
         ) : (
-          <p className="muted">No blocking publication issues found in this archive.</p>
+          <p className="muted">
+            {capabilities.publicPublishing
+              ? "No blocking publication issues found in this archive."
+              : "No blocking readiness issues found in this archive."}
+          </p>
         )}
         <div className="table-footer-row">
           <p className="muted">

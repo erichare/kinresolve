@@ -48,7 +48,7 @@ async function renderPage(): Promise<string> {
 }
 
 function stubHostedPrivateBeta() {
-  Object.assign(process.env, {
+  const environment = {
     KINRESOLVE_DEPLOYMENT_MODE: "hosted",
     KINRESOLVE_DATASET_MODE: "pilot",
     KINRESOLVE_DNA_ENABLED: "false",
@@ -58,5 +58,8 @@ function stubHostedPrivateBeta() {
     KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
     KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
     KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
-  });
+  } as const;
+  for (const [name, value] of Object.entries(environment)) {
+    vi.stubEnv(name, value);
+  }
 }
