@@ -119,16 +119,37 @@ export function findStructuredAnomalies(people: PersonSummary[]): StructuredAnom
 
 export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnalysisResult> {
   assertPermission(request.role, "ai:whole-tree");
-  const externalAiEnabled = resolveHostedCapabilities().externalAi;
+  const capabilities = resolveHostedCapabilities();
+  const effectiveRequest = capabilities.dna ? request : withoutDnaContext(request);
 
-  const anomalies = findStructuredAnomalies(request.people);
-  const localAnswer = buildLocalAnalysis({ ...request, anomalies });
-  const promptPack = buildPromptPack(request, anomalies);
-  const deterministicSuggestions = buildDeterministicSuggestions(request, anomalies);
-  const provider = providerLabel(request.provider.baseUrl);
-  const model = request.provider.chatModel;
+  const anomalies = findStructuredAnomalies(effectiveRequest.people);
+  const localAnswer = buildLocalAnalysis({ ...effectiveRequest, anomalies }, capabilities.dna);
+  const promptPack = buildPromptPack(effectiveRequest, anomalies, capabilities.dna);
+  const deterministicSuggestions = buildDeterministicSuggestions(effectiveRequest, anomalies);
 
-  if (!externalAiEnabled || !request.provider.apiKey) {
+  if (!capabilities.externalAi) {
+    return {
+      status: "ready",
+      providerStatus: "not_configured",
+      provider: "local",
+      model: "deterministic",
+      answer: localAnswer,
+      anomalies,
+      evidenceUsed: promptPack.evidenceUsed,
+      suggestions: deterministicSuggestions,
+      contextReferences: promptPack.references,
+      promptPreview: promptPack.preview,
+      uncertainty: [
+        "External AI is disabled for this deployment; no provider call was made.",
+        "This local analysis uses structured workspace checks and ranked context, but no provider generation."
+      ]
+    };
+  }
+
+  const provider = providerLabel(effectiveRequest.provider.baseUrl);
+  const model = effectiveRequest.provider.chatModel;
+
+  if (!effectiveRequest.provider.apiKey) {
     return {
       status: "configuration_required",
       providerStatus: "not_configured",
@@ -141,18 +162,16 @@ export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnaly
       contextReferences: promptPack.references,
       promptPreview: promptPack.preview,
       uncertainty: [
-        externalAiEnabled
-          ? "No external AI call was made because AI_API_KEY or OPENAI_API_KEY is empty."
-          : "External AI is disabled for this deployment; no provider call was made.",
+        "No external AI call was made because AI_API_KEY or OPENAI_API_KEY is empty.",
         "This local analysis uses structured workspace checks and ranked context, but no provider generation."
       ]
     };
   }
 
   try {
-    const providerText = await callAIProvider(request.provider, promptPack.prompt);
+    const providerText = await callAIProvider(effectiveRequest.provider, promptPack.prompt);
     const parsed = parseProviderPayload(providerText);
-    const suggestions = normalizeSuggestions(parsed.suggestions, request, deterministicSuggestions);
+    const suggestions = normalizeSuggestions(parsed.suggestions, effectiveRequest, deterministicSuggestions);
     const uncertainty = normalizeStringArray(parsed.uncertainty);
     const evidenceUsed = normalizeStringArray(parsed.evidenceUsed);
     const contextReferences = normalizeContextReferences(parsed.contextReferences);
@@ -201,7 +220,11 @@ export function buildAnalysisPrompt(request: AIAnalysisRequest): string {
   return buildPromptPack(request, findStructuredAnomalies(request.people)).prompt;
 }
 
-export function buildPromptPack(request: AIAnalysisRequest, anomalies: StructuredAnomaly[]): PromptPack {
+export function buildPromptPack(
+  request: AIAnalysisRequest,
+  anomalies: StructuredAnomaly[],
+  includeDna = true
+): PromptPack {
   const selectedCase = request.selectedCaseId ? request.cases.find((researchCase) => researchCase.id === request.selectedCaseId) : undefined;
   const references: AIContextReference[] = [];
   const sections: string[] = [
@@ -292,34 +315,36 @@ export function buildPromptPack(request: AIAnalysisRequest, anomalies: Structure
     })
   );
 
-  append(
-    "DNA Matches And Hypotheses",
-    rankDnaMatches(request.dnaMatches, request.dnaHypotheses, request.question).map(({ match, hypothesis }) => {
-      addReference({
-        id: match.id,
-        type: "dna_match",
-        label: match.displayName,
-        summary: `${match.totalCm} cM; ${match.predictedRelationship ?? "relationship unknown"}; ${match.side} side`
-      });
-      if (hypothesis) {
+  if (includeDna) {
+    append(
+      "DNA Matches And Hypotheses",
+      rankDnaMatches(request.dnaMatches, request.dnaHypotheses, request.question).map(({ match, hypothesis }) => {
         addReference({
-          id: `hyp-${hypothesis.matchId}`,
-          type: "hypothesis",
-          label: hypothesis.likelyBranch,
-          summary: hypothesis.explanation
+          id: match.id,
+          type: "dna_match",
+          label: match.displayName,
+          summary: `${match.totalCm} cM; ${match.predictedRelationship ?? "relationship unknown"}; ${match.side} side`
         });
-      }
-      return [
-        `DNA ${match.id}: ${match.displayName}; ${match.totalCm} cM; longest=${match.longestSegmentCm ?? "unknown"}; predicted=${match.predictedRelationship ?? "unknown"}`,
-        `Tree/side/status: ${match.treeStatus}; ${match.side}; ${match.triageStatus}`,
-        `Surnames: ${match.surnames.join(", ") || "none"}; Places: ${match.places.join(", ") || "none"}; Shared matches: ${match.sharedMatches.join(", ") || "none"}`,
-        `Notes: ${match.notes || "none"}`,
-        hypothesis
-          ? `Hypothesis: ${hypothesis.likelyBranch}; generation=${hypothesis.likelyGeneration}; confidence=${Math.round(hypothesis.confidence * 100)}%; ancestors=${hypothesis.candidateCommonAncestors.join(", ") || "none"}; evidence=${hypothesis.evidence.join(" | ")}; uncertainty=${hypothesis.uncertainty.join(" | ")}`
-          : "Hypothesis: none"
-      ].join("\n");
-    })
-  );
+        if (hypothesis) {
+          addReference({
+            id: `hyp-${hypothesis.matchId}`,
+            type: "hypothesis",
+            label: hypothesis.likelyBranch,
+            summary: hypothesis.explanation
+          });
+        }
+        return [
+          `DNA ${match.id}: ${match.displayName}; ${match.totalCm} cM; longest=${match.longestSegmentCm ?? "unknown"}; predicted=${match.predictedRelationship ?? "unknown"}`,
+          `Tree/side/status: ${match.treeStatus}; ${match.side}; ${match.triageStatus}`,
+          `Surnames: ${match.surnames.join(", ") || "none"}; Places: ${match.places.join(", ") || "none"}; Shared matches: ${match.sharedMatches.join(", ") || "none"}`,
+          `Notes: ${match.notes || "none"}`,
+          hypothesis
+            ? `Hypothesis: ${hypothesis.likelyBranch}; generation=${hypothesis.likelyGeneration}; confidence=${Math.round(hypothesis.confidence * 100)}%; ancestors=${hypothesis.candidateCommonAncestors.join(", ") || "none"}; evidence=${hypothesis.evidence.join(" | ")}; uncertainty=${hypothesis.uncertainty.join(" | ")}`
+            : "Hypothesis: none"
+        ].join("\n");
+      })
+    );
+  }
 
   append(
     "Structured Anomalies",
@@ -341,8 +366,9 @@ export function buildPromptPack(request: AIAnalysisRequest, anomalies: Structure
     `${request.people.length} people`,
     `${request.cases.length} cases`,
     `${request.sources.length} sources`,
-    `${request.dnaMatches.length} DNA matches`,
-    `${request.dnaHypotheses.length} DNA hypotheses`,
+    ...(includeDna
+      ? [`${request.dnaMatches.length} DNA matches`, `${request.dnaHypotheses.length} DNA hypotheses`]
+      : []),
     `${anomalies.length} structured anomalies`,
     ...references.slice(0, 10).map((reference) => `${reference.type}: ${reference.label}`)
   ];
@@ -352,7 +378,7 @@ export function buildPromptPack(request: AIAnalysisRequest, anomalies: Structure
     preview: [
       `Question: ${request.question}`,
       selectedCase ? `Selected case: ${selectedCase.title}` : "Selected case: none",
-      `Context counts: ${request.people.length} people, ${request.cases.length} cases, ${request.sources.length} sources, ${request.dnaMatches.length} DNA matches, ${anomalies.length} anomalies.`,
+      `Context counts: ${request.people.length} people, ${request.cases.length} cases, ${request.sources.length} sources${includeDna ? `, ${request.dnaMatches.length} DNA matches` : ""}, ${anomalies.length} anomalies.`,
       `Context refs: ${references.slice(0, 12).map((reference) => `${reference.type}:${reference.id}`).join(", ") || "none"}`,
       truncated ? "Prompt preview note: full prompt was truncated before provider call." : "Prompt preview note: prompt fit within the provider context budget."
     ].join("\n"),
@@ -564,7 +590,10 @@ function buildDeterministicSuggestions(request: AIAnalysisRequest, anomalies: St
   return suggestions.slice(0, 5);
 }
 
-function buildLocalAnalysis(request: Omit<AIAnalysisRequest, "provider"> & { anomalies: StructuredAnomaly[] }): string {
+function buildLocalAnalysis(
+  request: Omit<AIAnalysisRequest, "provider"> & { anomalies: StructuredAnomaly[] },
+  includeDna = true
+): string {
   const topHypothesis = [...request.dnaHypotheses].sort((left, right) => right.confidence - left.confidence)[0];
   const activeCase = request.selectedCaseId
     ? request.cases.find((researchCase) => researchCase.id === request.selectedCaseId)
@@ -575,7 +604,11 @@ function buildLocalAnalysis(request: Omit<AIAnalysisRequest, "provider"> & { ano
 
   const recommendation = topHypothesis
     ? `Start with ${topHypothesis.likelyBranch}. ${topHypothesis.explanation}`
-    : "Start by creating or importing DNA matches with known surnames, places, and shared matches so Kin Resolve can rank connection hypotheses.";
+    : includeDna
+      ? "Start by creating or importing DNA matches with known surnames, places, and shared matches so Kin Resolve can rank connection hypotheses."
+      : activeCase
+        ? `Start with "${activeCase.title}" and verify its next unresolved claim against primary documentary evidence.`
+        : "Start by creating a focused research case and verify its first unresolved claim against primary documentary evidence.";
 
   const corroboration = activeCase
     ? `Tie that work back to "${activeCase.title}" and test whether the next evidence item supports or weakens the current case question: ${activeCase.question}`
@@ -598,6 +631,20 @@ function buildLocalAnalysis(request: Omit<AIAnalysisRequest, "provider"> & { ano
     `Evidence hygiene: ${sourceWork}`,
     `Publication safety: ${privacyWork}`
   ].join("\n\n");
+}
+
+function withoutDnaContext(request: AIAnalysisRequest): AIAnalysisRequest {
+  return {
+    ...request,
+    cases: request.cases.map((researchCase) => ({
+      ...researchCase,
+      evidence: researchCase.evidence.filter((evidence) => (
+        !evidence.linkedDnaMatchId && !/^dna(?:\s|$)/i.test(evidence.type.trim())
+      ))
+    })),
+    dnaMatches: [],
+    dnaHypotheses: []
+  };
 }
 
 function rankCases(cases: ResearchCase[], question: string, selectedCaseId?: string): ResearchCase[] {

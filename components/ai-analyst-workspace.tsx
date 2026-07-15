@@ -320,11 +320,13 @@ export function AIAnalystWorkspace({
               <div className="evidence-item analysis-run-item" key={run.id}>
                 <div className="evidence-item-heading">
                   <strong>{run.question}</strong>
-                  <Status tone={run.status === "ready" ? "ok" : "warning"}>{formatAnalysisStatus(run.status)}</Status>
+                  <Status tone={!externalAiEnabled || run.status === "ready" ? "ok" : "warning"}>
+                    {externalAiEnabled ? formatAnalysisStatus(run.status) : "local"}
+                  </Status>
                 </div>
                 <p>{summarizeAnswer(run.answer)}</p>
                 <p className="muted">
-                  <ClientDate value={run.createdAt} /> · {run.provider ?? "local"} · {run.evidenceUsed.length.toLocaleString()} evidence notes · {run.suggestions.length.toLocaleString()} staged
+                  <ClientDate value={run.createdAt} /> · {externalAiEnabled ? run.provider ?? "local" : "local analysis"} · {run.evidenceUsed.length.toLocaleString()} evidence notes · {run.suggestions.length.toLocaleString()} staged
                 </p>
               </div>
             ))
@@ -450,7 +452,7 @@ function TaskAction({
   );
 }
 
-function AnalysisResult({
+export function AnalysisResult({
   externalAiEnabled,
   result
 }: {
@@ -478,7 +480,9 @@ function AnalysisResult({
         </Status>
       </div>
       <p className="muted">
-        {result.provider} · {result.model} · {result.providerStatus === "completed" ? "provider response saved" : result.providerStatus === "failed" ? "local fallback saved" : "local analysis saved"}
+        {externalAiEnabled
+          ? `${result.provider} · ${result.model} · ${result.providerStatus === "completed" ? "provider response saved" : result.providerStatus === "failed" ? "local fallback saved" : "local analysis saved"}`
+          : "Deterministic local analysis · saved in this private workspace"}
       </p>
       <div className="analysis-answer">
         {result.answer.split("\n\n").map((paragraph, index) => (
