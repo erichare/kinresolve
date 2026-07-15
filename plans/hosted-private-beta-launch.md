@@ -2,7 +2,7 @@
 
 - **Status:** Execution in progress; owner, legal, and live-infrastructure approvals remain open
 - **Planning date:** 2026-07-14
-- **Planning base:** blueprint drafted at `be6aca1b7b1f449a988fd496b24be9fde16ce55d`; execution currently based on `main` at `f869bf821ca7ad968cf00d9c713612c0b3809113`
+- **Planning base:** blueprint drafted at `be6aca1b7b1f449a988fd496b24be9fde16ce55d`; current implementation branch is based on `main` at `cd1d92fceaa8b9a8a37cde6e036860c71cefd6d4`
 - **Primary product origin:** `https://app.kinresolve.com`
 - **Marketing origin:** `https://kinresolve.com`
 - **Recommended launch window:** 30–40 engineering days for one primary engineer, or roughly 4–5 elapsed weeks with two engineering streams plus an independent owner/legal track
@@ -19,13 +19,31 @@
   attempt-scoped cleanup leases, exact automatic-safety receipts, fail-closed Vercel
   auto-assignment repair, the archived `v0.17.4` incompatibility harness, and both
   large-data release gates are on `main`.
-- B3 is implemented and locally validated on `fix/beta-invites-recovery`:
-  paused-by-default invitations, verified-email access, recovery/session revocation,
-  exact legal-byte acceptance, durable abuse limits, transactional email, and the
-  audience-bound signed operator CLI are built.
-- B4–B8 remain launch work. Operator deletion and monitoring, API v1, the authenticated
-  browser canary, coordinated marketing/legal material, and all live
-  DNS/vendor/protected-environment provisioning are not yet complete.
+- B3 and B4 are merged through PRs 42–43: paused-by-default invitations,
+  verified-email access, recovery/session revocation,
+  exact legal-byte acceptance, durable abuse limits, transactional email, the
+  audience-bound signed operator CLI, redacted monitoring, operator export/deletion,
+  backup/restore evidence, and recovery operations are on `main`.
+- B5 is implemented and validated on `fix/beta-api-v1`: scoped one-time-display tokens,
+  durable quotas, stable non-content UUIDs, archive-safe projections, OpenAPI 3.1,
+  developer documentation, revocation, retention, and real-Postgres contract proofs are
+  complete locally.
+- B6 is in progress on the same integration branch. Release mode now keeps API v1 off by
+  default and requires a fresh SHA-bound, attested Vercel WAF/configuration/probe packet
+  for `api-launch`; the standalone browser golden path and ephemeral production token
+  canary are the remaining code gates.
+- B7 prelaunch marketing/legal material and the disabled-by-default native application
+  source are complete locally. The fixed-field product endpoint, exact-origin and abuse
+  controls, minimal-PII persistence, receipt/founder delivery, 90-day cleanup, signed
+  count-only deletion, static dual-mode form, and thank-you page are implemented. Public
+  copy says applications are open but invitations have not started and separates source
+  controls from live behavior. Counsel-approved legal bytes, an approved identity-verified
+  applicant access/DSAR delivery process, provider/mail-route proof, synthetic launch
+  media, protected environment activation, and the evidence-backed live claim switch
+  remain external/launch-time gates.
+- B8 remains protected execution work: live DNS, provider configuration, legal approval,
+  observed recovery/deletion/monitoring, exact candidate promotion, and coordinated claim
+  publication have not been authorized or performed.
 - No real family data is authorized. The first public launch remains a synthetic,
   invitation-only beta until every applicable gate in section 8 has recorded evidence.
 
@@ -71,9 +89,10 @@ Do not add `api.kinresolve.com` for beta. Keeping the API on the product origin 
 
 This is intentionally narrower than the source tree. A disabled feature must be rejected at the API boundary as well as hidden in the interface.
 
-## 3. Current truth and why launch work is required
+## 3. Historical planning-base truth and why launch work was required
 
-As of 2026-07-14:
+The following was the 2026-07-14 planning snapshot. The implementation snapshot above
+is the current source of truth for completed code work.
 
 - `kinresolve.com` is live and `www` redirects correctly.
 - The beta intake is a prepared `mailto:` link; it does not create an application record or an account.
@@ -179,7 +198,13 @@ Token creation and revocation use the authenticated settings UI. Revocation must
 
 - OpenAPI validates and every documented operation maps to a registered route/method.
 - Every route has anonymous, invalid-token, expired-token, revoked-token, wrong-scope, wrong-archive, happy-path, pagination, rate-limit, and redaction tests.
-- The isolated staging canary mints a short-lived token, reads a known synthetic person, revokes it, and proves the next call is `401`. Production uses a pre-provisioned operational token only for `/meta`/empty-list proof and revocation; it never creates or reads a synthetic person in the pilot cell.
+- The isolated staging canary mints a short-lived token, reads known synthetic data,
+  revokes it, and proves the next call is `401`. Production creates one ephemeral,
+  least-privilege `archive:read` token through the protected migration connection,
+  reads only `/meta` on the exact candidate and canonical origin, revokes it, and proves
+  the next canonical call is `401`. The secret exists only in a mode-`0600` runner file;
+  the retained token/security rows are non-content release evidence and consume one
+  bounded lifetime-token inventory slot.
 - Documentation contains a real command using `$KINRESOLVE_TOKEN`, never a literal launch token.
 
 ## 6. Marketing and launch package
@@ -188,7 +213,7 @@ Token creation and revocation use the authenticated settings UI. Revocation must
 
 Within one day, while engineering proceeds, change public wording from “current/working private beta” to:
 
-> Private beta applications are open. Hosted access is rolling out in small invitation cohorts.
+> Private beta applications are open. Invitations have not started; hosted access begins only after the launch gates pass.
 
 Do not switch to “Private beta is live” until the production launch checklist is signed.
 
@@ -238,7 +263,8 @@ Replace the `mailto:` intake with a real, minimal application flow while keeping
 3. Store only name, email, researcher type, workflow, archive-size band, current tool, and consent version. Never accept file uploads or family details.
 4. Send an application receipt and founder notification through a verified transactional email provider.
 5. Return `303` to one hard-coded allowlisted static thank-you URL with the data boundary and next steps; never reflect a submitted redirect target.
-6. Delete declined/stale application data on the approved retention schedule.
+6. Delete every product application record 90 days after submission, or earlier after a
+   verified request; separately prove the approved mailbox/provider lifecycle.
 
 ## 7. Architecture and environment model
 
@@ -566,7 +592,11 @@ Run DB-backed mode/provisioning tests against a disposable Postgres instance wit
 - Anonymous protected API returns `401`. B6 extends the probe to invalid methods returning `405` with `Allow`; B2 does not claim that future assertion from its smaller base probe.
 - Unsigned cron returns `401`; candidate smoke never invokes the signed production worker because it can clean up or process jobs.
 - Open signup configuration is closed; the candidate does not create an account/invite.
-- Once B5/B6 land, API `/meta` and empty-list behavior may be read with a pre-provisioned least-privilege operator token; only its expected last-used/security audit metadata may change—no person, source, case, artifact, run, snapshot, or backup state is created. B2's base probe does not depend on this future route.
+- Once B5/B6 land, API-launch mode creates one ephemeral least-privilege token through
+  the protected migration connection, reads only `/meta`, revokes it, and retains its
+  bounded non-content token, quota, and security evidence. It creates no person, source,
+  case, artifact, run, snapshot, or backup state. Application-mode releases keep the API
+  disabled and create no canary token. B2's base probe does not depend on this route.
 - Disabled DNA, external AI, binary media, and public publishing calls fail closed.
 - Product headers/noindex/TLS are correct. B4/B6 supply deployed log-redaction evidence rather than inferring it from an HTTP response.
 - Captured cron definitions match the release manifest. Staging scheduled writers are explicitly disabled, production writes remain fenced through candidate proof, and a reviewer separately confirms provider dashboard schedule state. B4 later supplies the read-only worker-heartbeat probe.

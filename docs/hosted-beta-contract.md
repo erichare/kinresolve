@@ -1,8 +1,8 @@
 # Hosted private beta contract
 
 - **Status:** Proposed; owner and counsel sign-off pending
-- **Updated:** 2026-07-14
-- **Planning base:** `main` at `8f40da57a2febd20753737137d2e06f16e623a4b`
+- **Updated:** 2026-07-15
+- **Planning base:** `main` at `cd1d92fceaa8b9a8a37cde6e036860c71cefd6d4`
 - **Product origin:** `https://app.kinresolve.com` (not live yet)
 - **Marketing origin:** `https://kinresolve.com` (live)
 - **Execution blueprint:** [`plans/hosted-private-beta-launch.md`](../plans/hosted-private-beta-launch.md)
@@ -13,9 +13,21 @@ This document is the compact product, data, support, API, and public-claims cont
 
 Use this wording consistently until the production launch gates pass:
 
-> Private beta applications are open. Hosted access is rolling out in small invitation cohorts.
+> Private beta applications are open. Invitations have not started; hosted access begins only after the launch gates pass.
 
 Applying records interest. It does not create an account, guarantee access, or authorize an applicant to send family records, GEDCOM files, DNA data, source images, credentials, or private details.
+
+The static marketing build defaults to the verified `mailto` fallback. Its separately
+selectable native `application` mode may be published only after the product endpoint,
+exact-origin and abuse controls, runtime grants, transactional receipt/founder delivery,
+90-day cleanup, count-only signed deletion, and an approved identity-verified applicant
+access/DSAR delivery process have live evidence. Rollback rebuilds the marketing site in
+`mailto` mode and independently disables the product intake flag.
+
+Application consent covers beta communication only. It is not acceptance of hosted
+participation terms, a privacy notice, or the cohort boundary. Those exact versioned
+documents must be approved, published, byte-verified, and explicitly accepted during
+invitation onboarding before an account can be created.
 
 Do not say that the hosted product is live, current, working, or available until `app.kinresolve.com` serves the promoted product and the launch checklist is signed.
 
@@ -88,7 +100,7 @@ These values remain subject to owner and counsel approval:
 
 | Data class | Proposed handling |
 | --- | --- |
-| Beta application | Minimal contact/workflow fields only; no family data or files; delete stale/declined applications after 90 days |
+| Beta application | Minimal fixed contact/workflow fields only; no family data, files, free text, IP address, or user agent; delete every product application row 90 days after submission or earlier after a verified request; mailbox/provider copies follow their separately approved lifecycle |
 | Invitations and recovery tokens | Hashed, single-use, short-lived; remove expired token material on a bounded schedule |
 | Real pilot archive | Dedicated database and object namespaces; retained only for the pilot and agreed export/deletion window |
 | Import artifacts | Private and archive-scoped; retention documented before upload and covered by both-prefix object inventory |
@@ -120,11 +132,33 @@ Do not market API availability until token revocation, archive isolation, OpenAP
 - Severity-0/1 privacy, authorization, corruption, data-loss, secret-exposure, or cross-archive signals pause invitations and real-data use immediately.
 - Participants must not put private family data in email or public GitHub issues; use an approved private support route.
 
+## Legal-document publication contract
+
+The invitation perimeter requires three separate documents:
+
+1. private-beta participation terms;
+2. a private-beta privacy notice; and
+3. the cohort-one product and data boundary.
+
+Their current state is **drafting and counsel review pending**. This repository does not
+contain approved substitute terms, and the marketing data-practices page is not the
+legal privacy notice. Before invitations are enabled, the launch owner must record the
+approved version, versioned `https://kinresolve.com` URL, and lowercase SHA-256 digest
+for every document. Release validation fetches the exact bytes without redirects and
+fails closed on a digest, size, status, origin, or media-type mismatch.
+
+The invitation screen presents the verified documents before account creation and
+records exact-version acceptance. A later policy change does not silently rewrite the
+earlier acceptance or force re-consent; any required re-consent needs a dedicated flow.
+No applicant or participant should be asked to treat a Git commit, issue, README,
+marketing page, or email summary as a substitute for the approved documents.
+
 ## Public claims
 
 ### Safe before hosted launch
 
 - Private beta applications are open.
+- Invitations have not started; hosted access begins only after the launch gates pass.
 - Kin Resolve's source product implements a single-archive research workspace, reviewable GEDCOM workflows, cases, deterministic checks, and export.
 - The public challenge and marketing media use synthetic Hartwell–Mercer records.
 - Source is available under AGPL-3.0-only.

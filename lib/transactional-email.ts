@@ -8,7 +8,9 @@ const transactionalEmailKinds = [
   "verification",
   "password-reset",
   "password-changed",
-  "security-notification"
+  "security-notification",
+  "application-receipt",
+  "application-founder"
 ] as const;
 
 const transactionalActionPaths = {
@@ -22,7 +24,7 @@ const resendApiKeyPattern = /^re_[A-Za-z0-9_-]{20,253}$/;
 const providerIdentifierPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const actionTokenPattern = /^[A-Za-z0-9_-]{24,512}$/;
 const operationIdentifierPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
-const idempotencyKeyPattern = /^kinresolve:(invite|verification|password-reset|password-changed|security-notification):[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
+const idempotencyKeyPattern = /^kinresolve:(invite|verification|password-reset|password-changed|security-notification|application-receipt|application-founder):[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 
 declare const actionUrlBrand: unique symbol;
 declare const idempotencyKeyBrand: unique symbol;
@@ -227,6 +229,10 @@ export function createTransactionalEmailIdempotencyKey(
   }
 
   return `kinresolve:${kind}:${operationIdentifier}` as TransactionalEmailIdempotencyKey;
+}
+
+export function isTransactionalEmailAddress(value: string): boolean {
+  return isMailbox(value, false);
 }
 
 export class ResendTransactionalEmailTransport implements TransactionalEmailTransport {

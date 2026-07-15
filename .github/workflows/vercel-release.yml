@@ -28,6 +28,34 @@ on:
         description: SHA-256 of the attested recovery-evidence.json artifact
         required: true
         type: string
+      release_mode:
+        description: Keep the developer API disabled, or launch it with attested edge evidence
+        required: true
+        type: choice
+        default: application
+        options:
+          - application
+          - api-launch
+      beta_intake_enabled:
+        description: Enable the public fixed-field beta application intake after product and mail proof
+        required: true
+        type: boolean
+        default: false
+      beta_intake_acknowledgement:
+        description: Exact synthetic intake and controlled-delivery acknowledgement; empty when intake is disabled
+        required: false
+        type: string
+        default: ""
+      api_edge_run_id:
+        description: Successful API edge-evidence workflow run ID; required only for api-launch
+        required: false
+        type: string
+        default: ""
+      api_edge_evidence_sha256:
+        description: SHA-256 of api-edge-evidence.json; required only for api-launch
+        required: false
+        type: string
+        default: ""
       auto_assignment_acknowledgement:
         description: Exact acknowledgement that protected Vercel dashboard auto-assignment is disabled
         required: true
@@ -104,6 +132,11 @@ jobs:
           DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT: ${{ inputs.deployment_protection_acknowledgement }}
           WRITER_PERIMETER_ACKNOWLEDGEMENT: ${{ inputs.writer_perimeter_acknowledgement }}
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
+          BETA_INTAKE_ENABLED: ${{ inputs.beta_intake_enabled }}
+          BETA_INTAKE_ACKNOWLEDGEMENT: ${{ inputs.beta_intake_acknowledgement }}
+          API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
+          API_EDGE_RUN_ID: ${{ inputs.api_edge_run_id }}
           RECOVERY_EVIDENCE_SHA256: ${{ inputs.recovery_evidence_sha256 }}
           RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
           RELEASE_VERSION: ${{ inputs.release_version }}
@@ -119,6 +152,26 @@ jobs:
           [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$RECOVERY_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
           [[ "$RECOVERY_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$BETA_INTAKE_ENABLED" = "true" || "$BETA_INTAKE_ENABLED" = "false" ]]
+          if [[ "$BETA_INTAKE_ENABLED" = "true" ]]; then
+            test "$BETA_INTAKE_ACKNOWLEDGEMENT" = "I acknowledge the beta intake canary submits only fixed synthetic fields to the owner-approved controlled delivery sink and deletes its exact database row."
+          else
+            test -z "$BETA_INTAKE_ACKNOWLEDGEMENT"
+          fi
+          case "$RELEASE_MODE" in
+            application)
+              test -z "$API_EDGE_RUN_ID"
+              test -z "$API_EDGE_EVIDENCE_SHA256"
+              ;;
+            api-launch)
+              [[ "$API_EDGE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+              [[ "$API_EDGE_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+              ;;
+            *)
+              echo "Unsupported release mode." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Check out the exact candidate revision
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -148,23 +201,24 @@ jobs:
           ')"
           test "$package_version" = "$RELEASE_VERSION"
           test "$RELEASE_TAG" = "v$package_version"
-          remote_tag="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
-          test -z "$remote_tag"
 
-      - name: Verify candidate tag and release do not exist
+      - name: Verify the candidate release namespace is vacant or exactly repairable
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          status="$(curl --retry 3 --retry-all-errors --silent --show-error \
-            --output /dev/null --write-out '%{http_code}' \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
-          test "$status" = "404"
+          gh api --paginate --slurp "repos/$REPOSITORY/releases?per_page=100" \
+            > "$RUNNER_TEMP/verify-release-namespace.json"
+          remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+            | awk 'NR == 1 { print $1 }')"
+          node --experimental-strip-types scripts/github-release-namespace.mjs repairable \
+            "$RUNNER_TEMP/verify-release-namespace.json" "${remote_tag_sha:-absent}"
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -234,9 +288,14 @@ jobs:
       archive_id: ${{ steps.staging-release-contract.outputs.archive_id }}
       candidate_deployment_id: ${{ steps.staging-candidate.outputs.deployment_id }}
       database_identity: ${{ steps.staging-release-contract.outputs.database_identity }}
+      browser_baseline_prepared: ${{ steps.staging-browser-baseline.outputs.prepared }}
       holding_deployment_id: ${{ steps.staging-holding.outputs.deployment_id }}
+      holding_deployment_url: ${{ steps.staging-holding.outputs.deployment_url }}
       object_storage_identity: ${{ steps.staging-release-contract.outputs.object_storage_identity }}
       object_storage_provider_id: ${{ steps.staging-identity-exclusions.outputs.object_storage_provider_id }}
+      api_v1_enabled: ${{ steps.staging-release-contract.outputs.api_v1_enabled }}
+      beta_applications_enabled: ${{ steps.staging-release-contract.outputs.beta_applications_enabled }}
+      beta_intake_proven: ${{ steps.staging-beta-intake-smoke.outputs.proven }}
     steps:
       - name: Check out the verified candidate
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -310,6 +369,8 @@ jobs:
             --output "$RUNNER_TEMP/staging-environment.json"
 
       - name: Validate staging environment metadata
+        env:
+          EXPECTED_BETA_APPLICATIONS_ENABLED: ${{ inputs.beta_intake_enabled }}
         run: >-
           node --experimental-strip-types scripts/validate-vercel-environment.mjs
           "$RUNNER_TEMP/staging-environment.json" .vercel/.env.production.local
@@ -321,6 +382,8 @@ jobs:
           EXPECTED_ARCHIVE_ID: kinresolve-staging-demo
           EXPECTED_DATASET_MODE: demo
           EXPECTED_SCHEDULED_WRITES_ENABLED: "false"
+          EXPECTED_API_V1_ENABLED: ${{ inputs.release_mode == 'api-launch' }}
+          EXPECTED_BETA_APPLICATIONS_ENABLED: ${{ inputs.beta_intake_enabled }}
           EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           FORBIDDEN_APP_BASE_URL: https://app.kinresolve.com
           FORBIDDEN_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
@@ -616,15 +679,20 @@ jobs:
             .publicSchemaUsage == true and
             .publicSchemaCreate == false and .exactPrivilegesAttested == true and
             .representativeAppWriteRolledBack == true and .persistentDataMutation == false and
-            (.managedTablePrivileges | map(.table)) == [
-              "beta_data_operations", "beta_worker_heartbeats"
+            (.managedTablePrivileges | map({table, select, insert, update, delete})) == [
+              {"table":"auth_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_applications","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_data_operations","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"beta_worker_heartbeats","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_tokens","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"security_events","select":false,"insert":true,"update":false,"delete":false}
             ] and
             all(.managedTablePrivileges[];
               (. | keys | sort) == ([
                 "delete", "grantOptions", "insert", "maintain", "references",
                 "select", "table", "trigger", "truncate", "update"
-              ] | sort) and .select == true and .insert == true and .update == true and
-              .delete == false and .truncate == false and .references == false and
+              ] | sort) and .truncate == false and .references == false and
               .trigger == false and .maintain == false and .grantOptions == false) and
             (.protectedTablePrivileges | map(.table)) == [
               "release_write_fences", "schema_migrations"
@@ -647,10 +715,301 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           SMOKE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}
           SMOKE_PHASE: "full"
+          KINRESOLVE_API_V1_ENABLED: ${{ steps.staging-release-contract.outputs.api_v1_enabled }}
           KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Prove the enabled staging beta intake and remove its exact synthetic row
+        id: staging-beta-intake-smoke
+        if: inputs.beta_intake_enabled
+        timeout-minutes: 10
+        env:
+          BETA_APPLICATION_CANARY_EMAIL_PATTERN: ${{ secrets.BETA_APPLICATION_CANARY_EMAIL_PATTERN }}
+          BETA_APPLICATION_CANARY_PHASE: staging
+          BETA_APPLICATION_CANARY_RUN_ATTEMPT: ${{ github.run_attempt }}
+          BETA_APPLICATION_CANARY_RUN_ID: ${{ github.run_id }}
+          EXPECTED_BETA_APPLICATIONS_ENABLED: ${{ steps.staging-release-contract.outputs.beta_applications_enabled }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          STAGING_CANARY_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$EXPECTED_BETA_APPLICATIONS_ENABLED" = "true"
+          [[ "$STAGING_CANARY_ORIGIN" =~ ^https://[A-Za-z0-9-]+\.vercel\.app$ ]]
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          CANARY_NAME="Kin Resolve Staging Release Canary ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          CANARY_HONEYPOT_NAME="$CANARY_NAME Honeypot"
+          CANARY_EMAIL_FILE="$RUNNER_TEMP/staging-beta-intake-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.email"
+          export BETA_APPLICATION_CANARY_EMAIL_FILE="$CANARY_EMAIL_FILE"
+          export BETA_APPLICATION_CANARY_NAME="$CANARY_NAME"
+          export BETA_APPLICATION_CANARY_HONEYPOT_NAME="$CANARY_HONEYPOT_NAME"
+
+          cleanup_canary() {
+            node --experimental-strip-types scripts/beta-application-release-canary.mjs cleanup \
+              >/dev/null 2>&1 || true
+            rm -f "$CANARY_EMAIL_FILE"
+            rm -f "$RUNNER_TEMP/staging-beta-intake-"*.headers "$RUNNER_TEMP/staging-beta-intake-"*.body
+          }
+          trap cleanup_canary EXIT
+          test ! -e "$CANARY_EMAIL_FILE"
+          node --experimental-strip-types scripts/beta-application-release-canary.mjs preflight
+          IFS= read -r CANARY_EMAIL < "$CANARY_EMAIL_FILE"
+          test -n "$CANARY_EMAIL"
+          test "$(wc -l < "$CANARY_EMAIL_FILE" | tr -d '[:space:]')" = "1"
+
+          submit_canary_form() {
+            local name="$1" website="$2" prefix="$3" status
+            status="$(curl --connect-timeout 10 --max-time 60 --retry 2 --retry-all-errors \
+              --silent --show-error --request POST --max-redirs 0 \
+              --header "Origin: https://kinresolve.com" \
+              --header "Content-Type: application/x-www-form-urlencoded" \
+              --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+              --data-urlencode "name=$name" \
+              --data-urlencode "email=$CANARY_EMAIL" \
+              --data-urlencode "researcher_type=developer-self-hoster" \
+              --data-urlencode "current_tool=gramps" \
+              --data-urlencode "archive_size_band=prefer-not-to-say" \
+              --data-urlencode "workflow=developer-api" \
+              --data-urlencode "consent_version=beta-communications-v1" \
+              --data-urlencode "consent=accepted" \
+              --data-urlencode "website=$website" \
+              --dump-header "$RUNNER_TEMP/$prefix.headers" \
+              --output "$RUNNER_TEMP/$prefix.body" \
+              --write-out '%{http_code}' \
+              "$STAGING_CANARY_ORIGIN/api/public/beta-applications")"
+            test "$status" = "303"
+            HEADER_FILE="$RUNNER_TEMP/$prefix.headers" BODY_FILE="$RUNNER_TEMP/$prefix.body" \
+              node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          try {
+            const [headers, body] = await Promise.all([
+              readFile(process.env.HEADER_FILE, "utf8"),
+              readFile(process.env.BODY_FILE)
+            ]);
+            if (body.byteLength !== 0
+              || !/(?:^|\r?\n)location:\s*https:\/\/kinresolve\.com\/beta\/thanks\/\r?$/im.test(headers)
+              || !/(?:^|\r?\n)cache-control:\s*no-store\r?$/im.test(headers)
+              || !/(?:^|\r?\n)referrer-policy:\s*no-referrer\r?$/im.test(headers)) throw new Error();
+          } catch {
+            console.error("Staging beta intake redirect proof failed.");
+            process.exitCode = 1;
+          }
+          NODE
+          }
+
+          submit_canary_form "$CANARY_HONEYPOT_NAME" "synthetic-canary.invalid" \
+            "staging-beta-intake-honeypot"
+          submit_canary_form "$CANARY_NAME" "" "staging-beta-intake-application"
+          node --experimental-strip-types scripts/beta-application-release-canary.mjs verify-delete
+          trap - EXIT
+          cleanup_canary
+          printf 'proven=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Install the pinned Chromium browser for the synthetic staging canary
+        run: npx playwright install --with-deps chromium
+
+      - name: Capture the exact staging baseline before temporary promotion
+        id: staging-browser-baseline
+        env:
+          KINRESOLVE_CANARY_ALLOW_MUTATION: "true"
+          KINRESOLVE_CANARY_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_CANARY_DATASET_MODE: demo
+          KINRESOLVE_CANARY_MUTATION_ACKNOWLEDGEMENT: I acknowledge this browser canary may mutate only an isolated synthetic demo cell.
+          KINRESOLVE_CANARY_OPERATOR_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          KINRESOLVE_CANARY_RELEASE_SHA: ${{ inputs.release_commit }}
+          KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
+          KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+        run: |
+          set -euo pipefail
+          node --env-file=.vercel/.env.production.local --import tsx \
+            scripts/browser-canary-state.ts prepare staging \
+            "$RUNNER_TEMP/staging-browser-canary-state.json"
+          printf 'prepared=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Upload the pre-promotion staging baseline
+        if: ${{ steps.staging-browser-baseline.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-browser-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/staging-browser-canary-state.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Mark the temporary staging promotion attempt
+        id: staging-browser-promotion-marker
+        run: printf 'attempted=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Temporarily promote the exact staging candidate
+        timeout-minutes: 10
+        env:
+          CANDIDATE_DEPLOYMENT_URL: ${{ steps.staging-candidate.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel promote "$CANDIDATE_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Fetch the exact staging candidate at the custom origin
+        id: fetch-staging-browser-candidate
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ steps.staging-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/staging-browser-candidate.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/staging-browser-candidate.json" \
+              && GITHUB_OUTPUT="$RUNNER_TEMP/staging-browser-candidate-poll-output" \
+                node --experimental-strip-types scripts/validate-vercel-deployment.mjs promoted \
+                  "$RUNNER_TEMP/staging-browser-candidate.json" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then
+              echo "Staging custom origin did not converge to the candidate before the deadline." >&2
+              exit 1
+            fi
+            sleep 3
+          done
+
+      - name: Validate the exact staging candidate at the custom origin
+        id: validate-staging-browser-candidate
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ steps.staging-candidate.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: >-
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs promoted
+          "$RUNNER_TEMP/staging-browser-candidate.json"
+
+      - name: Run the authenticated synthetic journey at the custom origin
+        id: staging-browser-journey
+        timeout-minutes: 15
+        env:
+          KINRESOLVE_CANARY_ALLOW_MUTATION: "true"
+          KINRESOLVE_CANARY_API_V1_ENABLED: ${{ steps.staging-release-contract.outputs.api_v1_enabled }}
+          KINRESOLVE_CANARY_APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          KINRESOLVE_CANARY_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_CANARY_DATASET_MODE: demo
+          KINRESOLVE_CANARY_EMAIL: ${{ secrets.STAGING_BROWSER_CANARY_EMAIL }}
+          KINRESOLVE_CANARY_HEADLESS: "true"
+          KINRESOLVE_CANARY_MUTATION_ACKNOWLEDGEMENT: I acknowledge this browser canary may mutate only an isolated synthetic demo cell.
+          KINRESOLVE_CANARY_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
+          KINRESOLVE_CANARY_ORIGIN: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          KINRESOLVE_CANARY_PASSWORD: ${{ secrets.STAGING_BROWSER_CANARY_PASSWORD }}
+          KINRESOLVE_CANARY_RELEASE_SHA: ${{ inputs.release_commit }}
+          KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
+          KINRESOLVE_CANARY_TIMEOUT_MS: "60000"
+          KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
+          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ""
+        run: npm run test:staging-smoke
+
+      - name: Restore the captured staging holding deployment
+        id: restore-staging-holding
+        if: ${{ always() && steps.staging-browser-promotion-marker.outputs.attempted == 'true' }}
+        timeout-minutes: 10
+        env:
+          HOLDING_DEPLOYMENT_URL: ${{ steps.staging-holding.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel promote "$HOLDING_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Fetch and validate the restored staging holding deployment
+        id: validate-restored-staging-holding
+        if: ${{ always() && steps.restore-staging-holding.outcome == 'success' }}
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ steps.staging-holding.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/staging-browser-restored-holding.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/staging-browser-restored-holding.json" \
+              && GITHUB_OUTPUT="$RUNNER_TEMP/staging-browser-holding-poll-output" \
+                node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+                  "$RUNNER_TEMP/staging-browser-restored-holding.json" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then
+              echo "Staging custom origin did not return to the holding deployment." >&2
+              exit 1
+            fi
+            sleep 3
+          done
+          env -u GITHUB_OUTPUT node --experimental-strip-types \
+            scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/staging-browser-restored-holding.json"
+
+      - name: Smoke the restored staging holding application
+        if: ${{ always() && steps.validate-restored-staging-holding.outcome == 'success' }}
+        env:
+          APP_BASE_URL: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: ${{ steps.staging-release-contract.outputs.dataset_mode }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.staging-release-contract.outputs.app_base_url }}
+          SMOKE_PHASE: "pre-migration"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Restore the exact staging archive, identity, and object baseline
+        if: ${{ always() && steps.staging-browser-baseline.outcome == 'success' }}
+        env:
+          JOURNEY_OUTCOME: ${{ steps.staging-browser-journey.outcome }}
+          KINRESOLVE_CANARY_ALLOW_MUTATION: "true"
+          KINRESOLVE_CANARY_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_CANARY_DATASET_MODE: demo
+          KINRESOLVE_CANARY_MUTATION_ACKNOWLEDGEMENT: I acknowledge this browser canary may mutate only an isolated synthetic demo cell.
+          KINRESOLVE_CANARY_OPERATOR_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          KINRESOLVE_CANARY_RELEASE_SHA: ${{ inputs.release_commit }}
+          KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
+          KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
+          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+        run: |
+          set -euo pipefail
+          complete=""
+          if [[ "$JOURNEY_OUTCOME" == "success" ]]; then complete="--expect-complete"; fi
+          node --env-file=.vercel/.env.production.local --import tsx \
+            scripts/browser-canary-state.ts cleanup staging \
+            "$RUNNER_TEMP/staging-browser-canary-state.json" $complete
+
+      - name: Upload a synthetic-only staging failure screenshot
+        if: ${{ failure() && steps.staging-browser-baseline.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-browser-canary-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/playwright/browser-canary-*.png
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Remove pulled staging environment material
         if: always()
@@ -661,9 +1020,161 @@ jobs:
           rm -f "$RUNNER_TEMP/staging-beta-operations-runtime-grants.json"
           rm -rf .vercel/output
 
+  staging-finalize:
+    name: Restore staging holding alias and synthetic baseline
+    needs: [verify, staging]
+    if: ${{ always() && needs.staging.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: beta-staging
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the verified candidate for fresh-runner finalization
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install finalizer dependencies
+        run: npm ci
+
+      - name: Install the pinned Vercel CLI
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Restore the captured staging holding deployment idempotently
+        id: finalizer-restore-staging-holding
+        if: >-
+          ${{ needs.staging.outputs.holding_deployment_id != '' &&
+              needs.staging.outputs.holding_deployment_url != '' &&
+              needs.staging.outputs.app_base_url != '' }}
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ needs.staging.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ needs.staging.outputs.holding_deployment_id }}
+          HOLDING_DEPLOYMENT_URL: ${{ needs.staging.outputs.holding_deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          [[ "$deployment_host" =~ ^[A-Za-z0-9.-]{4,253}$ ]]
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+              --output "$RUNNER_TEMP/staging-finalizer-current.json" \
+            && env -u GITHUB_OUTPUT node --experimental-strip-types \
+              scripts/validate-vercel-deployment.mjs holding \
+              "$RUNNER_TEMP/staging-finalizer-current.json" >/dev/null 2>&1; then
+            exit 0
+          fi
+          vercel promote "$HOLDING_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Fetch and validate the final staging holding deployment
+        id: finalizer-validate-staging-holding
+        if: ${{ always() && steps.finalizer-restore-staging-holding.outcome == 'success' }}
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ needs.staging.outputs.app_base_url }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ needs.staging.outputs.holding_deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/staging-finalizer-holding.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/staging-finalizer-holding.json" \
+              && GITHUB_OUTPUT="$RUNNER_TEMP/staging-finalizer-holding-poll-output" \
+                node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+                  "$RUNNER_TEMP/staging-finalizer-holding.json" >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" = 20 ]]; then
+              echo "Fresh finalizer could not prove the staging holding deployment." >&2
+              exit 1
+            fi
+            sleep 3
+          done
+          env -u GITHUB_OUTPUT node --experimental-strip-types \
+            scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/staging-finalizer-holding.json"
+
+      - name: Smoke the final staging holding application
+        if: ${{ always() && steps.finalizer-validate-staging-holding.outcome == 'success' }}
+        env:
+          APP_BASE_URL: ${{ needs.staging.outputs.app_base_url }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ needs.staging.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: demo
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SMOKE_ORIGIN: ${{ needs.staging.outputs.app_base_url }}
+          SMOKE_PHASE: "pre-migration"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Download the pre-promotion staging baseline
+        if: ${{ always() && needs.staging.outputs.browser_baseline_prepared == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: staging-browser-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/staging-browser-canary-baseline
+
+      - name: Pull isolated staging settings for exact cleanup
+        if: ${{ always() && needs.staging.outputs.browser_baseline_prepared == 'true' }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          vercel pull --yes --environment=production
+
+      - name: Reapply the exact staging archive, identity, and object baseline
+        if: ${{ always() && needs.staging.outputs.browser_baseline_prepared == 'true' }}
+        env:
+          KINRESOLVE_CANARY_ALLOW_MUTATION: "true"
+          KINRESOLVE_CANARY_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}
+          KINRESOLVE_CANARY_DATASET_MODE: demo
+          KINRESOLVE_CANARY_MUTATION_ACKNOWLEDGEMENT: I acknowledge this browser canary may mutate only an isolated synthetic demo cell.
+          KINRESOLVE_CANARY_OPERATOR_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          KINRESOLVE_CANARY_RELEASE_SHA: ${{ inputs.release_commit }}
+          KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
+          KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ needs.staging.outputs.database_identity }}
+          KINSLEUTH_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}
+        run: >-
+          node --env-file=.vercel/.env.production.local --import tsx
+          scripts/browser-canary-state.ts cleanup staging
+          "$RUNNER_TEMP/staging-browser-canary-baseline/staging-browser-canary-state.json"
+
+      - name: Remove fresh-runner staging environment material
+        if: always()
+        run: |
+          rm -f .vercel/.env.production.local
+          rm -rf .vercel/output
+          rm -rf "$RUNNER_TEMP/staging-browser-canary-baseline"
+
   production:
     name: Deploy and promote production candidate
-    needs: [verify, staging]
+    needs: [verify, staging, staging-finalize]
     runs-on: ubuntu-latest
     timeout-minutes: 180
     environment: production
@@ -673,7 +1184,15 @@ jobs:
       contents: read
     outputs:
       app_base_url: ${{ steps.production-release-contract.outputs.app_base_url }}
+      api_v1_enabled: ${{ steps.production-release-contract.outputs.api_v1_enabled }}
+      beta_applications_enabled: ${{ steps.production-release-contract.outputs.beta_applications_enabled }}
+      beta_intake_proven: ${{ steps.production-beta-intake-smoke.outputs.proven }}
+      api_edge_run_attempt: ${{ steps.api-edge-evidence-source.outputs.run_attempt }}
+      api_canary_evidence_sha256: ${{ steps.api-canary-evidence.outputs.evidence_sha256 }}
+      api_launch_receipt_sha256: ${{ steps.api-launch-receipt.outputs.receipt_sha256 }}
       candidate_deployment_id: ${{ steps.production-candidate.outputs.deployment_id }}
+      release_workflow_run_attempt: ${{ steps.release-attempt.outputs.run_attempt }}
+      staging_beta_intake_proven: ${{ needs.staging.outputs.beta_intake_proven }}
     steps:
       - name: Check out the verified candidate
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -681,6 +1200,28 @@ jobs:
           ref: ${{ inputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Capture the candidate-owning release attempt
+        id: release-attempt
+        env:
+          RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_WORKFLOW_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,19}$ ]]
+          printf 'run_attempt=%s\n' "$RELEASE_WORKFLOW_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: Require the matching staging beta intake proof
+        env:
+          BETA_INTAKE_ENABLED: ${{ inputs.beta_intake_enabled }}
+          STAGING_BETA_INTAKE_PROVEN: ${{ needs.staging.outputs.beta_intake_proven }}
+        run: |
+          set -euo pipefail
+          if [[ "$BETA_INTAKE_ENABLED" = "true" ]]; then
+            test "$STAGING_BETA_INTAKE_PROVEN" = "true"
+          else
+            test "$BETA_INTAKE_ENABLED" = "false"
+            test -z "$STAGING_BETA_INTAKE_PROVEN"
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -696,6 +1237,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install the pinned Chromium browser for production UI proof
+        run: npx playwright install --with-deps chromium
 
       - name: Install the pinned Vercel CLI before loading deploy credentials
         run: npm install --global --ignore-scripts vercel@56.1.0
@@ -744,6 +1288,8 @@ jobs:
             --output "$RUNNER_TEMP/production-environment.json"
 
       - name: Validate production environment metadata
+        env:
+          EXPECTED_BETA_APPLICATIONS_ENABLED: ${{ inputs.beta_intake_enabled }}
         run: >-
           node --experimental-strip-types scripts/validate-vercel-environment.mjs
           "$RUNNER_TEMP/production-environment.json" .vercel/.env.production.local
@@ -755,6 +1301,8 @@ jobs:
           EXPECTED_ARCHIVE_ID: kinresolve-pilot-01
           EXPECTED_DATASET_MODE: pilot
           EXPECTED_SCHEDULED_WRITES_ENABLED: "true"
+          EXPECTED_API_V1_ENABLED: ${{ inputs.release_mode == 'api-launch' }}
+          EXPECTED_BETA_APPLICATIONS_ENABLED: ${{ inputs.beta_intake_enabled }}
           EXPECTED_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
           RELEASE_COMMIT: ${{ inputs.release_commit }}
           RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
@@ -890,6 +1438,56 @@ jobs:
             --source-digest "$RELEASE_COMMIT" \
             --deny-self-hosted-runners
           node --experimental-strip-types scripts/validate-release-readiness.mjs "$evidence_file"
+
+      - name: Download and verify attested API edge evidence
+        id: api-edge-evidence-source
+        if: inputs.release_mode == 'api-launch'
+        env:
+          API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
+          API_EDGE_RUN_ID: ${{ inputs.api_edge_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$API_EDGE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$API_EDGE_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$API_EDGE_RUN_ID" \
+            > "$RUNNER_TEMP/api-edge-run.json"
+          api_edge_run_attempt="$(node -e '
+            const { readFileSync } = require("node:fs");
+            const run = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/api-edge-run.json", "utf8"));
+            if (run.event !== "workflow_dispatch" || run.conclusion !== "success" ||
+                run.head_sha !== process.env.RELEASE_COMMIT || run.head_branch !== "main" ||
+                run.path !== ".github/workflows/api-edge-evidence.yml" ||
+                run.repository?.full_name !== process.env.GITHUB_REPOSITORY ||
+                String(run.id ?? "") !== process.env.API_EDGE_RUN_ID ||
+                !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1 ||
+                run.run_attempt > 9999999999 ||
+                run.display_title !== "Kin Resolve API edge evidence run " + run.id + " attempt " + run.run_attempt) {
+              process.exit(1);
+            }
+            process.stdout.write(String(run.run_attempt));
+          ')"
+          [[ "$api_edge_run_attempt" =~ ^[1-9][0-9]{0,9}$ ]]
+          evidence_directory="$RUNNER_TEMP/api-edge-evidence"
+          mkdir -p "$evidence_directory"
+          gh run download "$API_EDGE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "production-api-edge-evidence-$api_edge_run_attempt" --dir "$evidence_directory"
+          evidence_file="$evidence_directory/api-edge-evidence.json"
+          test -f "$evidence_file"
+          test "$(find "$evidence_directory" -type f | wc -l | tr -d ' ')" = "1"
+          actual_sha256="$(sha256sum "$evidence_file" | awk '{ print $1 }')"
+          test "$actual_sha256" = "$API_EDGE_EVIDENCE_SHA256"
+          gh attestation verify "$evidence_file" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/api-edge-evidence.yml" \
+            --source-ref refs/heads/main \
+            --source-digest "$RELEASE_COMMIT" \
+            --deny-self-hosted-runners
+          API_EDGE_RUN_ATTEMPT="$api_edge_run_attempt" \
+            node --experimental-strip-types scripts/validate-api-edge-evidence.mjs "$evidence_file"
+          printf 'run_attempt=%s\n' "$api_edge_run_attempt" >> "$GITHUB_OUTPUT"
 
       - name: Capture and validate the approved holding deployment
         id: production-holding
@@ -1048,18 +1646,20 @@ jobs:
       - name: Recheck the release namespace immediately before database mutation
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          test -z "$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
-          status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
-            --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
-          test "$status" = "404"
+          gh api --paginate --slurp "repos/$REPOSITORY/releases?per_page=100" \
+            > "$RUNNER_TEMP/pre-mutation-release-namespace.json"
+          remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+            | awk 'NR == 1 { print $1 }')"
+          node --experimental-strip-types scripts/github-release-namespace.mjs repairable \
+            "$RUNNER_TEMP/pre-mutation-release-namespace.json" "${remote_tag_sha:-absent}"
 
       - name: Revalidate the production holding deployment immediately before migration
         id: production-holding-pre-migration
@@ -1173,15 +1773,20 @@ jobs:
             .publicSchemaUsage == true and
             .publicSchemaCreate == false and .exactPrivilegesAttested == true and
             .representativeAppWriteRolledBack == true and .persistentDataMutation == false and
-            (.managedTablePrivileges | map(.table)) == [
-              "beta_data_operations", "beta_worker_heartbeats"
+            (.managedTablePrivileges | map({table, select, insert, update, delete})) == [
+              {"table":"auth_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_applications","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_data_operations","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"beta_worker_heartbeats","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_tokens","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"security_events","select":false,"insert":true,"update":false,"delete":false}
             ] and
             all(.managedTablePrivileges[];
               (. | keys | sort) == ([
                 "delete", "grantOptions", "insert", "maintain", "references",
                 "select", "table", "trigger", "truncate", "update"
-              ] | sort) and .select == true and .insert == true and .update == true and
-              .delete == false and .truncate == false and .references == false and
+              ] | sort) and .truncate == false and .references == false and
               .trigger == false and .maintain == false and .grantOptions == false) and
             (.protectedTablePrivileges | map(.table)) == [
               "release_write_fences", "schema_migrations"
@@ -1231,6 +1836,22 @@ jobs:
                 value.active !== true || value.transition !== "asserted") process.exit(1);
           '
 
+      - name: Prepare the ephemeral production API canary
+        id: prepare-api-canary
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          KINRESOLVE_API_CANARY_OWNER_USER_ID: ${{ secrets.KINRESOLVE_API_CANARY_OWNER_USER_ID }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --experimental-strip-types scripts/production-api-canary.mjs prepare \
+            "$RUNNER_TEMP/production-api-canary.token" \
+            "$RUNNER_TEMP/production-api-canary-metadata.json" \
+            "$RUNNER_TEMP/production-api-canary-evidence.json"
+
       - name: Smoke the production candidate
         id: candidate-smoke
         env:
@@ -1241,10 +1862,72 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           SMOKE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
           SMOKE_PHASE: "full"
+          KINRESOLVE_API_V1_ENABLED: ${{ steps.production-release-contract.outputs.api_v1_enabled }}
           KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Prove the exact production candidate UI anonymously
+        id: production-candidate-browser-smoke
+        timeout-minutes: 10
+        env:
+          KINRESOLVE_CANARY_API_V1_ENABLED: ${{ steps.production-release-contract.outputs.api_v1_enabled }}
+          KINRESOLVE_CANARY_APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_CANARY_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          KINRESOLVE_CANARY_HEADLESS: "true"
+          KINRESOLVE_CANARY_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
+          KINRESOLVE_CANARY_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
+          KINRESOLVE_CANARY_RELEASE_SHA: ${{ inputs.release_commit }}
+          KINRESOLVE_CANARY_RUN_ID: production-candidate-${{ github.run_attempt }}
+          KINRESOLVE_CANARY_TIMEOUT_MS: "60000"
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npm run test:production-smoke
+
+      - name: Prove the production candidate API with an ephemeral owner-bound token
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          CANARY_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: >-
+          node --experimental-strip-types scripts/production-api-canary.mjs probe-candidate
+          "$RUNNER_TEMP/production-api-canary.token"
+          "$RUNNER_TEMP/production-api-canary-metadata.json"
+          "$RUNNER_TEMP/production-api-canary-evidence.json"
+
+      - name: Re-read and verify the live API edge configuration before promotion
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test -n "$VERCEL_TOKEN"
+          scope_query="projectId=$VERCEL_PROJECT_ID"
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then
+            scope_query="$scope_query&teamId=$VERCEL_ORG_ID"
+          fi
+          active_config="$RUNNER_TEMP/api-edge-active-before-promotion.json"
+          bypass_config="$RUNNER_TEMP/api-edge-bypasses-before-promotion.json"
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/security/firewall/config/active?$scope_query" \
+            --output "$active_config"
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/security/firewall/bypass?$scope_query&limit=100" \
+            --output "$bypass_config"
+          node --experimental-strip-types scripts/verify-live-api-edge-config.mjs \
+            "$RUNNER_TEMP/api-edge-evidence/api-edge-evidence.json" \
+            "$active_config" "$bypass_config"
 
       - name: Revalidate the captured holding deployment immediately before promotion
         env:
@@ -1389,10 +2072,163 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           SMOKE_ORIGIN: ${{ steps.production-release-contract.outputs.app_base_url }}
           SMOKE_PHASE: "full"
+          KINRESOLVE_API_V1_ENABLED: ${{ steps.production-release-contract.outputs.api_v1_enabled }}
           KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Prove the canonical production UI anonymously without a bypass
+        id: production-canonical-browser-smoke
+        timeout-minutes: 10
+        env:
+          KINRESOLVE_CANARY_API_V1_ENABLED: ${{ steps.production-release-contract.outputs.api_v1_enabled }}
+          KINRESOLVE_CANARY_APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_CANARY_DATASET_MODE: ${{ steps.production-release-contract.outputs.dataset_mode }}
+          KINRESOLVE_CANARY_HEADLESS: "true"
+          KINRESOLVE_CANARY_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
+          KINRESOLVE_CANARY_ORIGIN: ${{ steps.production-release-contract.outputs.app_base_url }}
+          KINRESOLVE_CANARY_RELEASE_SHA: ${{ inputs.release_commit }}
+          KINRESOLVE_CANARY_RUN_ID: production-canonical-${{ github.run_attempt }}
+          KINRESOLVE_CANARY_TIMEOUT_MS: "60000"
+        run: npm run test:production-smoke
+
+      - name: Prove the canonical production API without a protection bypass
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          CANARY_ORIGIN: https://app.kinresolve.com
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: >-
+          node --experimental-strip-types scripts/production-api-canary.mjs probe-canonical
+          "$RUNNER_TEMP/production-api-canary.token"
+          "$RUNNER_TEMP/production-api-canary-metadata.json"
+          "$RUNNER_TEMP/production-api-canary-evidence.json"
+
+      - name: Revoke the ephemeral production API canary
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          KINRESOLVE_API_CANARY_OWNER_USER_ID: ${{ secrets.KINRESOLVE_API_CANARY_OWNER_USER_ID }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: >-
+          node --experimental-strip-types scripts/production-api-canary.mjs revoke
+          "$RUNNER_TEMP/production-api-canary.token"
+          "$RUNNER_TEMP/production-api-canary-metadata.json"
+          "$RUNNER_TEMP/production-api-canary-evidence.json"
+
+      - name: Prove the revoked canary is rejected immediately at the canonical edge
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          CANARY_ORIGIN: https://app.kinresolve.com
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: >-
+          node --experimental-strip-types scripts/production-api-canary.mjs prove-revoked
+          "$RUNNER_TEMP/production-api-canary.token"
+          "$RUNNER_TEMP/production-api-canary-metadata.json"
+          "$RUNNER_TEMP/production-api-canary-evidence.json"
+
+      - name: Finalize privacy-safe production API canary evidence
+        id: api-canary-evidence
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          KINRESOLVE_API_CANARY_OWNER_USER_ID: ${{ secrets.KINRESOLVE_API_CANARY_OWNER_USER_ID }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: >-
+          node --experimental-strip-types scripts/production-api-canary.mjs finalize
+          "$RUNNER_TEMP/production-api-canary.token"
+          "$RUNNER_TEMP/production-api-canary-metadata.json"
+          "$RUNNER_TEMP/production-api-canary-evidence.json"
+
+      - name: Always revoke and remove the ephemeral production API canary
+        if: >-
+          always() &&
+          inputs.release_mode == 'api-launch' &&
+          steps.production-release-contract.outcome == 'success'
+        timeout-minutes: 5
+        env:
+          KINRESOLVE_API_CANARY_OWNER_USER_ID: ${{ secrets.KINRESOLVE_API_CANARY_OWNER_USER_ID }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: >-
+          node --experimental-strip-types scripts/production-api-canary.mjs cleanup
+          "$RUNNER_TEMP/production-api-canary.token"
+          "$RUNNER_TEMP/production-api-canary-metadata.json"
+          "$RUNNER_TEMP/production-api-canary-evidence.json"
+
+      - name: Re-read and verify the live API edge configuration after promotion
+        if: inputs.release_mode == 'api-launch'
+        timeout-minutes: 5
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test -n "$VERCEL_TOKEN"
+          scope_query="projectId=$VERCEL_PROJECT_ID"
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then
+            scope_query="$scope_query&teamId=$VERCEL_ORG_ID"
+          fi
+          active_config="$RUNNER_TEMP/api-edge-active-after-promotion.json"
+          bypass_config="$RUNNER_TEMP/api-edge-bypasses-after-promotion.json"
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/security/firewall/config/active?$scope_query" \
+            --output "$active_config"
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/security/firewall/bypass?$scope_query&limit=100" \
+            --output "$bypass_config"
+          node --experimental-strip-types scripts/verify-live-api-edge-config.mjs \
+            "$RUNNER_TEMP/api-edge-evidence/api-edge-evidence.json" \
+            "$active_config" "$bypass_config"
+
+      - name: Assemble the sanitized API launch release receipt
+        id: api-launch-receipt
+        if: inputs.release_mode == 'api-launch'
+        env:
+          API_CANARY_EVIDENCE_SHA256: ${{ steps.api-canary-evidence.outputs.evidence_sha256 }}
+          API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
+          API_EDGE_RUN_ATTEMPT: ${{ steps.api-edge-evidence-source.outputs.run_attempt }}
+          API_EDGE_RUN_ID: ${{ inputs.api_edge_run_id }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          receipt_directory="$RUNNER_TEMP/api-launch-release-receipt"
+          install -d -m 700 "$receipt_directory"
+          node --experimental-strip-types scripts/api-launch-release-receipt.mjs assemble \
+            "$RUNNER_TEMP/api-edge-evidence/api-edge-evidence.json" \
+            "$RUNNER_TEMP/production-api-canary-evidence.json" \
+            "$receipt_directory/kinresolve-api-launch-receipt.json"
+
+      - name: Upload only the sanitized API launch release receipt
+        if: inputs.release_mode == 'api-launch'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-api-launch-release-receipt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/api-launch-release-receipt/kinresolve-api-launch-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Remove local API launch receipt inputs after durable upload
+        if: inputs.release_mode == 'api-launch'
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/production-api-canary-evidence.json"
+          rm -rf "$RUNNER_TEMP/api-launch-release-receipt"
 
       - name: Release the attested production write fence
         id: release-write-fence
@@ -1449,10 +2285,94 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           SMOKE_ORIGIN: ${{ steps.production-release-contract.outputs.app_base_url }}
           SMOKE_PHASE: "full"
+          KINRESOLVE_API_V1_ENABLED: ${{ steps.production-release-contract.outputs.api_v1_enabled }}
           KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Prove the enabled production beta intake and remove its exact synthetic row
+        id: production-beta-intake-smoke
+        if: inputs.beta_intake_enabled
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ steps.production-release-contract.outputs.app_base_url }}
+          BETA_APPLICATION_CANARY_EMAIL_PATTERN: ${{ secrets.BETA_APPLICATION_CANARY_EMAIL_PATTERN }}
+          BETA_APPLICATION_CANARY_PHASE: production
+          BETA_APPLICATION_CANARY_RUN_ATTEMPT: ${{ github.run_attempt }}
+          BETA_APPLICATION_CANARY_RUN_ID: ${{ github.run_id }}
+          EXPECTED_BETA_APPLICATIONS_ENABLED: ${{ steps.production-release-contract.outputs.beta_applications_enabled }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$APP_BASE_URL" = "https://app.kinresolve.com"
+          test "$EXPECTED_BETA_APPLICATIONS_ENABLED" = "true"
+          CANARY_NAME="Kin Resolve Production Release Canary ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          CANARY_HONEYPOT_NAME="$CANARY_NAME Honeypot"
+          CANARY_EMAIL_FILE="$RUNNER_TEMP/production-beta-intake-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.email"
+          export BETA_APPLICATION_CANARY_EMAIL_FILE="$CANARY_EMAIL_FILE"
+          export BETA_APPLICATION_CANARY_NAME="$CANARY_NAME"
+          export BETA_APPLICATION_CANARY_HONEYPOT_NAME="$CANARY_HONEYPOT_NAME"
+
+          cleanup_canary() {
+            node --experimental-strip-types scripts/beta-application-release-canary.mjs cleanup \
+              >/dev/null 2>&1 || true
+            rm -f "$CANARY_EMAIL_FILE"
+            rm -f "$RUNNER_TEMP/beta-intake-"*.headers "$RUNNER_TEMP/beta-intake-"*.body
+          }
+          trap cleanup_canary EXIT
+          test ! -e "$CANARY_EMAIL_FILE"
+          node --experimental-strip-types scripts/beta-application-release-canary.mjs preflight
+          IFS= read -r CANARY_EMAIL < "$CANARY_EMAIL_FILE"
+          test -n "$CANARY_EMAIL"
+          test "$(wc -l < "$CANARY_EMAIL_FILE" | tr -d '[:space:]')" = "1"
+
+          submit_canary_form() {
+            local name="$1" website="$2" prefix="$3" status
+            status="$(curl --connect-timeout 10 --max-time 60 --retry 2 --retry-all-errors \
+              --silent --show-error --request POST --max-redirs 0 \
+              --header "Origin: https://kinresolve.com" \
+              --header "Content-Type: application/x-www-form-urlencoded" \
+              --data-urlencode "name=$name" \
+              --data-urlencode "email=$CANARY_EMAIL" \
+              --data-urlencode "researcher_type=developer-self-hoster" \
+              --data-urlencode "current_tool=gramps" \
+              --data-urlencode "archive_size_band=prefer-not-to-say" \
+              --data-urlencode "workflow=developer-api" \
+              --data-urlencode "consent_version=beta-communications-v1" \
+              --data-urlencode "consent=accepted" \
+              --data-urlencode "website=$website" \
+              --dump-header "$RUNNER_TEMP/$prefix.headers" \
+              --output "$RUNNER_TEMP/$prefix.body" \
+              --write-out '%{http_code}' \
+              "$APP_BASE_URL/api/public/beta-applications")"
+            test "$status" = "303"
+            HEADER_FILE="$RUNNER_TEMP/$prefix.headers" BODY_FILE="$RUNNER_TEMP/$prefix.body" \
+              node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          try {
+            const [headers, body] = await Promise.all([
+              readFile(process.env.HEADER_FILE, "utf8"),
+              readFile(process.env.BODY_FILE)
+            ]);
+            if (body.byteLength !== 0
+              || !/(?:^|\r?\n)location:\s*https:\/\/kinresolve\.com\/beta\/thanks\/\r?$/im.test(headers)
+              || !/(?:^|\r?\n)cache-control:\s*no-store\r?$/im.test(headers)
+              || !/(?:^|\r?\n)referrer-policy:\s*no-referrer\r?$/im.test(headers)) throw new Error();
+          } catch {
+            console.error("Production beta intake redirect proof failed.");
+            process.exitCode = 1;
+          }
+          NODE
+          }
+
+          submit_canary_form "$CANARY_HONEYPOT_NAME" "synthetic-canary.invalid" "beta-intake-honeypot"
+          submit_canary_form "$CANARY_NAME" "" "beta-intake-application"
+          node --experimental-strip-types scripts/beta-application-release-canary.mjs verify-delete
+          trap - EXIT
+          cleanup_canary
+          printf 'proven=true\n' >> "$GITHUB_OUTPUT"
 
       - name: Reconcile both signed production schedulers after fence release
         timeout-minutes: 10
@@ -1504,25 +2424,31 @@ jobs:
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          test -z "$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
-          status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
-            --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
-          test "$status" = "404"
+          gh api --paginate --slurp "repos/$REPOSITORY/releases?per_page=100" \
+            > "$RUNNER_TEMP/post-cutover-release-namespace.json"
+          remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+            | awk 'NR == 1 { print $1 }')"
+          node --experimental-strip-types scripts/github-release-namespace.mjs repairable \
+            "$RUNNER_TEMP/post-cutover-release-namespace.json" "${remote_tag_sha:-absent}"
 
       - name: Record the privacy-safe release gate summary
         env:
           FENCE_ID: ${{ steps.recovery-readiness.outputs.fence_id }}
           PRODUCTION_CANDIDATE_DEPLOYMENT_ID: ${{ steps.production-candidate.outputs.deployment_id }}
           PRODUCTION_HOLDING_DEPLOYMENT_ID: ${{ steps.production-holding.outputs.deployment_id }}
+          API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
+          API_CANARY_EVIDENCE_SHA256: ${{ steps.api-canary-evidence.outputs.evidence_sha256 }}
+          API_LAUNCH_RECEIPT_SHA256: ${{ steps.api-launch-receipt.outputs.receipt_sha256 }}
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           STAGING_CANDIDATE_DEPLOYMENT_ID: ${{ needs.staging.outputs.candidate_deployment_id }}
           STAGING_HOLDING_DEPLOYMENT_ID: ${{ needs.staging.outputs.holding_deployment_id }}
@@ -1531,6 +2457,16 @@ jobs:
           [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
           [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$FENCE_ID" =~ ^fence-[a-z0-9][a-z0-9-]{7,63}$ ]]
+          [[ "$RELEASE_MODE" = "application" || "$RELEASE_MODE" = "api-launch" ]]
+          if [[ "$RELEASE_MODE" = "api-launch" ]]; then
+            [[ "$API_EDGE_EVIDENCE_SHA256" =~ ^[a-f0-9]{64}$ ]]
+            [[ "$API_CANARY_EVIDENCE_SHA256" =~ ^[a-f0-9]{64}$ ]]
+            [[ "$API_LAUNCH_RECEIPT_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          else
+            test -z "$API_EDGE_EVIDENCE_SHA256"
+            test -z "$API_CANARY_EVIDENCE_SHA256"
+            test -z "$API_LAUNCH_RECEIPT_SHA256"
+          fi
           for deployment_id in \
             "$STAGING_HOLDING_DEPLOYMENT_ID" \
             "$STAGING_CANDIDATE_DEPLOYMENT_ID" \
@@ -1544,13 +2480,21 @@ jobs:
             printf '## Kin Resolve release gate summary\n\n'
             printf -- '- Commit: `%s`\n' "$RELEASE_COMMIT"
             printf -- '- Version: `%s`\n' "$RELEASE_VERSION"
+            printf -- '- Release mode: `%s`\n' "$RELEASE_MODE"
+            if [[ "$RELEASE_MODE" = "api-launch" ]]; then
+              printf -- '- API edge evidence SHA-256: `%s`\n' "$API_EDGE_EVIDENCE_SHA256"
+              printf -- '- Ephemeral API canary evidence SHA-256: `%s`\n' "$API_CANARY_EVIDENCE_SHA256"
+              printf -- '- Combined API launch receipt SHA-256: `%s`\n' "$API_LAUNCH_RECEIPT_SHA256"
+            else
+              printf -- '- Developer API: disabled for this release\n'
+            fi
             printf -- '- Staging holding deployment: `%s`\n' "$STAGING_HOLDING_DEPLOYMENT_ID"
             printf -- '- Staging candidate deployment: `%s`\n' "$STAGING_CANDIDATE_DEPLOYMENT_ID"
             printf -- '- Production holding deployment: `%s`\n' "$PRODUCTION_HOLDING_DEPLOYMENT_ID"
             printf -- '- Production candidate deployment: `%s`\n' "$PRODUCTION_CANDIDATE_DEPLOYMENT_ID"
             printf -- '- Fence: `%s`\n' "$FENCE_ID"
-            printf -- '- Gates: staging isolation, holding, candidate identity, migration ledger, and smoke passed\n'
-            printf -- '- Gates: production recovery, holding, candidate identity, fence, migration ledger, promotion, and canonical smoke passed\n'
+            printf -- '- Gates: staging isolation, holding, candidate identity, migration ledger, authenticated browser canary, and exact restoration passed\n'
+            printf -- '- Gates: production recovery, holding, candidate identity, fence, migration ledger, promotion, and anonymous candidate/canonical UI smokes passed\n'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Contain production writes before rollback
@@ -1685,18 +2629,188 @@ jobs:
             printf -- '- Required: verify or disable both schedules in the Vercel Cron Jobs dashboard before resuming service.\n'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Remove sanitized API launch receipt material on every outcome
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/production-api-canary-evidence.json"
+          rm -rf "$RUNNER_TEMP/api-launch-release-receipt"
+
       - name: Remove pulled production environment material
         if: always()
         run: |
+          set -euo pipefail
+          test ! -e "$RUNNER_TEMP/production-api-canary.token"
+          test ! -e "$RUNNER_TEMP/production-api-canary-metadata.json"
+          test ! -e "$RUNNER_TEMP/production-api-canary-evidence.json"
+          test ! -e "$RUNNER_TEMP/api-launch-release-receipt"
           rm -f .vercel/.env.production.local
           rm -f "$RUNNER_TEMP/production-environment.json"
           rm -f "$RUNNER_TEMP/production-runtime-database-role.json"
           rm -f "$RUNNER_TEMP/production-beta-operations-runtime-grants.json"
+          rm -f "$RUNNER_TEMP/api-edge-run.json"
+          rm -f "$RUNNER_TEMP/api-edge-active-before-promotion.json"
+          rm -f "$RUNNER_TEMP/api-edge-bypasses-before-promotion.json"
+          rm -f "$RUNNER_TEMP/api-edge-active-after-promotion.json"
+          rm -f "$RUNNER_TEMP/api-edge-bypasses-after-promotion.json"
+          rm -rf "$RUNNER_TEMP/api-edge-evidence"
           rm -rf .vercel/output
+
+  marketing:
+    name: Publish the evidence-bound marketing intake mode
+    needs: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+    env:
+      KINRESOLVE_MARKETING_RELEASE_MODE: ${{ inputs.release_mode }}
+      KINRESOLVE_MARKETING_SOURCE_COMMIT_SHA: ${{ inputs.release_commit }}
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - name: Check out the exact live candidate
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require product and mail proof before application-mode marketing
+        env:
+          BETA_INTAKE_ENABLED: ${{ inputs.beta_intake_enabled }}
+          BETA_INTAKE_PROVEN: ${{ needs.production.outputs.beta_intake_proven }}
+          STAGING_BETA_INTAKE_PROVEN: ${{ needs.production.outputs.staging_beta_intake_proven }}
+        run: |
+          set -euo pipefail
+          if [[ "$BETA_INTAKE_ENABLED" = "true" ]]; then
+            test "$BETA_INTAKE_PROVEN" = "true"
+            test "$STAGING_BETA_INTAKE_PROVEN" = "true"
+          else
+            test "$BETA_INTAKE_ENABLED" = "false"
+            test -z "$BETA_INTAKE_PROVEN"
+          fi
+
+      - name: Set up the marketing Node.js runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            site/package-lock.json
+
+      - name: Install launch-media validator dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Install marketing dependencies
+        run: npm ci
+
+      - name: Validate the committed synthetic launch media
+        working-directory: .
+        run: npm run launch:media:validate
+
+      - name: Prove both static intake exports before loading deploy credentials
+        run: |
+          set -euo pipefail
+          rm -rf .next out
+          KINRESOLVE_MARKETING_BETA_APPLICATION_MODE=mailto npm run verify
+          rm -rf .next out
+          KINRESOLVE_MARKETING_BETA_APPLICATION_MODE=application npm run verify
+          rm -rf .next out
+
+      - name: Install the pinned marketing Vercel CLI before loading deploy credentials
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Validate the protected marketing deployment identity
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test -n "$VERCEL_TOKEN"
+
+      - name: Pull the protected marketing production settings
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production
+
+      - name: Build the selected evidence-bound marketing mode
+        env:
+          KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ inputs.beta_intake_enabled && 'application' || 'mailto' }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod
+
+      - name: Publish the selected marketing mode
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --prod --yes
+
+      - name: Prove the canonical marketing release and form modes
+        timeout-minutes: 5
+        env:
+          EXPECTED_MARKETING_MODE: ${{ inputs.beta_intake_enabled && 'application' || 'mailto' }}
+          EXPECTED_MARKETING_RELEASE_MODE: ${{ inputs.release_mode }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                https://kinresolve.com/beta/ --output "$RUNNER_TEMP/marketing-beta.html" \
+              && EXPECTED_MARKETING_MODE="$EXPECTED_MARKETING_MODE" \
+                EXPECTED_MARKETING_RELEASE_MODE="$EXPECTED_MARKETING_RELEASE_MODE" \
+                HTML_FILE="$RUNNER_TEMP/marketing-beta.html" node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const html = await readFile(process.env.HTML_FILE, "utf8");
+          const application = html.includes('action="https://app.kinresolve.com/api/public/beta-applications"')
+            && html.includes('enctype="application/x-www-form-urlencoded"')
+            && html.includes('method="post"');
+          const mailto = html.includes('action="mailto:beta@kinresolve.com');
+          if ((process.env.EXPECTED_MARKETING_MODE === "application" && (!application || mailto))
+            || (process.env.EXPECTED_MARKETING_MODE === "mailto" && (!mailto || application))) process.exit(1);
+          const releaseClaims = {
+            application: [
+              "Hosted private beta is live.",
+              "Access is invitation-only for approved participants; the hosted API is not available in this release."
+            ],
+            "api-launch": [
+              "Hosted private beta and API v1 are live.",
+              "Access remains invitation-only; API v1 is available only to approved participants for archives they own."
+            ]
+          };
+          const expectedReleaseMode = process.env.EXPECTED_MARKETING_RELEASE_MODE;
+          const expectedClaims = releaseClaims[expectedReleaseMode];
+          if (!expectedClaims
+            || !html.includes(`data-marketing-release-mode="${expectedReleaseMode}"`)
+            || expectedClaims.some((claim) => !html.includes(claim))) process.exit(1);
+          NODE
+            then
+              rm -f "$RUNNER_TEMP/marketing-beta.html"
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then exit 1; fi
+            sleep 3
+          done
+
+      - name: Remove local marketing deployment material
+        if: always()
+        run: |
+          rm -rf .vercel .next out
+          rm -f "$RUNNER_TEMP/marketing-beta.html"
 
   publish-release:
     name: Publish stable GitHub release
-    needs: production
+    needs: [production, marketing]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
@@ -1721,6 +2835,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SAFETY_CURRENT_WORKFLOW: release
         run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Download the sanitized API launch release receipt
+        if: inputs.release_mode == 'api-launch'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: production-api-launch-release-receipt-${{ needs.production.outputs.release_workflow_run_attempt }}
+          path: ${{ runner.temp }}/api-launch-release-receipt
+
+      - name: Validate the exact API launch release receipt before publication
+        if: inputs.release_mode == 'api-launch'
+        env:
+          API_CANARY_EVIDENCE_SHA256: ${{ needs.production.outputs.api_canary_evidence_sha256 }}
+          API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
+          API_EDGE_RUN_ATTEMPT: ${{ needs.production.outputs.api_edge_run_attempt }}
+          API_EDGE_RUN_ID: ${{ inputs.api_edge_run_id }}
+          API_LAUNCH_RECEIPT_SHA256: ${{ needs.production.outputs.api_launch_receipt_sha256 }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ needs.production.outputs.release_workflow_run_attempt }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: >-
+          node --experimental-strip-types scripts/api-launch-release-receipt.mjs validate
+          "$RUNNER_TEMP/api-launch-release-receipt/kinresolve-api-launch-receipt.json"
 
       - name: Revalidate the live canonical candidate before publication
         env:
@@ -1752,45 +2889,241 @@ jobs:
             sleep 3
           done
 
-      - name: Publish or verify the stable GitHub release
+      - name: Prepare or verify the exact run-owned draft release
+        id: release-draft
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
           RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          remote_tag="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
-          if [[ -z "$remote_tag" ]]; then
-            if ! gh api --method POST "repos/$GH_REPO/git/refs" \
-              -f ref="refs/tags/$RELEASE_TAG" -f sha="$RELEASE_COMMIT" \
-              > "$RUNNER_TEMP/created-tag.json" 2> "$RUNNER_TEMP/create-tag-error.txt"; then
-              remote_tag="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
-              test -n "$remote_tag"
-            fi
-          fi
-          remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | awk 'NR == 1 { print $1 }')"
-          test "$remote_tag_sha" = "$RELEASE_COMMIT"
+          before="$RUNNER_TEMP/release-namespace-before-draft.json"
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > "$before"
+          remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+            | awk 'NR == 1 { print $1 }')"
+          namespace="$(node --experimental-strip-types scripts/github-release-namespace.mjs \
+            publication "$before" "${remote_tag_sha:-absent}")"
+          state="$(jq -er '.state' <<< "$namespace")"
+          case "$state" in
+            vacant)
+              owner_marker="$(node --experimental-strip-types \
+                scripts/github-release-namespace.mjs owner-marker)"
+              if ! gh release create "$RELEASE_TAG" --repo "$GH_REPO" --draft \
+                --target "$RELEASE_COMMIT" --title "Kin Resolve v$RELEASE_VERSION" \
+                --generate-notes --notes "$owner_marker"; then
+                echo "Draft creation did not confirm; validating provider state." >&2
+              fi
+              ;;
+            draft|published) ;;
+            *) exit 1 ;;
+          esac
 
-          if gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,targetCommitish \
-            > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
-            node -e '
-              const { readFileSync } = require("node:fs");
-              const release = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/existing-release.json", "utf8"));
-              if (release.tagName !== process.env.RELEASE_TAG || release.isDraft || release.isPrerelease ||
-                  release.targetCommitish !== process.env.RELEASE_COMMIT) process.exit(1);
-            '
+          current="$RUNNER_TEMP/release-namespace-after-draft.json"
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > "$current"
+          remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+            | awk 'NR == 1 { print $1 }')"
+          namespace="$(node --experimental-strip-types scripts/github-release-namespace.mjs \
+            publication "$current" "${remote_tag_sha:-absent}")"
+          state="$(jq -er '.state | select(. == "draft" or . == "published")' <<< "$namespace")"
+          release_database_id="$(jq -er '.releaseDatabaseId | select(type == "number" and . > 0)' \
+            <<< "$namespace")"
+          printf 'release_database_id=%s\n' "$release_database_id" >> "$GITHUB_OUTPUT"
+          printf 'release_state=%s\n' "$state" >> "$GITHUB_OUTPUT"
+
+      - name: Attach or verify the API launch receipt and exact release-notes marker
+        if: inputs.release_mode == 'api-launch' && steps.release-draft.outputs.release_state == 'draft'
+        env:
+          API_CANARY_EVIDENCE_SHA256: ${{ needs.production.outputs.api_canary_evidence_sha256 }}
+          API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
+          API_EDGE_RUN_ATTEMPT: ${{ needs.production.outputs.api_edge_run_attempt }}
+          API_EDGE_RUN_ID: ${{ inputs.api_edge_run_id }}
+          API_LAUNCH_RECEIPT_SHA256: ${{ needs.production.outputs.api_launch_receipt_sha256 }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_DATABASE_ID: ${{ steps.release-draft.outputs.release_database_id }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ needs.production.outputs.release_workflow_run_attempt }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_DATABASE_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          assert_owned_draft() {
+            gh api "repos/$GH_REPO/releases/$RELEASE_DATABASE_ID" \
+              > "$RUNNER_TEMP/current-owned-release.json"
+            jq -s '.' "$RUNNER_TEMP/current-owned-release.json" \
+              > "$RUNNER_TEMP/current-owned-release-list.json"
+            remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+              | awk 'NR == 1 { print $1 }')"
+            namespace="$(node --experimental-strip-types scripts/github-release-namespace.mjs \
+              draft "$RUNNER_TEMP/current-owned-release-list.json" "${remote_tag_sha:-absent}")"
+            test "$(jq -er '.releaseDatabaseId' <<< "$namespace")" = "$RELEASE_DATABASE_ID"
+          }
+
+          assert_owned_draft
+          receipt="$RUNNER_TEMP/api-launch-release-receipt/kinresolve-api-launch-receipt.json"
+          marker="$RUNNER_TEMP/api-launch-release-marker.md"
+          node --experimental-strip-types scripts/api-launch-release-receipt.mjs marker \
+            "$receipt" "$marker"
+
+          asset_name="$(node --experimental-strip-types scripts/api-launch-release-receipt.mjs asset-name \
+            "$receipt")"
+          [[ "$asset_name" =~ ^kinresolve-api-launch-receipt-run-[1-9][0-9]*-attempt-[1-9][0-9]*\.json$ ]]
+          release_asset="$RUNNER_TEMP/$asset_name"
+          install -m 600 "$receipt" "$release_asset"
+          asset_count="$(jq -r --arg asset_name "$asset_name" \
+            '[.assets[] | select(.name == $asset_name)] | length' \
+            "$RUNNER_TEMP/current-owned-release.json")"
+          case "$asset_count" in
+            0)
+              assert_owned_draft
+              gh release upload "$RELEASE_TAG" "$release_asset" --repo "$GH_REPO"
+              ;;
+            1) ;;
+            *) exit 1 ;;
+          esac
+
+          assert_owned_draft
+          asset_count="$(jq -r --arg asset_name "$asset_name" \
+            '[.assets[] | select(.name == $asset_name)] | length' \
+            "$RUNNER_TEMP/current-owned-release.json")"
+          test "$asset_count" = "1"
+          asset_id="$(jq -er --arg asset_name "$asset_name" \
+            '.assets[] | select(.name == $asset_name) | .id \
+              | select(type == "number" and . > 0)' \
+            "$RUNNER_TEMP/current-owned-release.json")"
+          verify_directory="$RUNNER_TEMP/verified-api-launch-receipt"
+          install -d -m 700 "$verify_directory"
+          verified_receipt="$verify_directory/$asset_name"
+          gh api --header "Accept: application/octet-stream" \
+            "repos/$GH_REPO/releases/assets/$asset_id" > "$verified_receipt"
+          chmod 600 "$verified_receipt"
+          verified_sha256="$(sha256sum "$verified_receipt" | awk '{ print $1 }')"
+          test "$verified_sha256" = "$API_LAUNCH_RECEIPT_SHA256"
+          node --experimental-strip-types scripts/api-launch-release-receipt.mjs validate \
+            "$verified_receipt"
+
+          body="$RUNNER_TEMP/release-body.md"
+          jq -er '.body // ""' "$RUNNER_TEMP/current-owned-release.json" > "$body"
+          marker_state="$(node --experimental-strip-types \
+            scripts/api-launch-release-receipt.mjs notes-state "$body" "$marker")"
+          if [[ "$marker_state" = "absent" ]]; then
+            updated_body="$RUNNER_TEMP/release-body-with-api-launch.md"
+            cp "$body" "$updated_body"
+            if [[ -s "$updated_body" ]]; then printf '\n\n' >> "$updated_body"; fi
+            cat "$marker" >> "$updated_body"
+            assert_owned_draft
+            jq -n --rawfile body "$updated_body" '{body: $body}' \
+              > "$RUNNER_TEMP/release-notes-patch.json"
+            gh api --method PATCH "repos/$GH_REPO/releases/$RELEASE_DATABASE_ID" \
+              --input "$RUNNER_TEMP/release-notes-patch.json" > /dev/null
           else
-            release_status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
-              --silent --show-error --output /dev/null --write-out '%{http_code}' \
-              --header "Authorization: Bearer $GH_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/$GH_REPO/releases/tags/$RELEASE_TAG")"
-            test "$release_status" = "404"
-            gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_COMMIT" \
-              --title "Kin Resolve v$RELEASE_VERSION" --generate-notes --latest
+            test "$marker_state" = "present"
           fi
-          final_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | awk 'NR == 1 { print $1 }')"
-          test "$final_tag_sha" = "$RELEASE_COMMIT"
+
+          assert_owned_draft
+          jq -er '.body // ""' "$RUNNER_TEMP/current-owned-release.json" \
+            > "$RUNNER_TEMP/final-release-body.md"
+          node --experimental-strip-types scripts/api-launch-release-receipt.mjs notes-verify \
+            "$RUNNER_TEMP/final-release-body.md" "$marker"
+
+      - name: Publish the evidence-complete draft as the stable GitHub release
+        env:
+          API_CANARY_EVIDENCE_SHA256: ${{ needs.production.outputs.api_canary_evidence_sha256 }}
+          API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
+          API_EDGE_RUN_ATTEMPT: ${{ needs.production.outputs.api_edge_run_attempt }}
+          API_EDGE_RUN_ID: ${{ inputs.api_edge_run_id }}
+          API_LAUNCH_RECEIPT_SHA256: ${{ needs.production.outputs.api_launch_receipt_sha256 }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_DATABASE_ID: ${{ steps.release-draft.outputs.release_database_id }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
+          RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_WORKFLOW_RUN_ATTEMPT: ${{ needs.production.outputs.release_workflow_run_attempt }}
+          RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_DATABASE_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          assert_owned_release() {
+            gh api "repos/$GH_REPO/releases/$RELEASE_DATABASE_ID" \
+              > "$RUNNER_TEMP/publication-owned-release.json"
+            jq -s '.' "$RUNNER_TEMP/publication-owned-release.json" \
+              > "$RUNNER_TEMP/publication-owned-release-list.json"
+            remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+              | awk 'NR == 1 { print $1 }')"
+            namespace="$(node --experimental-strip-types scripts/github-release-namespace.mjs \
+              publication "$RUNNER_TEMP/publication-owned-release-list.json" \
+              "${remote_tag_sha:-absent}")"
+            release_state="$(jq -er '.state | select(. == "draft" or . == "published")' \
+              <<< "$namespace")"
+            test "$(jq -er '.releaseDatabaseId' <<< "$namespace")" = "$RELEASE_DATABASE_ID"
+          }
+          verify_current_api_receipt() {
+            receipt="$RUNNER_TEMP/api-launch-release-receipt/kinresolve-api-launch-receipt.json"
+            marker="$RUNNER_TEMP/api-launch-publication-marker.md"
+            node --experimental-strip-types scripts/api-launch-release-receipt.mjs marker \
+              "$receipt" "$marker"
+            asset_name="$(node --experimental-strip-types \
+              scripts/api-launch-release-receipt.mjs asset-name "$receipt")"
+            asset_count="$(jq -r --arg asset_name "$asset_name" \
+              '[.assets[] | select(.name == $asset_name)] | length' \
+              "$RUNNER_TEMP/publication-owned-release.json")"
+            test "$asset_count" = "1"
+            asset_id="$(jq -er --arg asset_name "$asset_name" \
+              '.assets[] | select(.name == $asset_name) | .id \
+                | select(type == "number" and . > 0)' \
+              "$RUNNER_TEMP/publication-owned-release.json")"
+            verify_directory="$RUNNER_TEMP/publication-api-launch-receipt"
+            rm -rf "$verify_directory"
+            install -d -m 700 "$verify_directory"
+            verified_receipt="$verify_directory/$asset_name"
+            gh api --header "Accept: application/octet-stream" \
+              "repos/$GH_REPO/releases/assets/$asset_id" > "$verified_receipt"
+            chmod 600 "$verified_receipt"
+            test "$(sha256sum "$verified_receipt" | awk '{ print $1 }')" \
+              = "$API_LAUNCH_RECEIPT_SHA256"
+            node --experimental-strip-types scripts/api-launch-release-receipt.mjs validate \
+              "$verified_receipt"
+            jq -er '.body // ""' "$RUNNER_TEMP/publication-owned-release.json" \
+              > "$RUNNER_TEMP/publication-release-body.md"
+            node --experimental-strip-types scripts/api-launch-release-receipt.mjs notes-verify \
+              "$RUNNER_TEMP/publication-release-body.md" "$marker"
+          }
+
+          assert_owned_release
+          if [[ "$RELEASE_MODE" = "api-launch" ]]; then verify_current_api_receipt; fi
+          if [[ "$release_state" = "draft" ]]; then
+            jq -n '{draft: false, prerelease: false, make_latest: "true"}' \
+              > "$RUNNER_TEMP/publish-release-patch.json"
+            if ! gh api --method PATCH "repos/$GH_REPO/releases/$RELEASE_DATABASE_ID" \
+              --input "$RUNNER_TEMP/publish-release-patch.json" > /dev/null; then
+              echo "Stable publication did not confirm; validating provider state." >&2
+            fi
+          else
+            test "$release_state" = "published"
+          fi
+
+          gh api "repos/$GH_REPO/releases/$RELEASE_DATABASE_ID" \
+            > "$RUNNER_TEMP/published-owned-release.json"
+          jq -s '.' "$RUNNER_TEMP/published-owned-release.json" \
+            > "$RUNNER_TEMP/published-owned-release-list.json"
+          final_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" \
+            | awk 'NR == 1 { print $1 }')"
+          namespace="$(node --experimental-strip-types scripts/github-release-namespace.mjs \
+            published "$RUNNER_TEMP/published-owned-release-list.json" \
+            "${final_tag_sha:-absent}")"
+          test "$(jq -er '.releaseDatabaseId' <<< "$namespace")" = "$RELEASE_DATABASE_ID"
+          gh api "repos/$GH_REPO/releases/latest" > "$RUNNER_TEMP/latest-release.json"
+          test "$(jq -er '.id | select(type == "number" and . > 0)' \
+            "$RUNNER_TEMP/latest-release.json")" = "$RELEASE_DATABASE_ID"
+          cp "$RUNNER_TEMP/published-owned-release.json" \
+            "$RUNNER_TEMP/publication-owned-release.json"
+          if [[ "$RELEASE_MODE" = "api-launch" ]]; then verify_current_api_receipt; fi

@@ -1,4 +1,5 @@
 import type { Permission } from "./rbac";
+import { apiV1RouteDefinitions, type ApiV1Scope } from "./api-v1-contract";
 
 export const apiMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
 
@@ -7,6 +8,7 @@ export type ApiAccess =
   | { kind: "public" }
   | { kind: "bootstrap" }
   | { kind: "service" }
+  | { kind: "api-token"; scope: ApiV1Scope }
   | { kind: "permission"; permission: Permission };
 export type ApiRequestPolicy =
   | "read-only"
@@ -14,6 +16,8 @@ export type ApiRequestPolicy =
   | "better-auth-managed"
   | "internal-probe"
   | "service-bearer"
+  | "api-token"
+  | "marketing-native-form"
   | "operator-signature"
   | "release-fence-control";
 
@@ -32,12 +36,17 @@ const publicAccess = { kind: "public" } as const;
 const bootstrapAccess = { kind: "bootstrap" } as const;
 const serviceAccess = { kind: "service" } as const;
 const permission = (value: Permission): ApiAccess => ({ kind: "permission", permission: value });
+const apiToken = (scope: ApiV1Scope): ApiAccess => ({ kind: "api-token", scope });
 const register = (access: ApiAccess, requestPolicy: ApiRequestPolicy): ApiMethodRegistration => ({
   access,
   requestPolicy
 });
 
 export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
+  ...apiV1RouteDefinitions.map(({ path, scope }) => ({
+    path,
+    methods: { GET: register(apiToken(scope), "api-token") }
+  })),
   {
     path: "/api/ai/analyze",
     methods: { POST: register(permission("ai:whole-tree"), "same-origin-cookie") }
@@ -75,6 +84,10 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
   {
     path: "/api/beta/legal/[document]",
     methods: { GET: register(publicAccess, "read-only") }
+  },
+  {
+    path: "/api/public/beta-applications",
+    methods: { POST: register(publicAccess, "marketing-native-form") }
   },
   {
     path: "/api/cases",
@@ -288,6 +301,17 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
     methods: { PATCH: register(permission("settings:manage"), "same-origin-cookie") }
   },
   {
+    path: "/api/settings/api-tokens",
+    methods: {
+      GET: register(permission("api-tokens:manage"), "read-only"),
+      POST: register(permission("api-tokens:manage"), "same-origin-cookie")
+    }
+  },
+  {
+    path: "/api/settings/api-tokens/[id]",
+    methods: { DELETE: register(permission("api-tokens:manage"), "same-origin-cookie") }
+  },
+  {
     path: "/api/setup/claim",
     methods: { POST: register(bootstrapAccess, "same-origin-cookie") },
     requiresAuthSecret: true
@@ -316,7 +340,11 @@ export function resolveApiMethodPolicy(pathname: string, method: string): ApiReq
 export function isApiWriteBlockedByReleaseFence(pathname: string, method: string): boolean {
   const registration = resolveApiMethodRegistration(pathname, method);
   if (!registration) return false;
-  if (registration.requestPolicy === "read-only" || registration.requestPolicy === "release-fence-control") {
+  if (
+    registration.requestPolicy === "read-only"
+    || registration.requestPolicy === "api-token"
+    || registration.requestPolicy === "release-fence-control"
+  ) {
     return false;
   }
   // Service-bearer handlers authenticate before checking the fence so an

@@ -19,6 +19,8 @@ import {
 } from "./beta-legal-manifest";
 import { validateApprovedBetaLegalDocuments } from "./beta-legal-document-validation";
 import { cleanupExpiredAuthRateLimitsInTransaction } from "./durable-auth-rate-limit";
+import { cleanupExpiredApiRateLimitsInTransaction } from "./durable-api-rate-limit";
+import { cleanupExpiredBetaApplicationsInTransaction } from "./beta-applications";
 import { query, withTransaction, type DatabaseOptions } from "./db";
 import type { Role } from "./models";
 import type { VerifiedOperatorRequest } from "./operator-signature";
@@ -853,6 +855,8 @@ export async function cleanupBetaInvitationState(
   options: BetaInvitationServiceOptions
 ): Promise<Readonly<{
   expiredInvitations: number;
+  expiredApplications: number;
+  expiredApiRateLimits: number;
   expiredRateLimits: number;
   expiredVerificationTokens: number;
   removedOperatorNonces: number;
@@ -875,10 +879,14 @@ export async function cleanupBetaInvitationState(
         limit,
         input.operator.nonce
       );
+      const expiredApplications = await cleanupExpiredBetaApplicationsInTransaction(client, limit);
       const expiredRateLimits = await cleanupExpiredAuthRateLimitsInTransaction(client, limit);
+      const expiredApiRateLimits = await cleanupExpiredApiRateLimitsInTransaction(client, limit);
       const removedOperatorNonces = await cleanupOperatorNonces(client, limit);
       return {
+        expiredApplications,
         expiredInvitations,
+        expiredApiRateLimits,
         expiredRateLimits,
         expiredVerificationTokens,
         removedOperatorNonces
@@ -907,6 +915,8 @@ export async function cleanupExpiredBetaStateForSystem(
   options: BetaInvitationServiceOptions
 ): Promise<Readonly<{
   expiredInvitations: number;
+  expiredApplications: number;
+  expiredApiRateLimits: number;
   expiredRateLimits: number;
   expiredVerificationTokens: number;
   removedOperatorNonces: number;
@@ -928,10 +938,14 @@ export async function cleanupExpiredBetaStateForSystem(
         limit,
         input.requestId
       );
+      const expiredApplications = await cleanupExpiredBetaApplicationsInTransaction(client, limit);
       const expiredRateLimits = await cleanupExpiredAuthRateLimitsInTransaction(client, limit);
+      const expiredApiRateLimits = await cleanupExpiredApiRateLimitsInTransaction(client, limit);
       const removedOperatorNonces = await cleanupOperatorNonces(client, limit);
       return {
+        expiredApplications,
         expiredInvitations,
+        expiredApiRateLimits,
         expiredRateLimits,
         expiredVerificationTokens,
         removedOperatorNonces

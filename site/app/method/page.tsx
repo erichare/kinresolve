@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { CtaStrip } from "@/components/cta-strip";
 import { PageHero } from "@/components/page-hero";
+import { betaStatus } from "@/lib/beta-status";
 import { pageMetadata } from "@/lib/metadata";
 
 export const metadata = pageMetadata({
@@ -60,7 +61,7 @@ export default function MethodPage() {
         <div className="method-support-card current-support">
           <span className="eyebrow">Supported today</span>
           <h2>Structure for the current investigation.</h2>
-          <p>Cases, evidence items, hypotheses, tasks, confidence values, source-coverage checks, and date-conflict checks are implemented in the source product. Hosted access remains a proposed, gated cohort.</p>
+          <p>Cases, evidence items, hypotheses, tasks, confidence values, source-coverage checks, and date-conflict checks are implemented in the source product. {betaStatus.hostedLive ? "Hosted access is live only for approved private-beta participants." : "Hosted access remains a proposed, gated cohort."}</p>
         </div>
         <div className="method-support-card future-support">
           <span className="eyebrow">In development</span>

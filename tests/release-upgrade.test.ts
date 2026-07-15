@@ -414,7 +414,9 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
       "012_archive_dataset_mode",
       "013_release_write_fence",
       "014_beta_invitations",
-      "015_beta_operations"
+      "015_beta_operations",
+      "016_beta_api_tokens",
+      "017_beta_applications"
     ]);
     for (const table of archiveScopedTables) {
       const count = await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`);
@@ -489,7 +491,9 @@ describe.skipIf(!releaseDatabaseUrl)("v0.17.4 release upgrade", () => {
       "012_archive_dataset_mode",
       "013_release_write_fence",
       "014_beta_invitations",
-      "015_beta_operations"
+      "015_beta_operations",
+      "016_beta_api_tokens",
+      "017_beta_applications"
     ]);
     await exerciseCompositeKeyWriters(pool);
     await expect(pool.query("SELECT count(*)::integer AS count FROM legacy_users")).resolves.toMatchObject({ rows: [{ count: 1 }] });

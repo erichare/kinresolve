@@ -347,6 +347,7 @@ describe("demo purge execution state", () => {
       "unexpiredUploadIntents",
       "activeInvitationCapabilities",
       "activeEmailVerificationCapabilities",
+      "activeApiTokenCapabilities",
       "oauthAccountCapabilities",
       "otherActiveReleaseFences",
       "activeClientTransactions"
@@ -381,6 +382,8 @@ describe("demo purge schema and CLI contract", () => {
     expect(demoPurgeProductTables).not.toContain("beta_terms_acceptances");
     expect(demoPurgeProductTables).not.toContain("beta_identity_audit_events");
     expect(demoPurgeProductTables).not.toContain("beta_data_operations");
+    expect(demoPurgeProductTables).not.toContain("api_tokens");
+    expect(demoPurgeProductTables).not.toContain("security_events");
     expect(() => validateDemoPurgeSchemaTables([...classified, "future_archive_rows"])).toThrow(
       /unclassified/i
     );
@@ -672,6 +675,7 @@ function demoSafety() {
     unexpiredUploadIntents: 0,
     activeInvitationCapabilities: 0,
     activeEmailVerificationCapabilities: 0,
+    activeApiTokenCapabilities: 0,
     oauthAccountCapabilities: 0,
     otherActiveReleaseFences: 0,
     activeClientTransactions: 0,

@@ -19,7 +19,7 @@ const treeValues = new Set<DnaTreeFilter>(["all", "public", "partial", "private"
 const helpfulnessValues = new Set<DnaHelpfulnessFilter>(["all", "high", "medium", "low"]);
 const sortValues = new Set<DnaSortKey>(["helpfulness", "cm", "name"]);
 
-export const GET = withPermission("dna:read", async (request: Request) => {
+export const GET = withPermission("dna:read", async (request: Request, authorization) => {
   const unavailable = capabilityUnavailableResponse("dna");
   if (unavailable) return unavailable;
 
@@ -37,9 +37,12 @@ export const GET = withPermission("dna:read", async (request: Request) => {
     {
       page: parsePositiveInteger(url.searchParams.get("page"), 1),
       pageSize: parsePositiveInteger(url.searchParams.get("pageSize"), 25)
-    }
+    },
+    { archiveId: authorization.archiveId }
   );
-  const hypotheses = await createDnaHypothesesForMatches(result.items);
+  const hypotheses = await createDnaHypothesesForMatches(result.items, {
+    archiveId: authorization.archiveId
+  });
 
   return NextResponse.json({ ...result, hypotheses });
 });

@@ -10,7 +10,7 @@ export const maxDuration = 300;
 
 export const GET = withPermission("archive:export", async (_request, authorization) => {
   try {
-    const workspace = await readWorkspace();
+    const workspace = await readWorkspace({ archiveId: authorization.archiveId });
     const result = exportGedcom({
       archiveName: workspace.archiveName,
       people: workspace.people,

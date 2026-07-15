@@ -6,8 +6,8 @@ import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withPermission("archive:read-private", async (request) => {
-  const workspace = await readWorkspace();
+export const GET = withPermission("archive:read-private", async (request, authorization) => {
+  const workspace = await readWorkspace({ archiveId: authorization.archiveId });
   const url = new URL(request.url);
   const pageSize = parsePositiveInteger(url.searchParams.get("pageSize"), 50);
 

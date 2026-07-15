@@ -1,0 +1,291 @@
+name: Production API edge evidence
+run-name: Kin Resolve API edge evidence run ${{ github.run_id }} attempt ${{ github.run_attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact current 40-character commit on main to bind to the API edge proof
+        required: true
+        type: string
+      provider_log_acknowledgement:
+        description: Exact acknowledgement of the protected Vercel log-redaction review
+        required: true
+        type: string
+      rule_approval_acknowledgement:
+        description: Exact acknowledgement of protected production rule approval
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kinresolve-beta-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Capture exact read-only Vercel API edge proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: api-edge-evidence
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_COMMIT: ${{ inputs.release_commit }}
+      API_EDGE_RULE_ID: ${{ vars.API_EDGE_RULE_ID }}
+      API_EDGE_EXPECTED_LIMIT: ${{ vars.API_EDGE_EXPECTED_LIMIT }}
+      API_EDGE_EXPECTED_WINDOW_SECONDS: ${{ vars.API_EDGE_EXPECTED_WINDOW_SECONDS }}
+      API_EDGE_EXPECTED_ACTION: ${{ vars.API_EDGE_EXPECTED_ACTION }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_DIRECT_ORIGIN: ${{ vars.VERCEL_DIRECT_ORIGIN }}
+
+    steps:
+      - name: Check out the exact trusted candidate from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require exact main source and protected edge configuration
+        shell: bash
+        env:
+          PROVIDER_LOG_ACKNOWLEDGEMENT: ${{ inputs.provider_log_acknowledgement }}
+          RULE_APPROVAL_ACKNOWLEDGEMENT: ${{ inputs.rule_approval_acknowledgement }}
+        run: |
+          set -euo pipefail
+          test "${PROVIDER_LOG_ACKNOWLEDGEMENT}" = "I inspected Vercel Firewall logs and confirmed only x-request-id is logged; credentials, cookies, bypass headers, signatures, and query values are not logged or sampled."
+          test "${RULE_APPROVAL_ACKNOWLEDGEMENT}" = "I confirm the active Kin Resolve API edge rule and direct-origin protection were approved through the protected production change process."
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_SHA}" = "${RELEASE_COMMIT}"
+          [[ "${RELEASE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "${RELEASE_COMMIT}"
+          test "$(git rev-parse origin/main)" = "${RELEASE_COMMIT}"
+          [[ "${API_EDGE_RULE_ID}" =~ ^[A-Za-z0-9_-]{3,128}$ ]]
+          [[ "${API_EDGE_EXPECTED_LIMIT}" =~ ^[1-9][0-9]?$ ]]
+          test "${API_EDGE_EXPECTED_LIMIT}" -le 60
+          [[ "${API_EDGE_EXPECTED_WINDOW_SECONDS}" =~ ^[1-9][0-9]{1,2}$ ]]
+          test "${API_EDGE_EXPECTED_WINDOW_SECONDS}" -ge 10
+          test "${API_EDGE_EXPECTED_WINDOW_SECONDS}" -le 600
+          test "${API_EDGE_EXPECTED_ACTION}" = "rate_limit"
+          [[ "${VERCEL_PROJECT_ID}" =~ ^[A-Za-z0-9_-]{3,128}$ ]]
+          [[ "${VERCEL_ORG_ID}" =~ ^[A-Za-z0-9_-]{3,128}$ ]]
+          [[ "${VERCEL_DIRECT_ORIGIN}" =~ ^https://[a-z0-9-]+\.vercel\.app$ ]]
+          work="${RUNNER_TEMP}/kinresolve-api-edge-evidence"
+          install -d -m 700 "${work}"
+          echo "EDGE_WORK=${work}" >> "${GITHUB_ENV}"
+
+      - name: Set up the exact evidence runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Read the current active Vercel firewall and system bypasses
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "${VERCEL_TOKEN}" =~ ^[A-Za-z0-9_-]{24,256}$ ]]
+          auth_config="${EDGE_WORK}/vercel-curl-auth.conf"
+          umask 077
+          printf 'header = "Authorization: Bearer %s"\n' "${VERCEL_TOKEN}" > "${auth_config}"
+          curl --config "${auth_config}" --fail --silent --show-error --get \
+            --connect-timeout 10 --max-time 45 \
+            --data-urlencode "projectId=${VERCEL_PROJECT_ID}" \
+            --data-urlencode "teamId=${VERCEL_ORG_ID}" \
+            --output "${EDGE_WORK}/active-firewall.json" \
+            "https://api.vercel.com/v1/security/firewall/config/active"
+          curl --config "${auth_config}" --fail --silent --show-error --get \
+            --connect-timeout 10 --max-time 45 \
+            --data-urlencode "projectId=${VERCEL_PROJECT_ID}" \
+            --data-urlencode "teamId=${VERCEL_ORG_ID}" \
+            --data-urlencode "limit=100" \
+            --output "${EDGE_WORK}/system-bypasses.json" \
+            "https://api.vercel.com/v1/security/firewall/bypass"
+          rm -f "${auth_config}"
+          test "$(wc -c < "${EDGE_WORK}/active-firewall.json")" -le 2097152
+          test "$(wc -c < "${EDGE_WORK}/system-bypasses.json")" -le 1048576
+          chmod 600 "${EDGE_WORK}/active-firewall.json" "${EDGE_WORK}/system-bypasses.json"
+
+      - name: Validate the exact active rule before sending a bounded probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import { inspectVercelApiEdgeConfiguration } from "./lib/api-edge-evidence.ts";
+
+          const readJson = async (name) => JSON.parse(await readFile(`${process.env.EDGE_WORK}/${name}`, "utf8"));
+          inspectVercelApiEdgeConfiguration({
+            activeConfig: await readJson("active-firewall.json"),
+            systemBypasses: await readJson("system-bypasses.json"),
+            expectedRule: {
+              ruleId: process.env.API_EDGE_RULE_ID,
+              limit: Number(process.env.API_EDGE_EXPECTED_LIMIT),
+              windowSeconds: Number(process.env.API_EDGE_EXPECTED_WINDOW_SECONDS),
+              rateAction: process.env.API_EDGE_EXPECTED_ACTION
+            }
+          });
+          NODE
+
+      - name: Prove bounded unauthenticated enforcement and direct-origin denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          canonical_origin="https://app.kinresolve.com"
+          marker="kr-edge-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          endpoint="${canonical_origin}/api/v1/meta?edge_probe=${marker}"
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          response_leakage_observed=true
+
+          probe() {
+            local output="$1"
+            local headers="${output%.body}.headers"
+            curl --silent --show-error --connect-timeout 10 --max-time 30 \
+              --header "Accept: application/json" \
+              --header "User-Agent: KinResolve-API-Edge-Evidence/${GITHUB_RUN_ID}" \
+              --dump-header "${headers}" \
+              --output "${output}" --write-out '%{http_code}' "${endpoint}"
+          }
+
+          ordinary_status="$(probe "${EDGE_WORK}/canonical-0.body")"
+          test "${ordinary_status}" = "401" -o "${ordinary_status}" = "404"
+          rate_limited_responses=0
+          first_rate_limited_index=""
+          for ((index=1; index<=API_EDGE_EXPECTED_LIMIT+1; index++)); do
+            status="$(probe "${EDGE_WORK}/canonical-${index}.body")"
+            case "${status}" in
+              401|404) ;;
+              429)
+                rate_limited_responses=$((rate_limited_responses + 1))
+                if [[ -z "${first_rate_limited_index}" ]]; then
+                  first_rate_limited_index="${index}"
+                fi
+                ;;
+              *) exit 1 ;;
+            esac
+          done
+          test "${rate_limited_responses}" -ge 1
+          [[ "${first_rate_limited_index}" =~ ^[1-9][0-9]*$ ]]
+
+          # The origin's ordinary 401/404 can otherwise be cached heuristically.
+          # Require its explicit private/no-store policy. A 429 is not cacheable by
+          # default; if the provider adds Cache-Control, require an equally safe
+          # directive and reject positive shared-cache freshness everywhere.
+          node --experimental-strip-types scripts/validate-api-edge-response-headers.mjs \
+            ordinary "${EDGE_WORK}/canonical-0.headers"
+          limited_headers="${EDGE_WORK}/canonical-${first_rate_limited_index}.headers"
+          node --experimental-strip-types scripts/validate-api-edge-response-headers.mjs \
+            rate-limited "${limited_headers}"
+
+          direct_origin_status="$(curl --silent --show-error --connect-timeout 10 --max-time 30 \
+            --header "Accept: application/json" \
+            --header "User-Agent: KinResolve-API-Edge-Evidence/${GITHUB_RUN_ID}" \
+            --dump-header "${EDGE_WORK}/direct-origin.headers" \
+            --output "${EDGE_WORK}/direct-origin.body" --write-out '%{http_code}' \
+            "${VERCEL_DIRECT_ORIGIN}/api/v1/meta")"
+          test "${direct_origin_status}" = "401" -o "${direct_origin_status}" = "403"
+          node --experimental-strip-types scripts/validate-api-edge-response-headers.mjs \
+            direct-protection "${EDGE_WORK}/direct-origin.headers"
+          grep -Eiq 'Vercel Authentication|Authentication Required|Deployment Protection' \
+            "${EDGE_WORK}/direct-origin.body"
+
+          for body in "${EDGE_WORK}"/*.body; do
+            test "$(wc -c < "${body}")" -le 16384
+            if grep -Eiq 'Bearer[[:space:]]+[A-Za-z0-9._-]+|"(archiveId|personId|sourceId|caseId)"' "${body}"; then
+              exit 1
+            fi
+            if grep -Fq "${VERCEL_PROJECT_ID}" "${body}" || grep -Fq "${VERCEL_ORG_ID}" "${body}"; then
+              exit 1
+            fi
+            if grep -Fq "${marker}" "${body}"; then
+              exit 1
+            fi
+          done
+          for headers in "${EDGE_WORK}"/canonical-*.headers; do
+            test "$(wc -c < "${headers}")" -le 16384
+            node --experimental-strip-types scripts/validate-api-edge-response-headers.mjs \
+              canonical "${headers}"
+            if grep -Eiq 'Bearer[[:space:]]+[A-Za-z0-9._-]+' "${headers}" \
+              || grep -Fq "${VERCEL_PROJECT_ID}" "${headers}" \
+              || grep -Fq "${VERCEL_ORG_ID}" "${headers}" \
+              || grep -Fq "${marker}" "${headers}"; then
+              exit 1
+            fi
+          done
+          test "$(wc -c < "${EDGE_WORK}/direct-origin.headers")" -le 16384
+          if grep -Eiq 'Bearer[[:space:]]+[A-Za-z0-9._-]+' "${EDGE_WORK}/direct-origin.headers" \
+            || grep -Fq "${VERCEL_PROJECT_ID}" "${EDGE_WORK}/direct-origin.headers" \
+            || grep -Fq "${VERCEL_ORG_ID}" "${EDGE_WORK}/direct-origin.headers" \
+            || grep -Fq "${marker}" "${EDGE_WORK}/direct-origin.headers"; then
+            exit 1
+          fi
+          response_leakage_observed=false
+
+          completed_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          requests_sent=$((API_EDGE_EXPECTED_LIMIT + 2))
+          jq -n \
+            --arg canonicalOrigin "${canonical_origin}" \
+            --arg startedAt "${started_at}" \
+            --arg completedAt "${completed_at}" \
+            --argjson ordinaryStatus "${ordinary_status}" \
+            --argjson requestsSent "${requests_sent}" \
+            --argjson rateLimitedResponses "${rate_limited_responses}" \
+            --argjson directOriginStatus "${direct_origin_status}" \
+            --argjson responseLeakageObserved "${response_leakage_observed}" \
+            '{
+              canonicalOrigin: $canonicalOrigin,
+              startedAt: $startedAt,
+              completedAt: $completedAt,
+              ordinaryStatus: $ordinaryStatus,
+              rateLimitedStatus: 429,
+              requestsSent: $requestsSent,
+              rateLimitedResponses: $rateLimitedResponses,
+              directOriginStatus: $directOriginStatus,
+              directOriginProtectionVerified: true,
+              responseLeakageObserved: $responseLeakageObserved,
+              providerLogsReviewed: true
+            }' > "${EDGE_WORK}/probe.json"
+          chmod 600 "${EDGE_WORK}/probe.json"
+
+      - name: Assemble and self-validate the sole sanitized evidence file
+        shell: bash
+        env:
+          API_EDGE_RUN_ID: ${{ github.run_id }}
+          API_EDGE_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/capture-api-edge-evidence.mjs \
+            "${EDGE_WORK}/active-firewall.json" \
+            "${EDGE_WORK}/system-bypasses.json" \
+            "${EDGE_WORK}/probe.json" \
+            "${EDGE_WORK}/api-edge-evidence.json"
+          node --experimental-strip-types scripts/validate-api-edge-evidence.mjs \
+            "${EDGE_WORK}/api-edge-evidence.json"
+
+      - name: Attest the API edge evidence with GitHub Artifact Attestations
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: ${{ runner.temp }}/kinresolve-api-edge-evidence/api-edge-evidence.json
+
+      - name: Upload only the release-bound sanitized API edge evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-api-edge-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/kinresolve-api-edge-evidence/api-edge-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Remove provider responses and probe bodies on every outcome
+        if: always()
+        shell: bash
+        run: rm -rf "${EDGE_WORK:-${RUNNER_TEMP}/kinresolve-api-edge-evidence}"

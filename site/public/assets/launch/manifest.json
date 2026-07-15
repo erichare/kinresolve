@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "c6e0309ab609b08f4c76362fefa0dd4d6c80e403",
+  "contentSha256": "b44aca0e40a85016b390bc8211a6077a20d793344cf9e4bc4508f511f87978d1",
+  "dataset": "Hartwell-Mercer fictional demo",
+  "demoFixtureVersion": 1,
+  "viewport": {
+    "width": 1600,
+    "height": 1000
+  },
+  "captures": [
+    {
+      "alt": "Kin Resolve synthetic Hartwell–Mercer dashboard showing active research cases and archive metrics.",
+      "filename": "01-synthetic-dashboard.webp",
+      "title": "A private investigation dashboard",
+      "sha256": "de99f0476eb9ceac94d6fc8a372d9664abb922c13b5bc4833f9d9fcd0724b8b1"
+    },
+    {
+      "alt": "Kin Resolve synthetic GEDCOM source with a durable refresh queued for private review.",
+      "filename": "02-durable-gedcom-source.webp",
+      "title": "A durable GEDCOM source",
+      "sha256": "96f59416e8845bf6988f8beb6fc3950e4c1130643a89e636433ba428565eacec"
+    },
+    {
+      "alt": "Kin Resolve review screen showing incoming synthetic GEDCOM changes and policies for conflicts and deletions.",
+      "filename": "03-review-before-apply.webp",
+      "title": "Review every change before apply",
+      "sha256": "935d76e93382e55c34f4902b315318e47688a06635b77cee8223fdb37514a343"
+    },
+    {
+      "alt": "Kin Resolve fictional Mercer–March identity case showing competing hypotheses, confidence, and a reviewable research trail.",
+      "filename": "04-evidence-and-hypotheses.webp",
+      "title": "Keep evidence and uncertainty together",
+      "sha256": "d4d0e826c33d773700e3deaf38599dadb5a3b3734ed76ebaac902d9ffa7a4d2c"
+    },
+    {
+      "alt": "Kin Resolve fictional Hartwell–Mercer source transcripts linked to private research context.",
+      "filename": "05-sources-in-context.webp",
+      "title": "Keep source transcripts in context",
+      "sha256": "12642603324624d030738c83cc2f5b2f962271b9093315e671bc1b77ec20487a"
+    },
+    {
+      "alt": "Kin Resolve quality report prioritizing synthetic archive issues with no external AI used.",
+      "filename": "06-deterministic-quality.webp",
+      "title": "Check quality without an external AI provider",
+      "sha256": "9eb432a56fd5dcd2bd219dc2cd983a31e0f0a0b8302e79caf15583dfbc174e17"
+    },
+    {
+      "alt": "Kin Resolve developer API controls showing scoped expiring archive tokens without revealing a token secret.",
+      "filename": "07-scoped-developer-api.webp",
+      "title": "Create scoped, revocable API access",
+      "sha256": "d12b41f1b2956a8f81f54748c45ecfeaf7591708240245f5602976518fb380c0"
+    },
+    {
+      "alt": "Kin Resolve archive portability panel offering a full GEDCOM export and reviewable reversible imports.",
+      "filename": "08-export-and-control.webp",
+      "title": "Keep an exit path",
+      "sha256": "08f63a1eb87e981fe73dfad459b8c752b527c4042c23ac7f8d03f171557a2410"
+    }
+  ],
+  "video": {
+    "audio": "deterministic wordless mathematical tone bed",
+    "durationSeconds": 90,
+    "filename": "kin-resolve-private-beta-demo.mp4",
+    "poster": "kin-resolve-private-beta-demo-poster.webp",
+    "captions": "kin-resolve-private-beta-demo.vtt",
+    "transcript": "kin-resolve-private-beta-demo-transcript.md",
+    "sha256": "63afd865f58483ea968d35a434333d926390430c3bafbcdcb1251863eed4d1f3",
+    "posterSha256": "92a0a734ace7d1ad008f81801f275b7d307af5c14ff15c54dc84b596e58a65ea",
+    "captionsSha256": "ade947ee36f1418b1793f3b43140e461febf76ca67c656313abc4e90c1461b9d",
+    "transcriptSha256": "37b5d0adc1f1cc3360a9f1e5d20a742aae4248b82ce4dae8ee4d8880b86faee3",
+    "segments": [
+      {
+        "durationSeconds": 10,
+        "image": "01-synthetic-dashboard.webp",
+        "text": "Family trees preserve conclusions. Kin Resolve preserves questions, records, uncertainty, and next steps. This tour uses only fictional Hartwell–Mercer data."
+      },
+      {
+        "durationSeconds": 12,
+        "image": "02-durable-gedcom-source.webp",
+        "text": "Bring in a plain GEDCOM as a named, durable source. The original export is staged privately, processing state survives a refresh, and nothing enters the archive merely because a file was selected."
+      },
+      {
+        "durationSeconds": 12,
+        "image": "03-review-before-apply.webp",
+        "text": "Incoming additions, edits, conflicts, and deletions become an explicit review. Safe changes can be approved together; ambiguity requires a decision; remote deletion keeps the local record by default."
+      },
+      {
+        "durationSeconds": 13,
+        "image": "04-evidence-and-hypotheses.webp",
+        "text": "Research stays organized around a question, not just a person. Evidence can strengthen or weaken competing hypotheses, confidence remains visible, and the case keeps the next search tied to the reason it matters."
+      },
+      {
+        "durationSeconds": 11,
+        "image": "05-sources-in-context.webp",
+        "text": "Source transcripts remain close to the people and cases they inform. Cohort one deliberately excludes binary source media, so the hosted boundary stays narrow, understandable, and enforceable."
+      },
+      {
+        "durationSeconds": 11,
+        "image": "06-deterministic-quality.webp",
+        "text": "Quality and privacy checks run deterministically inside Kin Resolve. They prioritize date conflicts, source gaps, and sharing risks without sending the archive to an external AI provider."
+      },
+      {
+        "durationSeconds": 12,
+        "image": "07-scoped-developer-api.webp",
+        "text": "The developer preview uses scoped, expiring, archive-bound tokens. A secret is shown once, only its prefix remains visible, and revocation denies the next request immediately."
+      },
+      {
+        "durationSeconds": 9,
+        "image": "08-export-and-control.webp",
+        "text": "The exit path stays visible: download a GEDCOM, keep the review trail, and request verified deletion. Apply without sending family records."
+      }
+    ]
+  }
+}

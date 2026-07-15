@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   releaseSmokeRequests,
+  validateApiLaunchState,
   validateReleaseDatabaseIdentity,
   validateStaticHoldingHealth,
   validatePrivateReleaseHeaders,
@@ -39,6 +40,7 @@ describe("non-mutating hosted release smoke contract", () => {
       expectedVersion,
       expectedDatasetMode: "pilot",
       expectedDatabaseIdentity: "a".repeat(64),
+      expectedApiEnabled: true,
       expectedScheduledWritesEnabled: true
     })).toEqual({
       version: expectedVersion,
@@ -56,6 +58,7 @@ describe("non-mutating hosted release smoke contract", () => {
       expectedVersion,
       expectedDatasetMode: "pilot",
       expectedDatabaseIdentity: "a".repeat(64),
+      expectedApiEnabled: true,
       requireOperationalDiagnostics: true
     })).not.toThrow();
   });
@@ -83,6 +86,7 @@ describe("non-mutating hosted release smoke contract", () => {
       expectedVersion,
       expectedDatasetMode: "pilot",
       expectedDatabaseIdentity: "a".repeat(64),
+      expectedApiEnabled: true,
       requireOperationalDiagnostics: true
     })).toThrow(/operational|worker|job lag/i);
   });
@@ -110,6 +114,12 @@ describe("non-mutating hosted release smoke contract", () => {
     }],
     ["storage missing", {
       body: JSON.stringify(healthyResponse({ storage: { configured: false } }))
+    }],
+    ["API misconfigured", {
+      body: JSON.stringify(healthyResponse({ api: { enabled: true, configured: false } }))
+    }],
+    ["API state mismatched", {
+      body: JSON.stringify(healthyResponse({ api: { enabled: false, configured: true } }))
     }],
     ["capabilities invalid", {
       body: JSON.stringify(healthyResponse({ capabilities: { ...healthyResponse().capabilities, valid: false } }))
@@ -139,6 +149,7 @@ describe("non-mutating hosted release smoke contract", () => {
       expectedVersion,
       expectedDatasetMode: "pilot",
       expectedDatabaseIdentity: "a".repeat(64),
+      expectedApiEnabled: true,
       expectedScheduledWritesEnabled: true,
       ...overrides
     })).toThrow();
@@ -184,9 +195,38 @@ describe("non-mutating hosted release smoke contract", () => {
       "/api/internal/health",
       "/app",
       "/api/people",
+      "/api/v1/meta",
       "/api/cron/integration-jobs",
       "/api/auth/session"
     ]);
+  });
+
+  it("requires the exact public API launch state", () => {
+    const requestId = "123e4567-e89b-42d3-a456-426614174000";
+    expect(() => validateApiLaunchState({
+      status: 401,
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ code: "invalid_token", message: "Invalid token", requestId }),
+      headers: new Headers({ "www-authenticate": 'Bearer realm="Kin Resolve API", error="invalid_token"' })
+    }, true)).not.toThrow();
+    expect(() => validateApiLaunchState({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "api_disabled", message: "Disabled", requestId }),
+      headers: new Headers()
+    }, false)).not.toThrow();
+    expect(() => validateApiLaunchState({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "api_disabled", message: "Disabled", requestId }),
+      headers: new Headers()
+    }, true)).toThrow(/HTTP 401/i);
+    expect(() => validateApiLaunchState({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "invalid_token", message: "Invalid token", requestId }),
+      headers: new Headers()
+    }, true)).toThrow(/bearer challenge/i);
   });
 });
 
@@ -210,6 +250,7 @@ function healthyResponse(overrides: Record<string, unknown> = {}) {
       demoFixtureVersion: null
     },
     storage: { configured: true, identityConfigured: true, identityVerified: true },
+    api: { enabled: true, configured: true },
     scheduledWrites: { valid: true, configured: true, enabled: true },
     capabilities: {
       valid: true,

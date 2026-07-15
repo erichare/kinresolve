@@ -1,0 +1,12 @@
+0 HEAD
+1 SOUR KINRESOLVE-BROWSER-CANARY
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Rowan /Canary/
+1 BIRT
+2 DATE 1 JAN 1900
+2 PLAC Synthetic Test Harbor
+1 NOTE Wholly fictional browser-canary record. No participant or family data.
+0 TRLR

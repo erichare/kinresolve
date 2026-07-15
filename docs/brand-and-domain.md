@@ -1,6 +1,6 @@
 # Kin Resolve brand and domain contract
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 This document keeps the public name, URLs, claims, and legacy technical identifiers consistent while the product moves from KinSleuth to Kin Resolve.
 
@@ -37,7 +37,7 @@ The marketing site and `beta@kinresolve.com` delivery are live. The site uses an
 
 Safe current claims must distinguish implemented source capabilities from hosted availability:
 
-- Private beta applications are open; hosted access is rolling out in small invitation cohorts.
+- Private beta applications are open; invitations have not started, and hosted access begins only after the launch gates pass.
 - The source product implements a private, single-archive genealogy research workspace.
 - The source product implements GEDCOM preview, reviewable refresh/apply/rollback, and GEDCOM 5.5.1 export.
 - The source product implements people/source search, research cases, evidence, hypotheses, tasks, deterministic checks, private object storage, and durable background jobs.
@@ -48,10 +48,10 @@ The recommended first hosted cohort is defined in [`docs/hosted-beta-contract.md
 
 Claims that must be labeled **in development** or **exploring**:
 
-- Shared multi-archive hosting, tenant isolation, invitations, and family collaboration
-- Production observability, provider/object restore, complete deletion, and incident operations
-- Secure hosted email verification, recovery, and invitation delivery
-- Scoped external API tokens, limits, and published OpenAPI contract
+- Shared multi-archive hosting, database-policy tenant isolation, and unrelated-family collaboration
+- Live provider configuration and evidence for backup, object restore, real-pilot teardown, monitoring, and incident escalation
+- Production delivery of the implemented invitation, email-verification, recovery, and exact-document acceptance perimeter
+- Production availability of the implemented scoped API tokens, limits, and OpenAPI contract; edge-limit and canary proof remain gates
 - Granular fact, citation, and story publishing controls
 - Semantic retrieval and stronger citation grounding
 - Explicit Genealogical Proof Standard conflict-resolution workflows

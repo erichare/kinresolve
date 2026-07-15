@@ -577,6 +577,8 @@ async function scanDatabase(poolOrClient, bindings, permittedFence, requirePermi
         WHERE state = 'pending' AND token_digest IS NOT NULL) AS active_invitation_capabilities,
        (SELECT COUNT(*)::text FROM public.beta_email_verification_tokens
         WHERE state = 'pending' AND token_digest IS NOT NULL) AS active_email_verification_capabilities,
+       (SELECT COUNT(*)::text FROM public.api_tokens
+        WHERE revoked_at IS NULL AND expires_at > clock_timestamp()) AS active_api_token_capabilities,
        (SELECT COUNT(*)::text FROM public.account
         WHERE "accessToken" IS NOT NULL
            OR "refreshToken" IS NOT NULL
@@ -618,6 +620,10 @@ async function scanDatabase(poolOrClient, bindings, permittedFence, requirePermi
       work.rows[0]?.active_email_verification_capabilities,
       "active email-verification capabilities"
     ),
+    activeApiTokenCapabilities: count(
+      work.rows[0]?.active_api_token_capabilities,
+      "active API-token capabilities"
+    ),
     oauthAccountCapabilities: count(
       work.rows[0]?.oauth_account_capabilities,
       "OAuth account capabilities"
@@ -632,6 +638,7 @@ async function scanDatabase(poolOrClient, bindings, permittedFence, requirePermi
     || safety.unexpiredUploadIntents !== 0
     || safety.activeInvitationCapabilities !== 0
     || safety.activeEmailVerificationCapabilities !== 0
+    || safety.activeApiTokenCapabilities !== 0
     || safety.oauthAccountCapabilities !== 0
     || safety.activeClientTransactions !== 0
     || safety.invitationsPaused !== true

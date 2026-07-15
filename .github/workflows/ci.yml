@@ -37,6 +37,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Validate API v1 OpenAPI contract
+        run: npm run api:openapi:validate
+
       - name: Verify fictional demo boundary
         run: npm run demo:verify
 
@@ -237,6 +240,304 @@ jobs:
           TEST_DATABASE_URL: postgres://kinresolve:kinresolve@localhost:5432/kinresolve_large_integration
         run: npm run test:db:integration-large
 
+  browser-canary:
+    name: Disposable authenticated browser canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
+        env:
+          POSTGRES_DB: kinresolve_browser_canary
+          POSTGRES_USER: kinresolve
+          POSTGRES_PASSWORD: kinresolve
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kinresolve -d kinresolve_browser_canary"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_BASE_URL: http://127.0.0.1:3107
+      AUTH_SECRET: synthetic-browser-canary-auth-secret-longer-than-thirty-two-characters
+      DATABASE_AUTO_MIGRATE: "false"
+      DATABASE_URL: postgres://kinresolve:kinresolve@127.0.0.1:5432/kinresolve_browser_canary
+      KINSLEUTH_ALLOW_SIGNUPS: "true"
+      KINSLEUTH_ARCHIVE_ID: archive-browser-canary
+      KINRESOLVE_API_V1_ENABLED: "true"
+      KINRESOLVE_API_CURSOR_SECRET: synthetic-browser-canary-api-cursor-secret-longer-than-thirty-two-bytes
+      KINRESOLVE_CANARY_ALLOW_MUTATION: "true"
+      KINRESOLVE_CANARY_API_V1_ENABLED: "true"
+      KINRESOLVE_CANARY_APP_BASE_URL: http://127.0.0.1:3107
+      KINRESOLVE_CANARY_ARCHIVE_ID: archive-browser-canary
+      KINRESOLVE_CANARY_BOOTSTRAP_OWNER: "true"
+      KINRESOLVE_CANARY_DATASET_MODE: demo
+      KINRESOLVE_CANARY_EMAIL: synthetic-browser-canary@example.test
+      KINRESOLVE_CANARY_MUTATION_ACKNOWLEDGEMENT: I acknowledge this browser canary may mutate only an isolated synthetic demo cell.
+      KINRESOLVE_CANARY_OBSERVABILITY_PROBE_SECRET: synthetic-browser-canary-probe-secret-00000000000000000000000000000000
+      KINRESOLVE_CANARY_OPERATOR_DATABASE_URL: postgres://kinresolve:kinresolve@127.0.0.1:5432/kinresolve_browser_canary
+      KINRESOLVE_CANARY_ORIGIN: http://127.0.0.1:3107
+      KINRESOLVE_CANARY_PASSWORD: synthetic-browser-canary-password
+      KINRESOLVE_CANARY_RUN_ID: ci-browser-canary
+      KINRESOLVE_DATASET_MODE: demo
+      KINRESOLVE_DEPLOYMENT_MODE: self-hosted
+      KINRESOLVE_DNA_ENABLED: "false"
+      KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false"
+      KINRESOLVE_EXPORT_REFRESH_ENABLED: "true"
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "false"
+      KINRESOLVE_INSECURE_LOOPBACK_CANARY_ACKNOWLEDGEMENT: I acknowledge insecure HTTP is permitted only for this disposable loopback production canary.
+      KINRESOLVE_INSECURE_LOOPBACK_CANARY_ORIGIN: "true"
+      KINRESOLVE_OBJECT_STORAGE_BACKEND: s3
+      KINRESOLVE_OBSERVABILITY_PROBE_SECRET: synthetic-browser-canary-probe-secret-00000000000000000000000000000000
+      KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false"
+      KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+      KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false"
+      KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false"
+      KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
+      S3_ACCESS_KEY_ID: synthetic-minio-user
+      S3_BUCKET: kinresolve-browser-canary
+      S3_ENDPOINT: http://127.0.0.1:39000
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:39000
+      S3_REGION: us-east-1
+      S3_SECRET_ACCESS_KEY: synthetic-minio-password
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the pinned Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Bind the canary to the exact checked-out release
+        run: |
+          release_sha="$(git rev-parse HEAD)"
+          echo "KINRESOLVE_BUILD_COMMIT_SHA=$release_sha" >> "$GITHUB_ENV"
+          echo "KINRESOLVE_CANARY_RELEASE_SHA=$release_sha" >> "$GITHUB_ENV"
+
+      - name: Build the disposable production application
+        timeout-minutes: 10
+        run: npm run build
+
+      - name: Migrate and provision the isolated demo archive
+        run: |
+          npm run db:migrate
+          npm run archive:provision -- --mode demo
+
+      - name: Start isolated private object storage
+        run: |
+          docker run --detach --name kinresolve-browser-canary-minio \
+            --tmpfs /data:rw,size=256m \
+            --publish 39000:9000 \
+            --env MINIO_ROOT_USER="$S3_ACCESS_KEY_ID" \
+            --env MINIO_ROOT_PASSWORD="$S3_SECRET_ACCESS_KEY" \
+            --env MINIO_API_CORS_ALLOW_ORIGIN="$APP_BASE_URL" \
+            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data --address :9000
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:39000/minio/health/ready >/dev/null; then break; fi
+            if [ "$attempt" = 30 ]; then exit 1; fi
+            sleep 1
+          done
+          docker exec kinresolve-browser-canary-minio mc alias set canary \
+            http://127.0.0.1:9000 "$S3_ACCESS_KEY_ID" "$S3_SECRET_ACCESS_KEY" >/dev/null
+          docker exec kinresolve-browser-canary-minio mc mb --ignore-existing \
+            "canary/$S3_BUCKET" >/dev/null
+
+      - name: Start the disposable production application
+        timeout-minutes: 5
+        run: |
+          setsid npm run start -- --hostname 127.0.0.1 --port 3107 >"$RUNNER_TEMP/browser-canary-app.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/browser-canary-app.pid"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$APP_BASE_URL/login" >/dev/null; then break; fi
+            if [ "$attempt" = 60 ]; then exit 1; fi
+            sleep 1
+          done
+
+      - name: Capture the zero-residue baseline
+        id: browser-baseline
+        run: node --import tsx scripts/browser-canary-state.ts prepare disposable "$RUNNER_TEMP/browser-canary-state.json"
+
+      - name: Run the authenticated synthetic journey
+        id: browser-journey
+        env:
+          NODE_ENV: production
+        run: npm run test:e2e
+
+      - name: Restore the exact archive, identity, and object baseline
+        if: ${{ always() && steps.browser-baseline.outcome == 'success' }}
+        env:
+          JOURNEY_OUTCOME: ${{ steps.browser-journey.outcome }}
+        run: |
+          complete=""
+          if [ "$JOURNEY_OUTCOME" = "success" ]; then complete="--expect-complete"; fi
+          node --import tsx scripts/browser-canary-state.ts cleanup disposable \
+            "$RUNNER_TEMP/browser-canary-state.json" $complete
+
+      - name: Upload synthetic-only failure screenshot
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-canary-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/playwright/browser-canary-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload the synthetic disposable app log on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-canary-app-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/browser-canary-app.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop disposable services
+        if: ${{ always() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/browser-canary-app.pid" ]; then
+            app_pid="$(cat "$RUNNER_TEMP/browser-canary-app.pid")"
+            kill -- -"$app_pid" 2>/dev/null || true
+            for _ in $(seq 1 10); do
+              if ! kill -0 -- -"$app_pid" 2>/dev/null; then break; fi
+              sleep 1
+            done
+            kill -KILL -- -"$app_pid" 2>/dev/null || true
+          fi
+          docker rm --force kinresolve-browser-canary-minio >/dev/null 2>&1 || true
+
+  identity-canary:
+    name: Disposable identity and capability browser canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_BASE_URL: http://127.0.0.1:3117
+      AUTH_SECRET: synthetic-identity-canary-auth-secret-distinct-00000000000000000000
+      DATABASE_AUTO_MIGRATE: "false"
+      DATABASE_URL: postgres://kinresolve:kinresolve@127.0.0.1:55433/kinresolve_identity_canary
+      KINSLEUTH_ALLOW_SIGNUPS: "false"
+      KINSLEUTH_ARCHIVE_ID: archive-identity-canary
+      KINRESOLVE_API_CURSOR_SECRET: synthetic-identity-canary-cursor-secret-distinct-0000000000000000
+      KINRESOLVE_API_V1_ENABLED: "true"
+      KINRESOLVE_BETA_APPLICATIONS_ENABLED: "false"
+      KINRESOLVE_BETA_BOUNDARY_SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      KINRESOLVE_BETA_BOUNDARY_URL: "https://kinresolve.com/legal/identity-canary-boundary"
+      KINRESOLVE_BETA_BOUNDARY_VERSION: "synthetic-identity-boundary-v1"
+      KINRESOLVE_BETA_LEGAL_STATUS: "approved"
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_URL: "https://kinresolve.com/legal/identity-canary-participation-terms"
+      KINRESOLVE_BETA_PARTICIPATION_TERMS_VERSION: "synthetic-identity-participation-v1"
+      KINRESOLVE_BETA_PRIVACY_HMAC_SECRET: synthetic-identity-canary-privacy-secret-distinct-000000000000000
+      KINRESOLVE_BETA_PRIVACY_NOTICE_SHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      KINRESOLVE_BETA_PRIVACY_NOTICE_URL: "https://kinresolve.com/legal/identity-canary-privacy-notice"
+      KINRESOLVE_BETA_PRIVACY_NOTICE_VERSION: "synthetic-identity-privacy-v1"
+      KINRESOLVE_DATASET_MODE: demo
+      KINRESOLVE_DEPLOYMENT_MODE: hosted
+      KINRESOLVE_DNA_ENABLED: "false"
+      KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false"
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "false"
+      KINRESOLVE_IDENTITY_CANARY_ALLOW_MUTATION: "true"
+      KINRESOLVE_IDENTITY_CANARY_HEADLESS: "true"
+      KINRESOLVE_IDENTITY_CANARY_MUTATION_ACKNOWLEDGEMENT: I understand this identity canary creates append-only invitation, audit, and API-token evidence only in a disposable local database that is destroyed with the CI job.
+      KINRESOLVE_IDENTITY_CANARY_ORIGIN: http://127.0.0.1:3117
+      KINRESOLVE_IDENTITY_CANARY_RUN_ID: ci-identity-canary
+      KINRESOLVE_INSECURE_LOOPBACK_CANARY_ACKNOWLEDGEMENT: I acknowledge insecure HTTP is permitted only for this disposable loopback production canary.
+      KINRESOLVE_INSECURE_LOOPBACK_CANARY_ORIGIN: "true"
+      KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false"
+      KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+      KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false"
+      KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false"
+      KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
+      NODE_ENV: production
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Install the pinned Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Bind the identity canary to the exact checked-out release
+        run: |
+          release_sha="$(git rev-parse HEAD)"
+          echo "KINRESOLVE_BUILD_COMMIT_SHA=$release_sha" >> "$GITHUB_ENV"
+          echo "KINRESOLVE_CANARY_RELEASE_SHA=$release_sha" >> "$GITHUB_ENV"
+
+      - name: Start the disposable identity database
+        run: |
+          docker run --detach --name kinresolve-identity-canary-postgres \
+            --tmpfs /var/lib/postgresql/data:rw,size=512m \
+            --publish 127.0.0.1:55433:5432 \
+            --env POSTGRES_DB=kinresolve_identity_canary \
+            --env POSTGRES_USER=kinresolve \
+            --env POSTGRES_PASSWORD=kinresolve \
+            pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
+          for attempt in $(seq 1 60); do
+            if docker exec kinresolve-identity-canary-postgres \
+                pg_isready -U kinresolve -d kinresolve_identity_canary >/dev/null; then break; fi
+            if [ "$attempt" = 60 ]; then exit 1; fi
+            sleep 1
+          done
+
+      - name: Build the disposable production application
+        timeout-minutes: 10
+        run: npm run build
+
+      - name: Migrate and provision the isolated identity archive
+        run: |
+          npm run db:migrate
+          npm run archive:provision -- --mode demo
+
+      - name: Start the disposable production application
+        timeout-minutes: 5
+        run: |
+          setsid npm run start -- --hostname 127.0.0.1 --port 3117 >"$RUNNER_TEMP/identity-canary-app.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/identity-canary-app.pid"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$APP_BASE_URL/login" >/dev/null; then break; fi
+            if [ "$attempt" = 60 ]; then exit 1; fi
+            sleep 1
+          done
+
+      - name: Run the providerless identity and capability journey
+        run: npm run test:identity-e2e
+
+      - name: Destroy the disposable identity cell
+        if: ${{ always() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/identity-canary-app.pid" ]; then
+            app_pid="$(cat "$RUNNER_TEMP/identity-canary-app.pid")"
+            kill -- -"$app_pid" 2>/dev/null || true
+            for _ in $(seq 1 10); do
+              if ! kill -0 -- -"$app_pid" 2>/dev/null; then break; fi
+              sleep 1
+            done
+            kill -KILL -- -"$app_pid" 2>/dev/null || true
+          fi
+          docker rm --force kinresolve-identity-canary-postgres >/dev/null 2>&1 || true
+          rm -f "$RUNNER_TEMP/identity-canary-app.pid" "$RUNNER_TEMP/identity-canary-app.log"
+
   release-contract:
     name: Release contract fixtures
     runs-on: ubuntu-latest
@@ -264,7 +565,7 @@ jobs:
   gate:
     name: Product release contract
     if: always()
-    needs: [static, database, release-upgrade, release-compatibility, large-import, large-integration-import, release-contract]
+    needs: [static, database, release-upgrade, release-compatibility, large-import, large-integration-import, browser-canary, identity-canary, release-contract]
     runs-on: ubuntu-latest
     env:
       STATIC_RESULT: ${{ needs.static.result }}
@@ -273,6 +574,8 @@ jobs:
       COMPATIBILITY_RESULT: ${{ needs['release-compatibility'].result }}
       LARGE_IMPORT_RESULT: ${{ needs['large-import'].result }}
       LARGE_INTEGRATION_IMPORT_RESULT: ${{ needs['large-integration-import'].result }}
+      BROWSER_CANARY_RESULT: ${{ needs['browser-canary'].result }}
+      IDENTITY_CANARY_RESULT: ${{ needs['identity-canary'].result }}
       RELEASE_CONTRACT_RESULT: ${{ needs['release-contract'].result }}
     steps:
       - name: Require every product check
@@ -283,4 +586,6 @@ jobs:
           test "$COMPATIBILITY_RESULT" = "success"
           test "$LARGE_IMPORT_RESULT" = "success"
           test "$LARGE_INTEGRATION_IMPORT_RESULT" = "success"
+          test "$BROWSER_CANARY_RESULT" = "success"
+          test "$IDENTITY_CANARY_RESULT" = "success"
           test "$RELEASE_CONTRACT_RESULT" = "success"

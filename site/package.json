@@ -6,7 +6,10 @@
     "node": "24.x"
   },
   "scripts": {
+    "openapi:publish": "node scripts/publish-openapi.mjs",
+    "predev": "npm run openapi:publish",
     "dev": "next dev",
+    "prebuild": "npm run openapi:publish",
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

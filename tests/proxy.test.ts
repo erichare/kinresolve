@@ -249,6 +249,7 @@ describe("private workspace proxy", () => {
 
       expect(response.status).toBe(307);
       expect(response.headers.get("location")).toBe("https://app.kinresolve.com/login?next=%2Fapp");
+      expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow, noarchive");
       expect(authMocks.getSessionContext).not.toHaveBeenCalled();
     }
   );
@@ -264,6 +265,38 @@ describe("private workspace proxy", () => {
     vi.stubEnv("KINRESOLVE_PUBLIC_ARCHIVE_ENABLED", "true");
     expect((await proxy(new NextRequest("https://kinsleuth.example/people"))).status).toBe(200);
     expect((await proxy(new NextRequest("https://kinsleuth.example/peopleish"))).status).toBe(200);
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it.each(["/app/dna", "/app/dna/future"])(
+    "returns an exact non-indexable 404 for the disabled DNA page %s before authentication",
+    async (pathname) => {
+      stubPrivateHostedEnvironment();
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+
+      const response = await proxy(new NextRequest(`https://app.kinresolve.com${pathname}`));
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow, noarchive");
+      await expect(response.text()).resolves.toBe("Not found");
+      expect(dbMocks.ensureDatabaseSchema).not.toHaveBeenCalled();
+      expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+    }
+  );
+
+  it("fails closed before DNA page authentication when hosted capability configuration is invalid", async () => {
+    stubPrivateHostedEnvironment();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    vi.stubEnv("KINRESOLVE_DNA_ENABLED", "invalid");
+
+    const response = await proxy(new NextRequest("https://app.kinresolve.com/app/dna"));
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(dbMocks.ensureDatabaseSchema).not.toHaveBeenCalled();
     expect(authMocks.getSessionContext).not.toHaveBeenCalled();
   });
 
@@ -387,6 +420,49 @@ describe("private workspace proxy", () => {
       expect(response.status, `${method} ${url}`).toBe(405);
       expect(response.headers.get("allow"), `${method} ${url}`).toBe(allow);
       expect(response.headers.get("x-request-id"), `${method} ${url}`).toMatch(/^[0-9a-f-]{36}$/);
+    }
+
+    expect(dbMocks.ensureDatabaseSchema).not.toHaveBeenCalled();
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it("passes registered bearer-only API v1 reads without cookie-session fallback", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+    authMocks.getSessionContext.mockResolvedValue(memberContext);
+
+    const response = await proxy(new NextRequest("https://app.kinresolve.com/api/v1/people", {
+      headers: { authorization: `Bearer kr_beta_${"a".repeat(43)}` }
+    }));
+
+    expect(response.status).toBe(200);
+    expect(dbMocks.ensureDatabaseSchema).not.toHaveBeenCalled();
+    expect(authMocks.getSessionContext).not.toHaveBeenCalled();
+  });
+
+  it("keeps unknown routes and every non-GET API v1 method on the flat external error contract", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SECRET", "a-long-production-secret");
+
+    const missing = await proxy(new NextRequest("https://app.kinresolve.com/api/v1/future"));
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({
+      code: "not_found",
+      message: "Not found",
+      requestId: expect.any(String)
+    });
+
+    for (const method of ["POST", "HEAD", "OPTIONS"] as const) {
+      const response = await proxy(new NextRequest("https://app.kinresolve.com/api/v1/meta", { method }));
+      expect(response.status, method).toBe(405);
+      expect(response.headers.get("allow"), method).toBe("GET");
+      expect(response.headers.get("vary"), method).toContain("Authorization");
+      expect(response.headers.get("access-control-allow-origin"), method).toBeNull();
+      await expect(response.json()).resolves.toEqual({
+        code: "method_not_allowed",
+        message: "Method not allowed",
+        requestId: expect.any(String)
+      });
     }
 
     expect(dbMocks.ensureDatabaseSchema).not.toHaveBeenCalled();

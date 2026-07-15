@@ -81,6 +81,8 @@ describe("API access registry", () => {
       "better-auth-managed": 0,
       "internal-probe": 0,
       "service-bearer": 0,
+      "api-token": 0,
+      "marketing-native-form": 0,
       "operator-signature": 0,
       "release-fence-control": 0
     };
@@ -93,11 +95,13 @@ describe("API access registry", () => {
     }
 
     expect(counts).toEqual({
-      "read-only": 18,
-      "same-origin-cookie": 41,
+      "read-only": 19,
+      "same-origin-cookie": 43,
       "better-auth-managed": 2,
       "internal-probe": 1,
       "service-bearer": 2,
+      "api-token": 7,
+      "marketing-native-form": 1,
       "operator-signature": 2,
       "release-fence-control": 4
     });
@@ -175,6 +179,7 @@ describe("API access registry", () => {
       for (const [method, registration] of Object.entries(route.methods)) {
         const expected = registration.requestPolicy !== "read-only"
           && registration.requestPolicy !== "release-fence-control"
+          && registration.requestPolicy !== "api-token"
           && registration.requestPolicy !== "internal-probe"
           && registration.requestPolicy !== "service-bearer"
           && registration.requestPolicy !== "operator-signature"

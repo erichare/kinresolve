@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  betaApplicationSensitiveEnvironmentName,
   forbiddenWorkflowOnlyEnvironmentNames,
   requiredReadableProductionEnvironmentNames,
   requiredSensitiveProductionEnvironmentNames,
@@ -34,6 +35,37 @@ describe("Vercel hosted environment metadata contract", () => {
   it.each(requiredReadableProductionEnvironmentNames)("requires %s to remain readable", (key) => {
     expect(() => validateVercelEnvironmentContract(metadata({ [key]: { type: "sensitive" } })))
       .toThrow(new RegExp(`${key}.*readable`, "i"));
+  });
+
+  it("requires the application HMAC only for an independently enabled intake release", () => {
+    expect(() => validateVercelEnvironmentContract(metadata(), {
+      expectedBetaApplicationsEnabled: true
+    })).toThrow(new RegExp(`missing.*${betaApplicationSensitiveEnvironmentName}`, "i"));
+
+    const enabled = metadata({}, true);
+    expect(validateVercelEnvironmentContract(enabled, {
+      expectedBetaApplicationsEnabled: true
+    })).toEqual({
+      readableSettings: requiredReadableProductionEnvironmentNames.length,
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 1
+    });
+    expect(() => validateVercelEnvironmentContract(metadata({
+      [betaApplicationSensitiveEnvironmentName]: { type: "encrypted" }
+    }, true), { expectedBetaApplicationsEnabled: true })).toThrow(
+      new RegExp(`${betaApplicationSensitiveEnvironmentName}.*sensitive`, "i")
+    );
+  });
+
+  it("allows app-off releases while protecting a pre-provisioned application HMAC", () => {
+    expect(validateVercelEnvironmentContract(metadata())).toMatchObject({
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length
+    });
+    expect(() => validateVercelEnvironmentContract(metadata({
+      [betaApplicationSensitiveEnvironmentName]: { type: "encrypted" }
+    }, true))).toThrow(new RegExp(`${betaApplicationSensitiveEnvironmentName}.*sensitive`, "i"));
+    expect(validateVercelEnvironmentContract(metadata({}, true))).toMatchObject({
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 1
+    });
   });
 
   it.each(forbiddenWorkflowOnlyEnvironmentNames)(
@@ -179,7 +211,7 @@ type Override = Partial<{
   value: string;
 }>;
 
-function metadata(overrides: Record<string, Override> = {}) {
+function metadata(overrides: Record<string, Override> = {}, includeBetaApplicationSecret = false) {
   return {
     envs: [
       ...requiredSensitiveProductionEnvironmentNames.map((key) => ({
@@ -188,6 +220,12 @@ function metadata(overrides: Record<string, Override> = {}) {
         target: ["production"],
         ...overrides[key]
       })),
+      ...(includeBetaApplicationSecret ? [{
+        key: betaApplicationSensitiveEnvironmentName,
+        type: "sensitive",
+        target: ["production"],
+        ...overrides[betaApplicationSensitiveEnvironmentName]
+      }] : []),
       ...requiredReadableProductionEnvironmentNames.map((key) => ({
         key,
         type: "encrypted",

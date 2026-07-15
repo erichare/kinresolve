@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isTransactionalEmailAddress } from "./transactional-email.ts";
 
 const role = z.enum(["owner", "admin", "editor", "contributor", "viewer"]);
 const reasonCode = z.enum(["cleanup", "email-disabled", "incident", "launch-gate", "maintenance", "operator"]);
@@ -16,6 +17,10 @@ export const operatorInvitationCommandSchema = z.discriminatedUnion("action", [
     invitationId: z.string().uuid()
   }).strict(),
   z.object({ action: z.literal("revoke-all") }).strict(),
+  z.object({
+    action: z.literal("application-delete"),
+    email: z.string().trim().email().max(254).refine(isTransactionalEmailAddress)
+  }).strict(),
   z.object({
     action: z.literal("control"),
     reasonCode,

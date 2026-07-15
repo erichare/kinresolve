@@ -120,6 +120,20 @@ const expectedMigrations = [
     risk: "moderate",
     compatibility: "expansion-compatible",
     notes: "Adds privacy-safe worker heartbeat and immutable participant data-operation evidence tables with explicit API-role denial; existing application tables and writers remain structurally valid."
+  },
+  {
+    file: "016_beta_api_tokens.sql",
+    sha256: "5dcef9457a54e83ac677d5cd19652e3f946c8ca46096e97e8d311c24ec7b5b0f",
+    risk: "high",
+    compatibility: "expansion-compatible",
+    notes: "Backfills non-PII UUIDs across archives, people, facts, sources, and cases; volatile defaults rewrite/lock them. Adds immutable-ID triggers/indexes, confidence guards, digest-only tokens, quotas, and security evidence."
+  },
+  {
+    file: "017_beta_applications.sql",
+    sha256: "0c879f0c5c321dc99487d4559045119152cb2ce572a35cc7d1639fa26d91c082",
+    risk: "moderate",
+    compatibility: "expansion-compatible",
+    notes: "Adds a deployment-global minimal-PII beta application table with fixed fields, consent and delivery invariants, 90-day retention, HMAC identities, explicit API-role denial, and no changes to existing writers."
   }
 ] as const;
 
@@ -230,7 +244,7 @@ describe("forward-only first-cutover release policy", () => {
   it("proves a filename bijection and exact checksum equality with checksums.json", () => {
     const missing = policyFixture();
     (missing.migrations as unknown[]).pop();
-    expect(() => validateReleasePolicy(validationInput(missing))).toThrow(/missing.*015_beta_operations\.sql/i);
+    expect(() => validateReleasePolicy(validationInput(missing))).toThrow(/missing.*017_beta_applications\.sql/i);
 
     const duplicate = policyFixture();
     (duplicate.migrations as unknown[]).push(structuredClone((duplicate.migrations as unknown[])[0]));
@@ -238,13 +252,13 @@ describe("forward-only first-cutover release policy", () => {
 
     const extra = policyFixture();
     (extra.migrations as unknown[]).push({
-      file: "016_unreviewed.sql",
+      file: "018_unreviewed.sql",
       sha256: "b".repeat(64),
       risk: "low",
       compatibility: "expansion-compatible",
       notes: "This unreviewed entry must not be accepted without a checksum manifest entry."
     });
-    expect(() => validateReleasePolicy(validationInput(extra))).toThrow(/not recorded.*016_unreviewed\.sql/i);
+    expect(() => validateReleasePolicy(validationInput(extra))).toThrow(/not recorded.*018_unreviewed\.sql/i);
 
     const mismatch = policyFixture();
     ((mismatch.migrations as Array<Record<string, unknown>>)[4]).sha256 = "c".repeat(64);
@@ -334,7 +348,7 @@ describe("forward-only first-cutover release policy", () => {
     });
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toMatch(/verified 15 migration.*v0\.17\.4.*forward-only/i);
+    expect(result.stdout).toMatch(/verified 17 migration.*v0\.17\.4.*forward-only/i);
     expect(result.stdout).toMatch(/owner erichare.*2026-07-15T04:30:00Z/i);
     expect(result.stdout).not.toContain(FIRST_CUTOVER_ACKNOWLEDGEMENT);
     expect(result.stderr).not.toContain(FIRST_CUTOVER_ACKNOWLEDGEMENT);

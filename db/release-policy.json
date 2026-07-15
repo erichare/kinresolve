@@ -152,6 +152,20 @@
       "risk": "moderate",
       "compatibility": "expansion-compatible",
       "notes": "Adds privacy-safe worker heartbeat and immutable participant data-operation evidence tables with explicit API-role denial; existing application tables and writers remain structurally valid."
+    },
+    {
+      "file": "016_beta_api_tokens.sql",
+      "sha256": "5dcef9457a54e83ac677d5cd19652e3f946c8ca46096e97e8d311c24ec7b5b0f",
+      "risk": "high",
+      "compatibility": "expansion-compatible",
+      "notes": "Backfills non-PII UUIDs across archives, people, facts, sources, and cases; volatile defaults rewrite/lock them. Adds immutable-ID triggers/indexes, confidence guards, digest-only tokens, quotas, and security evidence."
+    },
+    {
+      "file": "017_beta_applications.sql",
+      "sha256": "0c879f0c5c321dc99487d4559045119152cb2ce572a35cc7d1639fa26d91c082",
+      "risk": "moderate",
+      "compatibility": "expansion-compatible",
+      "notes": "Adds a deployment-global minimal-PII beta application table with fixed fields, consent and delivery invariants, 90-day retention, HMAC identities, explicit API-role denial, and no changes to existing writers."
     }
   ]
 }

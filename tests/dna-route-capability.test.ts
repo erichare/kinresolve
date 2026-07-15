@@ -52,7 +52,9 @@ describe("DNA route capability boundary", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(workspaceMocks.deleteDnaMatch).toHaveBeenCalledWith("dna-self-hosted");
+    expect(workspaceMocks.deleteDnaMatch).toHaveBeenCalledWith("dna-self-hosted", {
+      archiveId: "archive-private-beta"
+    });
   });
 });
 

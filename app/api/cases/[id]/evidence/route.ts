@@ -10,7 +10,7 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-export const POST = withPermission("evidence:write", async (request, _authorization, { params }: RouteContext) => {
+export const POST = withPermission("evidence:write", async (request, authorization, { params }: RouteContext) => {
   const unavailable = capabilityUnavailableResponse("dna");
   if (unavailable) return unavailable;
 
@@ -31,7 +31,7 @@ export const POST = withPermission("evidence:write", async (request, _authorizat
       title: body.title,
       summary: body.summary,
       confidence: body.confidence
-    });
+    }, { archiveId: authorization.archiveId });
     return NextResponse.json(projectCaseApiResponse(result), { status: result.created ? 201 : 200 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Evidence link failed" }, { status: 404 });

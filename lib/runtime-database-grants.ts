@@ -16,12 +16,32 @@ import {
 
 export const betaOperationsRuntimeGrantContract = [
   {
+    table: "auth_rate_limit_buckets",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "beta_applications",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
     table: "beta_data_operations",
     privileges: ["SELECT", "INSERT", "UPDATE"]
   },
   {
     table: "beta_worker_heartbeats",
     privileges: ["SELECT", "INSERT", "UPDATE"]
+  },
+  {
+    table: "api_tokens",
+    privileges: ["SELECT", "INSERT", "UPDATE"]
+  },
+  {
+    table: "api_rate_limit_buckets",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "security_events",
+    privileges: ["INSERT"]
   }
 ] as const;
 
@@ -328,12 +348,13 @@ export function validateBetaOperationsPrivilegeRows(
   return allContractTables.map((table) => {
     const row = byTable.get(table);
     if (!row) throw new Error("The runtime grant privilege inventory is incomplete.");
-    const managed = betaOperationsRuntimeGrantContract.some((entry) => entry.table === table);
+    const managed = betaOperationsRuntimeGrantContract.find((entry) => entry.table === table);
+    const privileges: readonly string[] = managed?.privileges ?? [];
     const expected = {
-      select: true,
-      insert: managed,
-      update: managed,
-      delete: false,
+      select: managed ? privileges.includes("SELECT") : true,
+      insert: privileges.includes("INSERT"),
+      update: privileges.includes("UPDATE"),
+      delete: privileges.includes("DELETE"),
       truncate: false,
       references: false,
       trigger: false,

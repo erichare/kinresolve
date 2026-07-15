@@ -5,6 +5,7 @@ export type Permission =
   | "archive:publish"
   | "archive:export"
   | "archive:data-portability"
+  | "api-tokens:manage"
   | "imports:manage"
   | "cases:read"
   | "cases:write"
@@ -22,6 +23,7 @@ const rolePermissions: Record<Role, Permission[]> = {
     "archive:publish",
     "archive:export",
     "archive:data-portability",
+    "api-tokens:manage",
     "imports:manage",
     "cases:read",
     "cases:write",

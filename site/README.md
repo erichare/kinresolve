@@ -15,14 +15,31 @@ Use `npm run dev` for local development. The production repository also exposes 
 
 ## Deployment
 
-The site is linked to the isolated Vercel project `kinresolve-marketing`; it does not share the product project or release workflow. `kinresolve.com` is live and `www.kinresolve.com` redirects to the apex. `app.kinresolve.com` is not configured yet.
+The site is linked to the isolated Vercel project `kinresolve-marketing`; it does not share the product project. `kinresolve.com` is live and `www.kinresolve.com` redirects to the apex. `app.kinresolve.com` is not configured yet.
 
 - Pull requests verify the portable static artifact but never receive deployment credentials.
-- Preview and production deployments are manual, main-only runs of `.github/workflows/site-deploy.yml`; the workflow defaults to preview mode.
+- Standalone preview and production deployments are manual, main-only runs of `.github/workflows/site-deploy.yml`; they are hard-bound to prelaunch claims. Hosted-live claims publish only from the product release workflow after its production evidence gates pass.
 - The workflow uses `VERCEL_TOKEN` and `VERCEL_ORG_ID` secrets plus the `MARKETING_VERCEL_PROJECT_ID` repository variable.
 - Cloudflare DNS remains outside the workflow. Marketing DNS is live; the future `app.kinresolve.com` record requires separate owner approval after product candidate, TLS, auth, and rollback checks.
 
-The beta form opens a prepared email to `beta@kinresolve.com` and offers a copy fallback. Cloudflare Email Routing was activated and delivery-tested on 2026-07-13. `betaIntakeReady` in `lib/site.ts` remains the explicit intake kill switch. The marketing site does not store submissions. A native application endpoint is proposed for a later launch slice; it is not live.
+The default beta form remains the verified native `mailto:` fallback. Set
+`KINRESOLVE_MARKETING_BETA_APPLICATION_MODE=application` at build time only after
+the product deployment has `KINRESOLVE_BETA_APPLICATIONS_ENABLED=true`, a distinct
+`KINRESOLVE_BETA_APPLICATION_HMAC_SECRET`, working database grants, and verified
+transactional email. Application mode is still a static, no-JavaScript
+`application/x-www-form-urlencoded` form; it posts only the fixed fields to
+`https://app.kinresolve.com/api/public/beta-applications`. Invalid build-mode values
+fail the marketing build. Rebuild with `mailto` to roll back intake without changing
+the product deployment.
+
+`KINRESOLVE_MARKETING_RELEASE_MODE` is a separate evidence-bound claim switch. It
+defaults to `prelaunch`; its only other accepted values are `application` and
+`api-launch`. `application` says the hosted private beta is live for approved
+participants while the API remains unavailable. `api-launch` additionally says
+API v1 is available only to approved participants for archives they own. The
+standalone deployment workflow always sets `prelaunch`; the protected product
+release workflow maps its exact release mode into this value and probes the
+canonical page after deployment. Any other value fails the build.
 
 ## Content boundaries
 

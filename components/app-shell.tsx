@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { Icons } from "./icons";
+import { LogoutControl } from "./logout-control";
 
 const navGroups = [
   {
@@ -69,13 +70,28 @@ function PrivateNavigation({
   );
 }
 
-function ArchiveCard({ archiveName }: { archiveName: string }) {
+function datasetLabel(datasetMode: "empty" | "demo" | "pilot"): string {
+  if (datasetMode === "demo") return "Synthetic demo";
+  if (datasetMode === "pilot") return "Private pilot";
+  return "Empty onboarding";
+}
+
+function ArchiveCard({
+  archiveName,
+  datasetMode
+}: {
+  archiveName: string;
+  datasetMode: "empty" | "demo" | "pilot";
+}) {
   return (
     <div className="sidebar-archive-card" aria-label="Active archive">
       <Icons.Database size={17} aria-hidden />
       <span>
         <small>Active archive</small>
         {archiveName}
+        <span className={`dataset-badge dataset-badge-${datasetMode}`}>
+          {datasetLabel(datasetMode)}
+        </span>
       </span>
     </div>
   );
@@ -95,6 +111,7 @@ export function AppShell({
   archiveName?: string;
 }) {
   const {
+    datasetMode,
     dna: dnaEnabled,
     publicPublishing: publicPublishingEnabled
   } = resolveHostedCapabilities();
@@ -118,10 +135,8 @@ export function AppShell({
           label="Private navigation"
           publicPublishingEnabled={publicPublishingEnabled}
         />
-        <ArchiveCard archiveName={archiveName} />
-        <form action="/api/auth/logout" className="sidebar-auth" method="post">
-          <button type="submit">Sign out</button>
-        </form>
+        <ArchiveCard archiveName={archiveName} datasetMode={datasetMode} />
+        <LogoutControl />
       </aside>
       <header className="app-mobile-header">
         <Link className="brand" href="/app">
@@ -138,10 +153,8 @@ export function AppShell({
               label="Mobile private navigation"
               publicPublishingEnabled={publicPublishingEnabled}
             />
-            <ArchiveCard archiveName={archiveName} />
-            <form action="/api/auth/logout" className="sidebar-auth" method="post">
-              <button type="submit">Sign out</button>
-            </form>
+            <ArchiveCard archiveName={archiveName} datasetMode={datasetMode} />
+            <LogoutControl />
           </div>
         </details>
       </header>
@@ -149,7 +162,12 @@ export function AppShell({
         <div className="app-topbar">
           <div>
             <h1>{title}</h1>
-            <div className="muted">{archiveName}</div>
+            <div className="app-archive-context">
+              <span className="muted">{archiveName}</span>
+              <span className={`dataset-badge dataset-badge-${datasetMode}`}>
+                {datasetLabel(datasetMode)}
+              </span>
+            </div>
           </div>
           {actions ? <div className="app-topbar-actions">{actions}</div> : null}
         </div>

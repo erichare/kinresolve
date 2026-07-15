@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   releaseSmokeRequests,
+  validateApiLaunchState,
   validateReleaseDatabaseIdentity,
   validatePrivateReleaseHeaders,
   validateReleaseHealth,
@@ -30,6 +31,9 @@ const expectedScheduledWritesEnabled = phase === "full"
       "KINRESOLVE_SCHEDULED_WRITES_ENABLED"
     )
   : undefined;
+const expectedApiEnabled = phase === "full"
+  ? strictBoolean(process.env.KINRESOLVE_API_V1_ENABLED, "KINRESOLVE_API_V1_ENABLED")
+  : undefined;
 
 try {
   const login = await request("/login", "GET");
@@ -54,6 +58,7 @@ try {
       expectedVersion,
       expectedDatasetMode,
       expectedDatabaseIdentity,
+      expectedApiEnabled,
       expectedScheduledWritesEnabled
     });
 
@@ -68,6 +73,7 @@ try {
     });
 
     await requireJsonStatus("/api/people", 401);
+    await requireApiLaunchState(expectedApiEnabled);
     await requireJsonStatus("/api/cron/integration-jobs", 401);
     await requireJsonStatus("/api/auth/session", 200);
   }
@@ -95,6 +101,10 @@ async function requireJsonStatus(pathname, expectedStatus) {
   } catch (error) {
     throw new Error(`${pathname} did not return valid JSON.`, { cause: error });
   }
+}
+
+async function requireApiLaunchState(expectedEnabled) {
+  validateApiLaunchState(await request("/api/v1/meta", "GET"), expectedEnabled);
 }
 
 async function request(pathname, method) {

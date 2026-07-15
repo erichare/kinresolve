@@ -58,6 +58,7 @@ describe("GEDCOM prepare", () => {
     );
     expect(prepared.rawRecords).toHaveLength(prepared.snapshot.records.length);
   });
+
 });
 
 describeIfDatabase("GEDCOM apply", () => {

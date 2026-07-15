@@ -11,7 +11,7 @@ const privacyValues = new Set<PeoplePrivacyFilter>(["all", "public", "private", 
 const livingValues = new Set<PeopleLivingFilter>(["all", "living", "deceased", "unknown"]);
 const sortValues = new Set<PeopleSortKey>(["name", "birth", "death", "facts"]);
 
-export const GET = withPermission("archive:read-private", async (request) => {
+export const GET = withPermission("archive:read-private", async (request, authorization) => {
   const url = new URL(request.url);
 
   return NextResponse.json(
@@ -26,7 +26,8 @@ export const GET = withPermission("archive:read-private", async (request) => {
       {
         page: parsePositiveInteger(url.searchParams.get("page"), 1),
         pageSize: parsePositiveInteger(url.searchParams.get("pageSize"), 50)
-      }
+      },
+      { archiveId: authorization.archiveId }
     )
   );
 });

@@ -33,10 +33,13 @@ admin credential.
 
 ## Post-migration grant contract
 
-Migration `015_beta_operations` creates `beta_worker_heartbeats` and
-`beta_data_operations` after the dedicated runtime role has already been provisioned.
-PostgreSQL does not retroactively apply the role's old table grants to those relations.
-Immediately after the exact migration ledger is verified, staging and production run:
+Migrations `014_beta_invitations`, `015_beta_operations`, `016_beta_api_tokens`, and
+`017_beta_applications` create these seven runtime-managed tables after the dedicated
+runtime role has already been provisioned: `auth_rate_limit_buckets`, `beta_applications`,
+`beta_data_operations`, `beta_worker_heartbeats`, `api_tokens`,
+`api_rate_limit_buckets`, and `security_events`. PostgreSQL does not retroactively apply
+the role's old table grants to those relations. Immediately after the exact migration
+ledger is verified, staging and production run:
 
 ```sh
 npm run db:runtime-role:grant-beta-operations -- "$RUNNER_TEMP/runtime-grants.json"
@@ -50,14 +53,20 @@ configured physical database identity, distinct direct runtime and migration rol
 live runtime session visible to the migration connection, and the complete safe-role
 posture above.
 
-Within one transaction, the command revokes direct privileges only on the two new tables
-and grants exactly `SELECT`, `INSERT`, and `UPDATE`. `DELETE`, `TRUNCATE`, `REFERENCES`,
-`TRIGGER`, `MAINTAIN`, every grant option, ownership, and `CREATE` on `public` must remain
-absent; the runtime must also have no database-level `CREATE` path. The transaction
-re-attests privileges across every role the runtime can enter with `SET ROLE`, so an
-unsafe direct or membership-derived privilege causes a rollback. It never issues a grant
-or revoke against `release_write_fences` or `schema_migrations`; both are independently
-checked as SELECT-only protected tables.
+Within one transaction, the command revokes direct privileges only on those seven named
+tables and restores their exact least-privilege contract. The two operations tables and
+`api_tokens` receive `SELECT`, `INSERT`, and `UPDATE`; the expiring
+`auth_rate_limit_buckets`, `beta_applications`, and `api_rate_limit_buckets` tables also
+receive `DELETE` for bounded retention, DSAR deletion, and cleanup; append-only
+`security_events` receives only `INSERT`. `TRUNCATE`, `REFERENCES`,
+`TRIGGER`, `MAINTAIN`, every grant option, ownership, and `CREATE` on `public` remain
+absent, and `DELETE` remains absent from every managed table except the two rate buckets
+and `beta_applications`.
+The runtime must also have no database-level `CREATE` path. The transaction re-attests
+privileges across every role the runtime can enter with `SET ROLE`, so an unsafe direct
+or membership-derived privilege causes a rollback. It never issues a grant or revoke
+against `release_write_fences` or `schema_migrations`; both are independently checked as
+SELECT-only protected tables.
 
 After commit, a fresh full role attestation and a runtime-session privilege read must
 match the transactional result and original privacy-safe role digest. The receipt

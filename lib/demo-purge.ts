@@ -43,6 +43,8 @@ export const demoPurgeProductTables = [
 // them for deletion.
 export const demoPurgePreservedArchiveTables = [
   "memberships",
+  "api_tokens",
+  "security_events",
   "beta_invitations",
   "beta_email_verification_tokens",
   "beta_terms_acceptances",
@@ -56,9 +58,11 @@ export const demoPurgePreservedArchiveTables = [
 // row is both archive-safe and required to prove that a reset revoked active
 // sessions and recovery/operator capabilities.
 export const demoPurgeMutableGlobalTables = [
+  "beta_applications",
   "session",
   "verification",
   "auth_rate_limit_buckets",
+  "api_rate_limit_buckets",
   "beta_operator_nonces"
 ] as const;
 
@@ -106,6 +110,7 @@ export type DemoPurgeSafetyState = {
   unexpiredUploadIntents: number;
   activeInvitationCapabilities: number;
   activeEmailVerificationCapabilities: number;
+  activeApiTokenCapabilities: number;
   oauthAccountCapabilities: number;
   otherActiveReleaseFences: number;
   activeClientTransactions: number;
@@ -859,6 +864,7 @@ function validateSafety(value: DemoPurgeSafetyState): void {
     "unexpiredUploadIntents",
     "activeInvitationCapabilities",
     "activeEmailVerificationCapabilities",
+    "activeApiTokenCapabilities",
     "oauthAccountCapabilities",
     "otherActiveReleaseFences",
     "activeClientTransactions",
@@ -870,6 +876,7 @@ function validateSafety(value: DemoPurgeSafetyState): void {
     || !isZero(value?.unexpiredUploadIntents)
     || !isZero(value?.activeInvitationCapabilities)
     || !isZero(value?.activeEmailVerificationCapabilities)
+    || !isZero(value?.activeApiTokenCapabilities)
     || !isZero(value?.oauthAccountCapabilities)
     || !isZero(value?.otherActiveReleaseFences)
     || !isZero(value?.activeClientTransactions)
@@ -878,7 +885,7 @@ function validateSafety(value: DemoPurgeSafetyState): void {
   ) {
     throw new Error(
       "Demo purge requires paused invitations and zero active leases, upload intents, "
-      + "invitation/email/OAuth capabilities, other release fences, and client transactions."
+      + "invitation/email/API/OAuth capabilities, other release fences, and client transactions."
     );
   }
 }

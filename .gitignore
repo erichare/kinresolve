@@ -9,6 +9,7 @@ node_modules/
 out/
 coverage/
 dist/
+/output/
 *.tsbuildinfo
 
 # Private KinSleuth instance data. Keep real GEDCOM/DNA exports local.

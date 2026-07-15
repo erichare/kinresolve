@@ -2,6 +2,8 @@ import { APP_VERSION } from "./app-version";
 
 export const operationalEventNames = [
   "api_error",
+  "api_request",
+  "api_token_revoked",
   "browser_unhandled_error",
   "case_created",
   "deletion_completed",
@@ -35,6 +37,8 @@ export type OperationalEventInput = {
   operationType?: "deletion-request" | "research-export";
   requestId?: string;
   route?: string;
+  statusClass?: "2xx" | "3xx" | "4xx" | "5xx";
+  tokenId?: string;
   workerKind?: OperationalWorkerKind;
 };
 
@@ -50,6 +54,8 @@ export type OperationalEventPayload = Readonly<{
   operationType?: "deletion-request" | "research-export";
   requestId?: string;
   route?: string;
+  statusClass?: "2xx" | "3xx" | "4xx" | "5xx";
+  tokenId?: string;
   workerKind?: OperationalWorkerKind;
 }>;
 
@@ -78,6 +84,7 @@ const operationalCodeSet = new Set([
   "UNEXPECTED_ERROR"
 ]);
 const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const tokenIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const routeTemplatePattern = /^\/[a-z0-9/_\-[\].]{1,160}$/;
 const maximumTrackerResponseTimeMs = 2_000;
 
@@ -106,6 +113,12 @@ export function createOperationalEvent(
       : {}),
     ...(input.route && routeTemplatePattern.test(input.route) && !input.route.includes("..")
       ? { route: input.route }
+      : {}),
+    ...(input.statusClass && ["2xx", "3xx", "4xx", "5xx"].includes(input.statusClass)
+      ? { statusClass: input.statusClass }
+      : {}),
+    ...(input.tokenId && tokenIdPattern.test(input.tokenId)
+      ? { tokenId: input.tokenId.toLowerCase() }
       : {}),
     ...(input.workerKind && workerKindSet.has(input.workerKind)
       ? { workerKind: input.workerKind }
@@ -224,7 +237,9 @@ function reusedProductionCredential(secret: string): boolean {
     "CRON_SECRET",
     "DATABASE_IDENTITY_URL",
     "DATABASE_URL",
+    "KINRESOLVE_BETA_APPLICATION_HMAC_SECRET",
     "KINRESOLVE_BETA_PRIVACY_HMAC_SECRET",
+    "KINRESOLVE_API_CURSOR_SECRET",
     "KINRESOLVE_OBSERVABILITY_PROBE_SECRET",
     "KINSLEUTH_APP_PASSWORD",
     "MIGRATION_DATABASE_URL",

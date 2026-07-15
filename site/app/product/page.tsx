@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { CtaStrip } from "@/components/cta-strip";
+import { LaunchMedia } from "@/components/launch-media";
 import { PageHero } from "@/components/page-hero";
 import { betaStatus } from "@/lib/beta-status";
 import { pageMetadata } from "@/lib/metadata";
@@ -38,7 +40,7 @@ const productAreas = [
     number: "04",
     eyebrow: "DNA as a clue",
     title: "Triage matches without turning a score into a fact.",
-    body: "The source product can import match CSVs, rank useful leads, record shared-match context, and connect promising matches to a research case. Hosted DNA is excluded from the proposed first cohort.",
+    body: `The source product can import match CSVs, rank useful leads, record shared-match context, and connect promising matches to a research case. Hosted DNA is excluded from ${betaStatus.hostedLive ? "the first hosted cohort" : "the proposed first cohort"}.`,
     points: ["CSV import and match scoring", "Surname and place clues", "Shared-match context", "Case evidence links"],
     example: { label: "DNA lead", title: "M. Alder (fictional)", rows: [["Shared DNA", "86 cM"], ["Tree", "Partial"], ["Estimate", "3C or 3C1R"]] }
   },
@@ -46,7 +48,7 @@ const productAreas = [
     number: "05",
     eyebrow: "Optional analysis",
     title: "Use AI as an analyst, not an authority.",
-    body: "Deterministic structural checks work without an AI key and are proposed for cohort one. The source product can connect an OpenAI-compatible provider, but external AI is excluded from the proposed hosted cohort.",
+    body: `Deterministic structural checks work without an AI key and ${betaStatus.hostedLive ? "are included in cohort one" : "are proposed for cohort one"}. The source product can connect an OpenAI-compatible provider, but external AI is excluded from ${betaStatus.hostedLive ? "the hosted cohort" : "the proposed hosted cohort"}.`,
     points: ["No-key structural checks", "Operator-selected provider", "Referenced workspace context", "Saved runs and staged suggestions"],
     example: { label: "Analysis run", title: "Mercer–March identity check", rows: [["Context records", "3"], ["Identifiers", "2 independent"], ["Confidence", "Moderate"]] }
   },
@@ -54,7 +56,7 @@ const productAreas = [
     number: "06",
     eyebrow: "Deliberate publishing",
     title: "Review before sharing.",
-    body: "The source product combines manual person publication with living-person and privacy gates. Publication-readiness checks are proposed for cohort one, while real-data public publishing remains disabled.",
+    body: `The source product combines manual person publication with living-person and privacy gates. Publication-readiness checks ${betaStatus.hostedLive ? "are included in cohort one" : "are proposed for cohort one"}, while real-data public publishing remains disabled.`,
     points: ["Manual person publication", "Living and privacy gates", "Readiness blockers", "Anonymous public profiles"],
     example: { label: "Publishing review", title: "Nora Elise Hartwell", rows: [["Privacy", "Public"], ["Living status", "Deceased"], ["Public facts", "4"]] }
   }
@@ -78,6 +80,8 @@ export default function ProductPage() {
       <div className="shell fiction-disclosure" role="note">
         <strong>Every example below is fictional.</strong> All Hartwell–Mercer names, dates, places, records, photographs, file names, and DNA values were invented for the demo and do not describe real people.
       </div>
+
+      <LaunchMedia />
 
       <section className="product-areas section">
         <div className="shell">
@@ -106,11 +110,11 @@ export default function ProductPage() {
         <div className="shell status-table-wrap" data-beta-status-surface="product">
           <div className="section-heading"><span className="eyebrow">{betaStatus.badge}</span><h2>{betaStatus.headline}</h2><p>{betaStatus.rollout}</p></div>
           <div className="status-table">
-            <div className="status-column"><span className="status-heading"><i className="status-dot available" /> Implemented in source</span><ul>{betaStatus.implementedInSource.map((item) => <li key={item}>{item}</li>)}</ul></div>
-            <div className="status-column"><span className="status-heading"><i className="status-dot developing" /> Proposed cohort one</span><ul>{betaStatus.proposedCohortOne.map((item) => <li key={item}>{item}</li>)}</ul></div>
-            <div className="status-column"><span className="status-heading"><i className="status-dot exploring" /> Excluded from cohort one</span><ul>{betaStatus.excludedFromCohortOne.map((item) => <li key={item}>{item}</li>)}</ul></div>
+            <div className="status-column"><span className="status-heading"><i className="status-dot available" /> Implemented in source</span><ul>{betaStatus.implementedInSource.map((item) => <li key={item}>{item}</li>)}</ul><p>This is a code-state claim, not a hosted-availability claim.</p></div>
+            <div className="status-column"><span className="status-heading"><i className="status-dot developing" /> {betaStatus.cohortColumnHeading}</span><ul>{betaStatus.proposedCohortOne.map((item) => <li key={item}>{item}</li>)}</ul><p>{betaStatus.cohortColumnNote}</p></div>
+            <div className="status-column"><span className="status-heading"><i className="status-dot exploring" /> Disabled or excluded</span><ul>{betaStatus.excludedFromCohortOne.map((item) => <li key={item}>{item}</li>)}</ul><p>These are server-enforced cohort boundaries, not omissions hidden only in the interface.</p></div>
           </div>
-          <p className="status-footnote">“Proposed” is pending owner sign-off and launch-gate evidence. “Excluded” is a cohort-one boundary, not a claim that the source capability is absent. Follow progress in the <a href="https://github.com/erichare/kinresolve">public repository</a>.</p>
+          <p className="status-footnote">{betaStatus.productFootnote} “Excluded” is a cohort-one boundary, not a claim that the source capability is absent. Read the <Link href="/beta">beta boundary</Link>, review the <Link href="/privacy">data practices</Link>, or follow progress in the <a href="https://github.com/erichare/kinresolve">public repository</a>.</p>
         </div>
       </section>
 

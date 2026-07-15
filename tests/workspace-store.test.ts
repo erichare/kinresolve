@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { closeDatabasePools, query } from "@/lib/db";
+import { closeDatabasePools, query, withTransaction } from "@/lib/db";
 import type { DnaMatch } from "@/lib/models";
 import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 import {
   addCaseTask,
+  createWorkspaceBackupInTransaction,
   createCase,
   deleteDnaMatch,
   linkDnaMatchToCase,
@@ -14,9 +15,11 @@ import {
   saveDnaMatch,
   saveDnaMatches,
   saveSourceDocument,
+  restoreWorkspaceBackupInTransaction,
   updateArchiveBranding,
   updateDnaMatch,
-  updatePersonCuration
+  updatePersonCuration,
+  writeWorkspace
 } from "@/lib/workspace-store";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -126,6 +129,51 @@ describeIfDatabase("workspace store", () => {
     expect(workspace.people.length).toBeGreaterThan(0);
     expect(workspace.cases.length).toBeGreaterThan(0);
     expect(workspace.archiveName).toBe("Hartwell–Mercer Family Archive");
+  });
+
+  it("preserves archive-scoped API UUIDs through full writes and backup restore", async () => {
+    const otherOptions = { databaseUrl: databaseUrl!, archiveId: `test-api-id-${randomUUID()}` };
+    await provisionTestArchive(otherOptions);
+    try {
+      let workspace = await readWorkspace(storeOptions);
+      if (workspace.sources.length === 0) {
+        await saveSourceDocument({ title: "API identity restore fixture" }, storeOptions);
+        workspace = await readWorkspace(storeOptions);
+      }
+      const otherBefore = await captureApiResourceIds(otherOptions.archiveId);
+      const beforeWrite = await captureApiResourceIds(storeOptions.archiveId);
+
+      await writeWorkspace({
+        ...workspace,
+        archiveTagline: `${workspace.archiveTagline} stable-api-id-test`
+      }, storeOptions);
+      expect(await captureApiResourceIds(storeOptions.archiveId)).toEqual(beforeWrite);
+      expect(await captureApiResourceIds(otherOptions.archiveId)).toEqual(otherBefore);
+
+      const backup = await withTransaction(storeOptions, (client) =>
+        createWorkspaceBackupInTransaction(client, storeOptions.archiveId, "API identity restore test")
+      );
+      const beforeRestore = await captureApiResourceIds(storeOptions.archiveId);
+      const sourceToRestore = workspace.sources[0]!;
+      const withoutSource = await readWorkspace(storeOptions);
+      await writeWorkspace({
+        ...withoutSource,
+        sources: withoutSource.sources.filter(({ id }) => id !== sourceToRestore.id)
+      }, storeOptions);
+      await expect(query(
+        "SELECT api_id FROM public.sources WHERE archive_id = $1 AND id = $2",
+        [storeOptions.archiveId, sourceToRestore.id],
+        { databaseUrl: databaseUrl! }
+      )).resolves.toMatchObject({ rows: [] });
+
+      await withTransaction(storeOptions, (client) =>
+        restoreWorkspaceBackupInTransaction(client, storeOptions.archiveId, backup.id)
+      );
+      expect(await captureApiResourceIds(storeOptions.archiveId)).toEqual(beforeRestore);
+      expect(await captureApiResourceIds(otherOptions.archiveId)).toEqual(otherBefore);
+    } finally {
+      await query("DELETE FROM archives WHERE id = $1", [otherOptions.archiveId], { databaseUrl: databaseUrl! });
+    }
   });
 
   it("persists created cases", async () => {
@@ -514,3 +562,25 @@ describeIfDatabase("workspace store", () => {
     });
   });
 });
+
+async function captureApiResourceIds(archiveId: string): Promise<Array<{
+  kind: string;
+  id: string;
+  api_id: string;
+}>> {
+  const result = await query<{ kind: string; id: string; api_id: string }>(
+    `SELECT 'archives'::text AS kind, id, api_id::text FROM public.archives WHERE id = $1
+     UNION ALL
+     SELECT 'people', id, api_id::text FROM public.people WHERE archive_id = $1
+     UNION ALL
+     SELECT 'personFacts', id, api_id::text FROM public.person_facts WHERE archive_id = $1
+     UNION ALL
+     SELECT 'sources', id, api_id::text FROM public.sources WHERE archive_id = $1
+     UNION ALL
+     SELECT 'researchCases', id, api_id::text FROM public.research_cases WHERE archive_id = $1
+     ORDER BY kind, id`,
+    [archiveId],
+    { databaseUrl: databaseUrl! }
+  );
+  return result.rows;
+}

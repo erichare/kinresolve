@@ -50,6 +50,12 @@ describe("privacy and RBAC", () => {
     expect(hasPermission("viewer", "archive:export")).toBe(false);
   });
 
+  it("limits external API token management to archive owners", () => {
+    expect(hasPermission("owner", "api-tokens:manage")).toBe(true);
+    expect(hasPermission("admin", "api-tokens:manage")).toBe(false);
+    expect(hasPermission("editor", "api-tokens:manage")).toBe(false);
+  });
+
   it("lets contributors link evidence without creating source records", () => {
     expect(hasPermission("contributor", "evidence:write")).toBe(true);
     expect(hasPermission("contributor", "sources:write")).toBe(false);

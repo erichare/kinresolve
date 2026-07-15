@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import type { PersonSummary, PrivacyLevel } from "@/lib/models";
 import { updatePersonCuration } from "@/lib/workspace-store";
 
@@ -21,6 +22,9 @@ export const PATCH = withPermission("archive:publish", async (request, authoriza
 
   if (Object.hasOwn(raw, "published") && typeof raw.published !== "boolean") {
     return NextResponse.json({ error: "Invalid published value" }, { status: 400 });
+  }
+  if (raw.published === true && !resolveHostedCapabilities().publicPublishing) {
+    return NextResponse.json({ error: "Person not found" }, { status: 404 });
   }
   if (raw.privacy !== undefined && (typeof raw.privacy !== "string" || !privacyLevels.has(raw.privacy as PrivacyLevel))) {
     return NextResponse.json({ error: "Invalid privacy level" }, { status: 400 });

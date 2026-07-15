@@ -4,11 +4,21 @@ on:
   pull_request:
     paths:
       - "site/**"
+      - "openapi/**"
+      - "scripts/validate-launch-media.mjs"
+      - "scripts/launch-media-text.mjs"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/site-ci.yml"
   push:
     branches: [main]
     paths:
       - "site/**"
+      - "openapi/**"
+      - "scripts/validate-launch-media.mjs"
+      - "scripts/launch-media-text.mjs"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/site-ci.yml"
 
 permissions:
@@ -20,23 +30,47 @@ concurrency:
 
 jobs:
   verify:
+    name: Verify ${{ matrix.release-mode }} with ${{ matrix.application-mode }} intake
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release-mode: [prelaunch, application, api-launch]
+        application-mode: [mailto, application]
+    env:
+      KINRESOLVE_MARKETING_RELEASE_MODE: ${{ matrix.release-mode }}
+      KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ matrix.application-mode }}
     defaults:
       run:
         working-directory: site
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            site/package-lock.json
 
-      - name: Install dependencies
+      - name: Install launch-media validator dependencies
+        working-directory: .
         run: npm ci
 
-      - name: Verify static site
-        run: npm run verify
+      - name: Install marketing dependencies
+        run: npm ci
+
+      - name: Validate the committed synthetic launch media
+        working-directory: .
+        run: npm run launch:media:validate
+
+      - name: Verify the exact release and intake export
+        run: |
+          rm -rf .next out
+          npm run verify

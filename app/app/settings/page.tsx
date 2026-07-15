@@ -3,10 +3,12 @@ import { headers } from "next/headers";
 import { AppShell } from "@/components/app-shell";
 import { AccountSecurityControl } from "@/components/account-security-control";
 import { ArchiveBrandingForm } from "@/components/archive-branding-form";
+import { ApiTokenControl } from "@/components/api-token-control";
 import { DataPortabilityControl } from "@/components/data-portability-control";
 import { Status } from "@/components/ui";
 import { getSessionContext } from "@/lib/auth-session";
 import { hasPermission } from "@/lib/rbac";
+import { apiV1Enabled } from "@/lib/beta-api-tokens";
 import { getRuntimeStatus } from "@/lib/runtime-status";
 
 export const dynamic = "force-dynamic";
@@ -119,6 +121,10 @@ export default async function SettingsPage() {
       </section>
 
       <AccountSecurityControl />
+
+      {session && hasPermission(session.role, "api-tokens:manage") && apiV1Enabled()
+        ? <ApiTokenControl />
+        : null}
 
       {session && hasPermission(session.role, "archive:data-portability")
         ? <DataPortabilityControl />

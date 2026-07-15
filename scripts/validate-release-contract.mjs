@@ -32,6 +32,10 @@ function requiredBoolean(name) {
   return value === "true";
 }
 
+function optionalBoolean(name, defaultValue = false) {
+  return process.env[name] === undefined ? defaultValue : requiredBoolean(name);
+}
+
 try {
   const releaseTag = process.env.RELEASE_TAG;
   if (!releaseTag || !stableTagPattern.test(releaseTag)) {
@@ -71,6 +75,8 @@ try {
     expectedAppBaseUrl: process.env.EXPECTED_APP_BASE_URL,
     expectedDatasetMode: process.env.EXPECTED_DATASET_MODE,
     expectedScheduledWritesEnabled: requiredBoolean("EXPECTED_SCHEDULED_WRITES_ENABLED"),
+    expectedApiV1Enabled: requiredBoolean("EXPECTED_API_V1_ENABLED"),
+    expectedBetaApplicationsEnabled: optionalBoolean("EXPECTED_BETA_APPLICATIONS_ENABLED"),
     expectedArchiveId: process.env.EXPECTED_ARCHIVE_ID,
     forbiddenProjectId: process.env.FORBIDDEN_VERCEL_PROJECT_ID,
     forbiddenAppBaseUrl: process.env.FORBIDDEN_APP_BASE_URL
@@ -84,6 +90,8 @@ try {
       ["database_identity", result.databaseIdentity],
       ["object_storage_identity", result.objectStorageIdentity],
       ["scheduled_writes_enabled", String(result.scheduledWritesEnabled)],
+      ["api_v1_enabled", String(result.apiV1Enabled)],
+      ["beta_applications_enabled", String(result.betaApplicationsEnabled)],
       ["version", result.version]
     ];
     if (outputs.some(([, value]) => /[\r\n]/u.test(value))) {

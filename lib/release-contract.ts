@@ -26,6 +26,8 @@ export type ReleaseContractInput = {
   expectedAppBaseUrl?: string;
   expectedDatasetMode?: "empty" | "demo" | "pilot";
   expectedScheduledWritesEnabled?: boolean;
+  expectedApiV1Enabled?: boolean;
+  expectedBetaApplicationsEnabled?: boolean;
   expectedArchiveId?: string;
   forbiddenProjectId?: string;
   forbiddenAppBaseUrl?: string;
@@ -40,6 +42,8 @@ type ReleaseContractResult = {
   databaseIdentity: string;
   objectStorageIdentity: string;
   scheduledWritesEnabled: boolean;
+  apiV1Enabled: boolean;
+  betaApplicationsEnabled: boolean;
 };
 
 type LoadReleaseContractOptions = {
@@ -179,6 +183,29 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
     throw new Error("KINRESOLVE_EXPORT_REFRESH_ENABLED must be exactly true for the private beta release.");
   }
   if (
+    environment.KINRESOLVE_BETA_APPLICATIONS_ENABLED !== "true"
+    && environment.KINRESOLVE_BETA_APPLICATIONS_ENABLED !== "false"
+  ) {
+    throw new Error("KINRESOLVE_BETA_APPLICATIONS_ENABLED must be exactly true or false.");
+  }
+  const betaApplicationsEnabled = environment.KINRESOLVE_BETA_APPLICATIONS_ENABLED === "true";
+  const expectedBetaApplicationsEnabled = input.expectedBetaApplicationsEnabled ?? false;
+  if (betaApplicationsEnabled !== expectedBetaApplicationsEnabled) {
+    throw new Error(
+      `KINRESOLVE_BETA_APPLICATIONS_ENABLED must be exactly ${String(expectedBetaApplicationsEnabled)} for this release.`
+    );
+  }
+  if (environment.KINRESOLVE_API_V1_ENABLED !== "true" && environment.KINRESOLVE_API_V1_ENABLED !== "false") {
+    throw new Error("KINRESOLVE_API_V1_ENABLED must be exactly true or false.");
+  }
+  const apiV1Enabled = environment.KINRESOLVE_API_V1_ENABLED === "true";
+  const expectedApiV1Enabled = input.expectedApiV1Enabled ?? false;
+  if (apiV1Enabled !== expectedApiV1Enabled) {
+    throw new Error(
+      `KINRESOLVE_API_V1_ENABLED must be exactly ${String(expectedApiV1Enabled)} for this release mode.`
+    );
+  }
+  if (
     environment.KINRESOLVE_SCHEDULED_WRITES_ENABLED !== "true"
     && environment.KINRESOLVE_SCHEDULED_WRITES_ENABLED !== "false"
   ) {
@@ -236,7 +263,9 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
     archiveId: environment.KINSLEUTH_ARCHIVE_ID,
     databaseIdentity: environment.KINRESOLVE_DATABASE_IDENTITY,
     objectStorageIdentity: environment.KINRESOLVE_OBJECT_STORAGE_IDENTITY,
-    scheduledWritesEnabled
+    scheduledWritesEnabled,
+    apiV1Enabled,
+    betaApplicationsEnabled
   };
 }
 

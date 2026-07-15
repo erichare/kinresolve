@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 export const POST = withPermission("imports:manage", async (_request, authorization) => {
   try {
-    return NextResponse.json(await repairGedcomRelationshipLinks());
+    return NextResponse.json(await repairGedcomRelationshipLinks({ archiveId: authorization.archiveId }));
   } catch (error) {
     await captureOperationalError({
       event: "api_error",

@@ -3,9 +3,11 @@ import type { NextRequest } from "next/server";
 import { betaErrorResponse, betaJsonResponse } from "@/lib/beta-api-http";
 import { createApiRequestId } from "@/lib/api-response";
 import { createBetaEmailDeliveries } from "@/lib/beta-email-delivery";
+import { deleteBetaApplicationsForEmail } from "@/lib/beta-applications";
 import {
   BetaInvitationError,
   cleanupBetaInvitationState,
+  consumeBetaOperatorRequest,
   issueBetaInvitation,
   revokeAllPendingBetaInvitations,
   revokeBetaInvitation,
@@ -77,6 +79,10 @@ export async function POST(request: NextRequest) {
       return betaJsonResponse(await revokeAllPendingBetaInvitations({
         operator: authenticated.claim
       }, options), { requestId });
+    }
+    if (command.action === "application-delete") {
+      await consumeBetaOperatorRequest(authenticated.claim, options);
+      return betaJsonResponse(await deleteBetaApplicationsForEmail(command.email, options), { requestId });
     }
     if (command.action === "control") {
       return betaJsonResponse(await setBetaInvitationControl({
