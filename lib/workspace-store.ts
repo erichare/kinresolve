@@ -1238,6 +1238,9 @@ export async function updatePersonCuration(
   input: { published?: boolean; privacy?: PrivacyLevel; livingStatus?: PersonSummary["livingStatus"] },
   options: WorkspaceStoreOptions = {}
 ): Promise<PersonSummary> {
+  if (input.published !== undefined && typeof input.published !== "boolean") {
+    throw new Error("published must be a boolean");
+  }
   if (input.published === true) {
     requireHostedCapability("publicPublishing");
   }
