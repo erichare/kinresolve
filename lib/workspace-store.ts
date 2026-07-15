@@ -5,6 +5,7 @@ import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
 import { demoCases, demoDnaMatches, demoFictionNotice, demoPeople } from "./demo-data";
 import { prepareGedcomImport, type PreparedGedcomImport } from "./gedcom/apply";
 import { buildFamilyRelationshipMap, parseGedcom } from "./gedcom/parser";
+import { requireHostedCapability } from "./hosted-capabilities";
 import { datasetModes, resolveDatasetConfiguration, type DatasetMode } from "./hosted-config";
 import { buildResearchGuide } from "./research-guide";
 import {
@@ -1031,6 +1032,7 @@ export async function saveDnaMatch(match: DnaMatch, options: WorkspaceStoreOptio
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }> {
+  requireHostedCapability("dna");
   const normalized = normalizeDnaMatch(match);
   const helpfulnessScore = scoreDnaMatch(normalized);
   const triaged = autoPrioritizeDnaMatch(normalized, helpfulnessScore);
@@ -1055,6 +1057,7 @@ export async function saveDnaMatches(matches: DnaMatch[], options: WorkspaceStor
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }>> {
+  requireHostedCapability("dna");
   return withArchiveMutation(options, async (client, archiveId) => {
     const people = await loadPeopleForHypotheses(client, archiveId);
     const results = matches.map((match) => {
@@ -1084,6 +1087,7 @@ export async function updateDnaMatch(matchId: string, input: Partial<DnaMatch>, 
   hypothesis: DnaConnectionHypothesis;
   match: ScoredDnaMatch;
 }> {
+  requireHostedCapability("dna");
   return withArchiveMutation(options, async (client, archiveId) => {
     const current = await loadDnaMatchById(client, archiveId, matchId);
     if (!current) {
@@ -1134,6 +1138,7 @@ export async function linkDnaMatchToCase(
   match: ScoredDnaMatch;
   created: boolean;
 }> {
+  requireHostedCapability("dna");
   return withArchiveMutation(options, async (client, archiveId) => {
     const researchCase = await loadCaseData(client, archiveId, caseId);
     if (!researchCase) {
@@ -1189,6 +1194,9 @@ export async function saveSourceDocument(input: Partial<SourceDocument>, options
   if (!input.title?.trim()) {
     throw new Error("title is required");
   }
+  if (input.fileName || input.storageKey || input.mimeType || input.size !== undefined) {
+    requireHostedCapability("evidenceBinaryUploads");
+  }
 
   const created: SourceDocument = {
     id: input.id ?? `src-${randomUUID()}`,
@@ -1225,6 +1233,9 @@ export async function updatePersonCuration(
   input: { published?: boolean; privacy?: PrivacyLevel; livingStatus?: PersonSummary["livingStatus"] },
   options: WorkspaceStoreOptions = {}
 ): Promise<PersonSummary> {
+  if (input.published === true) {
+    requireHostedCapability("publicPublishing");
+  }
   return withArchiveMutation(options, async (client, archiveId) => {
     const person = await loadPersonWithFacts(client, archiveId, personId);
     if (!person) {
