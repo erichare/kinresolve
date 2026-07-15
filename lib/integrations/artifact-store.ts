@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
 import { query, withTransaction, type DatabaseOptions } from "../db";
+import { validateHostedGedcomFile } from "../hosted-capabilities";
 import {
   createConfiguredArchiveObjectStorage,
   type ArchiveObjectStorage
@@ -81,6 +82,10 @@ export async function createIntegrationArtifact(
   if (bytes.length === 0 || (input.size !== undefined && input.size !== bytes.length)) {
     throw integrationArtifactError("INVALID_INPUT", "artifact content is empty or has an invalid size");
   }
+  const featureFlags = options.featureFlags ?? getIntegrationFeatureFlags();
+  if (featureFlags.plainGedcomOnly) {
+    validateHostedGedcomFile({ fileName, contentType, size: bytes.length });
+  }
 
   const storage = options.objectStorage ?? createConfiguredArchiveObjectStorage();
   const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -101,7 +106,7 @@ export async function createIntegrationArtifact(
       }
       if (!isIntegrationProviderEnabled(
         connection.rows[0].provider,
-        options.featureFlags ?? getIntegrationFeatureFlags()
+        featureFlags
       )) {
         throw integrationArtifactError("FEATURE_DISABLED", "this data-source provider is disabled");
       }
@@ -109,7 +114,7 @@ export async function createIntegrationArtifact(
         provider: connection.rows[0].provider,
         fileName,
         acknowledgement: input.mediaRightsAcknowledgement,
-        featureFlags: options.featureFlags ?? getIntegrationFeatureFlags(),
+        featureFlags,
         acknowledgedAt: new Date()
       });
 
