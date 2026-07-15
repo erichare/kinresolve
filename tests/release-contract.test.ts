@@ -37,7 +37,10 @@ function validInput(overrides: Partial<ReleaseContractInput> = {}): ReleaseContr
       AUTH_SECRET: "auth-secret-that-is-at-least-32-characters",
       APP_BASE_URL: "https://app.kinresolve.com",
       BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_release_contract_value",
-      CRON_SECRET: "cron-secret-that-is-at-least-32-characters"
+      CRON_SECRET: "cron-secret-that-is-at-least-32-characters",
+      KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+      KINRESOLVE_DATASET_MODE: "pilot",
+      KINSLEUTH_ARCHIVE_ID: "pilot-household-01"
     },
     ...overrides
   };
@@ -118,6 +121,43 @@ describe("stable release contract", () => {
         validInput({ productionEnvironment: { ...validInput().productionEnvironment, DATABASE_URL: "postgresql://database.example.com" } })
       )
     ).toThrow(/DATABASE_URL.*database name/i);
+  });
+
+  it("requires an explicit hosted dataset and safe archive identity", () => {
+    expect(() =>
+      validateReleaseContract(
+        validInput({
+          productionEnvironment: {
+            ...validInput().productionEnvironment,
+            KINRESOLVE_DEPLOYMENT_MODE: "self-hosted"
+          }
+        })
+      )
+    ).toThrow(/KINRESOLVE_DEPLOYMENT_MODE.*hosted/i);
+    expect(() =>
+      validateReleaseContract(
+        validInput({
+          productionEnvironment: {
+            ...validInput().productionEnvironment,
+            KINRESOLVE_DATASET_MODE: "seed"
+          }
+        })
+      )
+    ).toThrow(/KINRESOLVE_DATASET_MODE.*empty, demo, or pilot/i);
+    expect(() =>
+      validateReleaseContract(
+        validInput({
+          productionEnvironment: {
+            ...validInput().productionEnvironment,
+            KINSLEUTH_ARCHIVE_ID: "../../other archive"
+          }
+        })
+      )
+    ).toThrow(/KINSLEUTH_ARCHIVE_ID.*safe/i);
+
+    const missing = validInput();
+    delete missing.productionEnvironment.KINRESOLVE_DATASET_MODE;
+    expect(() => validateReleaseContract(missing)).toThrow(/missing required production settings.*KINRESOLVE_DATASET_MODE/i);
   });
 
   it("requires an HTTPS origin and rejects placeholder secrets without leaking them", () => {
