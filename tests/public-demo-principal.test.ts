@@ -15,7 +15,10 @@ vi.mock("@/lib/auth", () => ({
   getAuth: () => ({ api: { getSession: mocks.getSession } })
 }));
 vi.mock("@/lib/db", () => ({ query: mocks.query }));
-vi.mock("@/lib/hosted-config", () => ({ isHostedDeployment: mocks.isHostedDeployment }));
+vi.mock("@/lib/hosted-config", () => ({
+  isHostedDeployment: mocks.isHostedDeployment,
+  resolveDatasetConfiguration: () => ({ deploymentMode: "hosted", datasetMode: "demo" })
+}));
 vi.mock("@/lib/workspace-store", () => ({
   ensureWorkspaceProvisioned: mocks.ensureWorkspaceProvisioned,
   getArchiveId: mocks.getArchiveId

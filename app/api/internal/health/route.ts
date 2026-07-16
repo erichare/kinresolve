@@ -47,7 +47,7 @@ export async function GET(request: Request) {
 
   const operationallyReady = ready
     && demoConfigurationValid
-    && (!demoEnabled || publicDemo !== null);
+    && (!demoEnabled || publicDemoDiagnosticsReady(publicDemo));
 
   return NextResponse.json(
     {
@@ -104,7 +104,11 @@ function projectPublicDemoDiagnostics(
     },
     cleanup: {
       lastCompletedAt: diagnostics.cleanup.lastCompletedAt,
-      freshness: cleanupFreshness(diagnostics.cleanup.lastCompletedAt)
+      lastFailedAt: diagnostics.cleanup.lastFailedAt,
+      freshness: cleanupStatus(
+        diagnostics.cleanup.lastCompletedAt,
+        diagnostics.cleanup.lastFailedAt
+      )
     },
     staleProvisioning: diagnostics.cleanup.staleProvisioning,
     aiBudget: {
@@ -116,7 +120,25 @@ function projectPublicDemoDiagnostics(
   };
 }
 
-function cleanupFreshness(lastCompletedAt: string | null): "healthy" | "missing" | "stale" {
+function publicDemoDiagnosticsReady(
+  diagnostics: ReturnType<typeof projectPublicDemoDiagnostics> | null
+): boolean {
+  return diagnostics !== null
+    && diagnostics.cleanup.freshness === "healthy"
+    && diagnostics.staleProvisioning === 0;
+}
+
+function cleanupStatus(
+  lastCompletedAt: string | null,
+  lastFailedAt: string | null
+): "healthy" | "missing" | "stale" | "failed" {
+  if (lastFailedAt) {
+    const failedAt = Date.parse(lastFailedAt);
+    const completedAt = lastCompletedAt ? Date.parse(lastCompletedAt) : Number.NaN;
+    if (Number.isFinite(failedAt) && (!Number.isFinite(completedAt) || failedAt > completedAt)) {
+      return "failed";
+    }
+  }
   if (!lastCompletedAt) return "missing";
   const completedAt = Date.parse(lastCompletedAt);
   if (!Number.isFinite(completedAt)) return "stale";

@@ -169,7 +169,7 @@
     },
     {
       "file": "018_public_demo.sql",
-      "sha256": "4b50c3ad882a8010761812b996e59f2bddefd93ad2ecbf457372889204fb2c00",
+      "sha256": "6569df1039864d3009c669d0fba34df2933e93c744cb4306fba56869e0843d26",
       "risk": "moderate",
       "compatibility": "expansion-compatible",
       "notes": "Adds bounded server-only public-demo capacity, digest-only guest sessions, archive generations, AI leases, and fixed-schema 30-day events without changing existing application tables or writers."

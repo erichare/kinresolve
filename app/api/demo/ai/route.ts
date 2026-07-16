@@ -11,6 +11,7 @@ import {
 import { publicDemoGuidedCaseId } from "@/lib/public-demo-contract";
 import {
   completePublicDemoAiAttempt,
+  publicDemoAiAdmissionErrorCode,
   recordPublicDemoEvent,
   reservePublicDemoAiAttempt
 } from "@/lib/public-demo-session-store";
@@ -101,7 +102,10 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
     });
   } catch {
     await completePublicDemoAiAttempt({
+      archiveId: authorization.archiveId,
       attemptId: reservation.attemptId,
+      generation: authorization.generation,
+      sessionId: authorization.sessionId,
       outcome: "failed"
     }).catch(() => undefined);
     return privateJson({
@@ -150,7 +154,10 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
   }
 
   await completePublicDemoAiAttempt({
+    archiveId: authorization.archiveId,
     attemptId: reservation.attemptId,
+    generation: authorization.generation,
+    sessionId: authorization.sessionId,
     outcome: fallback ? "failed" : "completed"
   }).catch(() => undefined);
 
@@ -161,11 +168,18 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
 });
 
 function aiLimitResponse(error: unknown): NextResponse {
-  const message = error instanceof Error ? error.message : "";
-  if (/unavailable|expired|generation|archive/i.test(message)) {
+  const code = publicDemoAiAdmissionErrorCode(error);
+  if (code === "session-stale") {
     return privateJson({ error: "This demo workspace changed. Refresh and try again." }, 409);
   }
-  const retryAfter = /daily/i.test(message) ? 3600 : /concurrency/i.test(message) ? 5 : 0;
+  if (!code) {
+    return privateJson(
+      { error: "The curated AI demo is temporarily unavailable." },
+      503,
+      { "retry-after": "30" }
+    );
+  }
+  const retryAfter = code === "global-daily" ? 3600 : code === "global-concurrency" ? 5 : 0;
   return privateJson(
     { error: "The curated AI demo limit has been reached." },
     429,

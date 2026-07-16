@@ -20,9 +20,15 @@ describe("public demo lifecycle hardening", () => {
       "export async function resetPublicDemoSession",
       "export async function endPublicDemoSession"
     );
+    const leaseFence = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "async function assertNoActiveAiLease",
+      "async function readSessionState"
+    );
 
-    expect(reset).toMatch(/public_demo_ai_attempts[\s\S]*state = 'running'[\s\S]*lease_expires_at/);
-    expect(reset).toMatch(/AI.*in progress|active AI/i);
+    expect(reset).toContain("assertNoActiveAiLease");
+    expect(leaseFence).toMatch(/public_demo_ai_attempts[\s\S]*state = 'running'[\s\S]*lease_expires_at/);
+    expect(leaseFence).toMatch(/AI.*in progress|active AI/i);
   });
 
   it("deletes cleaned lifecycle metadata after 30 days", async () => {
@@ -59,7 +65,13 @@ describe("public demo lifecycle hardening", () => {
     expect(reserve).toBeGreaterThan(-1);
     expect(reserve).toBeLessThan(provision);
     expect(reset).toMatch(/public_demo_generations[\s\S]*'provisioning'/);
-    expect(reset).toMatch(/SET state = 'failed'[\s\S]*state = 'provisioning'/);
+    expect(reset).toContain("failResetGeneration");
+    const failReservation = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "async function failResetGeneration",
+      "async function assertNoActiveAiLease"
+    );
+    expect(failReservation).toMatch(/SET state = 'failed'[\s\S]*state = 'provisioning'/);
     expect(reset).toMatch(/SET state = 'active'[\s\S]*generation/);
   });
 

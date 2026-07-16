@@ -11,6 +11,7 @@ CREATE TABLE public.public_demo_capacity (
   cleanup_lease_expires_at timestamptz,
   last_cleanup_started_at timestamptz,
   last_cleanup_completed_at timestamptz,
+  last_cleanup_failed_at timestamptz,
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK (
     (cleanup_lease_owner IS NULL AND cleanup_lease_expires_at IS NULL)
@@ -38,6 +39,7 @@ CREATE TABLE public.public_demo_sessions (
   notice_version text NOT NULL CHECK (notice_version = 'public-demo-2026-07-16'),
   reset_count integer NOT NULL DEFAULT 0 CHECK (reset_count BETWEEN 0 AND 5),
   ai_attempts_used integer NOT NULL DEFAULT 0 CHECK (ai_attempts_used BETWEEN 0 AND 3),
+  is_canary boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
@@ -85,6 +87,7 @@ CREATE TABLE public.public_demo_generations (
   retired_at timestamptz,
   cleaned_at timestamptz,
   PRIMARY KEY (session_id, generation),
+  UNIQUE (session_id, generation, archive_id),
   CHECK (retired_at IS NULL OR retired_at >= created_at),
   CHECK (cleaned_at IS NULL OR cleaned_at >= COALESCE(retired_at, created_at)),
   CHECK (state <> 'active' OR retired_at IS NULL),
@@ -98,6 +101,8 @@ CREATE INDEX public_demo_generations_cleanup_idx
 CREATE TABLE public.public_demo_ai_attempts (
   id uuid PRIMARY KEY,
   session_id uuid NOT NULL REFERENCES public.public_demo_sessions(id) ON DELETE CASCADE,
+  archive_id text NOT NULL CHECK (archive_id ~ '^demo-[a-f0-9]{32}$'),
+  generation integer NOT NULL CHECK (generation BETWEEN 1 AND 6),
   prompt_id text NOT NULL CHECK (prompt_id IN (
     'case_next_steps', 'evidence_gaps', 'dna_cluster_summary'
   )),
@@ -105,6 +110,9 @@ CREATE TABLE public.public_demo_ai_attempts (
   started_at timestamptz NOT NULL,
   completed_at timestamptz,
   lease_expires_at timestamptz NOT NULL,
+  FOREIGN KEY (session_id, generation, archive_id)
+    REFERENCES public.public_demo_generations(session_id, generation, archive_id)
+    ON DELETE CASCADE,
   CHECK (lease_expires_at > started_at),
   CHECK (
     (state = 'running' AND completed_at IS NULL)

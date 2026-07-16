@@ -46,6 +46,12 @@ describe("public demo provisioning recovery", () => {
             rowCount: 1
           };
         }
+        if (sql.includes("generation.state IN ('retired', 'failed')")) {
+          return { rows: [{ archive_id: staleArchiveId }], rowCount: 1 };
+        }
+        if (sql.includes("DELETE FROM public.archives")) {
+          return { rows: [{ id: staleArchiveId }], rowCount: 1 };
+        }
         return { rows: [], rowCount: 0 };
       })
     }));
@@ -63,7 +69,9 @@ describe("public demo provisioning recovery", () => {
       expect.stringMatching(/SET status = 'failed'.*updated_at <= \$1 - interval '2 minutes'/s),
       expect.stringMatching(/SET state = 'failed'.*session_id = ANY/s)
     ]));
-    expect(directSql).toContain("DELETE FROM public.archives WHERE id = $1");
+    expect(transactionSql).toContain(
+      "DELETE FROM public.archives WHERE id = $1 AND dataset_mode = 'demo' RETURNING id"
+    );
     expect(result).toMatchObject({ archivesCleaned: 1, staleProvisioningRecovered: 1 });
   });
 

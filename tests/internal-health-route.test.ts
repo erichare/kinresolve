@@ -58,6 +58,7 @@ beforeEach(() => {
       leaseHeld: false,
       lastStartedAt: new Date().toISOString(),
       lastCompletedAt: new Date().toISOString(),
+      lastFailedAt: null,
       staleProvisioning: 0
     },
     ai: {
@@ -222,6 +223,7 @@ describe("GET /api/internal/health", () => {
         leaseHeld: false,
         lastStartedAt: diagnostics.lastCompletedAt,
         lastCompletedAt: diagnostics.lastCompletedAt,
+        lastFailedAt: null,
         staleProvisioning: diagnostics.staleProvisioning
       },
       ai: { maximumConcurrent: 5, maximumDaily: 150, usedToday: 0, running: 0 }

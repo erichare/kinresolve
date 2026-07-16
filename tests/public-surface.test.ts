@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isPublicArchivePath, publicArchiveEnabled } from "@/lib/public-surface";
+import { isPublicArchivePath, publicArchiveEnabled, resolvePublicArchiveId } from "@/lib/public-surface";
 
 const privateHostedEnvironment = {
   KINRESOLVE_DEPLOYMENT_MODE: "hosted",
@@ -29,5 +29,24 @@ describe("public surface policy", () => {
     expect(publicArchiveEnabled(privateHostedEnvironment)).toBe(false);
     expect(publicArchiveEnabled({ KINRESOLVE_DEPLOYMENT_MODE: "hosted" })).toBe(false);
     expect(publicArchiveEnabled({ KINRESOLVE_DEPLOYMENT_MODE: "self-hosted" })).toBe(true);
+  });
+
+  it("pins an enabled hosted demo to its canonical public archive", () => {
+    expect(resolvePublicArchiveId({
+      APP_BASE_URL: "https://demo.kinresolve.com",
+      KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+      KINRESOLVE_DATASET_MODE: "demo",
+      KINRESOLVE_PUBLIC_DEMO_ENABLED: "true",
+      KINRESOLVE_PUBLIC_DEMO_ORIGIN: "https://demo.kinresolve.com",
+      KINSLEUTH_ARCHIVE_ID: "visitor-controlled-value"
+    })).toBe("kinresolve-demo-public");
+  });
+
+  it("keeps legacy self-hosted public archives explicit without changing their configured ID", () => {
+    expect(resolvePublicArchiveId({
+      KINRESOLVE_DEPLOYMENT_MODE: "self-hosted",
+      KINSLEUTH_ARCHIVE_ID: "family-public"
+    })).toBe("family-public");
+    expect(resolvePublicArchiveId({ KINRESOLVE_DEPLOYMENT_MODE: "self-hosted" })).toBe("archive-default");
   });
 });

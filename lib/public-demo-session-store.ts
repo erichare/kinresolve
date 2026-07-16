@@ -54,6 +54,26 @@ export type PublicDemoEventName =
 
 export type PublicDemoPromptId = "case_next_steps" | "evidence_gaps" | "dna_cluster_summary";
 
+export type PublicDemoAiAdmissionErrorCode =
+  | "session-stale"
+  | "session-limit"
+  | "global-concurrency"
+  | "global-daily";
+
+export class PublicDemoAiAdmissionError extends Error {
+  readonly code: PublicDemoAiAdmissionErrorCode;
+
+  constructor(code: PublicDemoAiAdmissionErrorCode) {
+    super(`Public demo AI admission failed: ${code}.`);
+    this.name = "PublicDemoAiAdmissionError";
+    this.code = code;
+  }
+}
+
+export function publicDemoAiAdmissionErrorCode(error: unknown): PublicDemoAiAdmissionErrorCode | null {
+  return error instanceof PublicDemoAiAdmissionError ? error.code : null;
+}
+
 const sessionColumns = `session.id::text AS session_id,
   session.archive_id,
   session.generation,
@@ -110,7 +130,13 @@ export async function readPublicDemoSession(
 }
 
 export async function startPublicDemoSession(
-  input: { rawToken?: string; noticeVersion: string; networkSubjectDigest: string; now?: Date },
+  input: {
+    rawToken?: string;
+    noticeVersion: string;
+    networkSubjectDigest: string;
+    isCanary?: boolean;
+    now?: Date;
+  },
   options: DatabaseOptions = {}
 ): Promise<
   | { kind: "created" | "resumed"; rawToken: string; session: PublicDemoSessionView }
@@ -162,13 +188,14 @@ export async function startPublicDemoSession(
     await client.query(
       `INSERT INTO public.public_demo_sessions (
          id, token_digest, archive_id, generation, status, notice_version,
-         reset_count, ai_attempts_used, created_at, expires_at, updated_at
-       ) VALUES ($1::uuid, $2, $3, 1, 'provisioning', $4, 0, 0, $5, $6, $5)`,
+         reset_count, ai_attempts_used, is_canary, created_at, expires_at, updated_at
+       ) VALUES ($1::uuid, $2, $3, 1, 'provisioning', $4, 0, 0, $5, $6, $7, $6)`,
       [
         decision.session.sessionId,
         decision.session.tokenDigest,
         decision.session.archiveId,
         input.noticeVersion,
+        input.isCanary === true,
         decision.session.createdAt,
         decision.session.expiresAt
       ]
@@ -195,8 +222,7 @@ export async function startPublicDemoSession(
     if (reserved.session.status === "provisioning") {
       await activateProvisionedSession(reserved.session, options);
     }
-    const session = await readPublicDemoSession(resumedToken, options);
-    if (!session) throw new Error("The public demo session could not be resumed.");
+    const session = activeSessionView({ ...reserved.session, status: "active" });
     return { kind: "resumed", rawToken: resumedToken, session };
   }
 
@@ -207,8 +233,7 @@ export async function startPublicDemoSession(
     throw error;
   }
 
-  const session = await readPublicDemoSession(candidateToken, options);
-  if (!session) throw new Error("The public demo session could not be activated.");
+  const session = activeSessionView({ ...reserved.session, status: "active" });
   await recordPublicDemoEvent({ sessionId: session.sessionId, eventName: "session_started", now }, options)
     .catch(() => undefined);
   return { kind: "created", rawToken: candidateToken, session };
@@ -224,35 +249,73 @@ export async function resetPublicDemoSession(
   if (!current) throw new Error("The public demo session is unavailable or expired.");
 
   const nextToken = createPublicDemoSessionToken();
-  const planned = rotatePublicDemoSession(
-    current,
-    { archiveId: publicDemoArchiveId(), tokenDigest: digestPublicDemoSessionToken(nextToken) },
-    now
-  );
+  const next = {
+    archiveId: publicDemoArchiveId(),
+    tokenDigest: digestPublicDemoSessionToken(nextToken)
+  };
+  const planned = await withTransaction(options, async (client) => {
+    await lockCapacity(client);
+    const locked = await selectSessionForToken(client, digestPublicDemoSessionToken(rawToken), true);
+    if (!locked || locked.sessionId !== current.sessionId) {
+      throw new Error("The public demo reset request is stale.");
+    }
+    const pending = await client.query(
+      `SELECT 1
+       FROM public.public_demo_generations
+       WHERE session_id = $1::uuid AND state = 'provisioning'
+       FOR UPDATE`,
+      [locked.sessionId]
+    );
+    if (pending.rows.length > 0) {
+      throw new Error("A public demo reset is already in progress.");
+    }
+    await assertNoActiveAiLease(client, locked, now);
+    const reservation = rotatePublicDemoSession(locked, next, now);
+    await client.query(
+      `INSERT INTO public.public_demo_generations (
+         session_id, generation, archive_id, state, created_at
+       ) VALUES ($1::uuid, $2, $3, 'provisioning', $4)`,
+      [
+        locked.sessionId,
+        reservation.session.generation,
+        reservation.session.archiveId,
+        now
+      ]
+    );
+    return reservation;
+  });
 
-  await provisionArchive("demo", { ...options, archiveId: planned.session.archiveId });
+  let activatedSession: PublicDemoSessionState | undefined;
   try {
-    await withTransaction(options, async (client) => {
+    await provisionArchive("demo", { ...options, archiveId: planned.session.archiveId });
+    activatedSession = await withTransaction(options, async (client) => {
       await lockCapacity(client);
       const locked = await selectSessionForToken(client, digestPublicDemoSessionToken(rawToken), true);
-      if (!locked || locked.sessionId !== current.sessionId) {
+      if (
+        !locked
+        || locked.sessionId !== current.sessionId
+        || locked.archiveId !== planned.retiredArchive.archiveId
+        || locked.generation !== planned.retiredArchive.generation
+      ) {
         throw new Error("The public demo reset request is stale.");
       }
-      const activeAi = await client.query(
+      await assertNoActiveAiLease(client, locked, now);
+      const replacement = await client.query(
         `SELECT 1
-         FROM public.public_demo_ai_attempts
+         FROM public.public_demo_generations
          WHERE session_id = $1::uuid
-           AND state = 'running'
-           AND lease_expires_at > $2
-         LIMIT 1`,
-        [locked.sessionId, now]
+           AND generation = $2
+           AND archive_id = $3
+           AND state = 'provisioning'
+         FOR UPDATE`,
+        [locked.sessionId, planned.session.generation, planned.session.archiveId]
       );
-      if (activeAi.rows.length > 0) {
-        throw new Error("A curated AI request is in progress for this demo session.");
+      if (replacement.rows.length !== 1) {
+        throw new Error("The public demo reset generation is stale.");
       }
       const fenced = rotatePublicDemoSession(
         locked,
-        { archiveId: planned.session.archiveId, tokenDigest: planned.session.tokenDigest },
+        next,
         now
       );
       await client.query(
@@ -261,12 +324,16 @@ export async function resetPublicDemoSession(
          WHERE session_id = $1::uuid AND generation = $2 AND state = 'active'`,
         [locked.sessionId, locked.generation, now]
       );
-      await client.query(
-        `INSERT INTO public.public_demo_generations (
-           session_id, generation, archive_id, state, created_at
-         ) VALUES ($1::uuid, $2, $3, 'active', $4)`,
-        [locked.sessionId, fenced.session.generation, fenced.session.archiveId, now]
+      const activated = await client.query(
+        `UPDATE public.public_demo_generations
+         SET state = 'active'
+         WHERE session_id = $1::uuid
+           AND generation = $2
+           AND archive_id = $3
+           AND state = 'provisioning'`,
+        [locked.sessionId, fenced.session.generation, fenced.session.archiveId]
       );
+      if (activated.rowCount !== 1) throw new Error("The public demo reset activation is stale.");
       await client.query(
         `UPDATE public.public_demo_sessions
          SET token_digest = $2,
@@ -285,14 +352,22 @@ export async function resetPublicDemoSession(
           now
         ]
       );
+      return { ...fenced.session, status: "active" as const };
     });
   } catch (error) {
-    await deletePublicDemoArchive(planned.session.archiveId, options);
+    await failResetGeneration(
+      current.sessionId,
+      planned.session.generation,
+      planned.session.archiveId,
+      now,
+      options
+    ).catch(() => undefined);
+    await deletePublicDemoArchive(planned.session.archiveId, options).catch(() => undefined);
     throw error;
   }
 
-  const session = await readPublicDemoSession(nextToken, options);
-  if (!session) throw new Error("The reset public demo session could not be activated.");
+  if (!activatedSession) throw new Error("The reset public demo session could not be activated.");
+  const session = activeSessionView(activatedSession);
   await recordPublicDemoEvent({ sessionId: session.sessionId, eventName: "reset", now }, options)
     .catch(() => undefined);
   return { rawToken: nextToken, session, retiredArchiveId: current.archiveId };
@@ -347,7 +422,12 @@ export async function recordPublicDemoEvent(
     `INSERT INTO public.public_demo_events (
        id, session_id, event_name, usefulness, clarity, feature_interest,
        beta_interest, occurred_at, retention_expires_at
-     ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $8 + interval '30 days')`,
+     )
+     SELECT $1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $8 + interval '30 days'
+     WHERE $2::uuid IS NULL OR EXISTS (
+       SELECT 1 FROM public.public_demo_sessions AS session
+       WHERE session.id = $2::uuid AND session.is_canary = false
+     )`,
     [
       randomUUID(),
       input.sessionId ?? null,
@@ -383,13 +463,18 @@ export async function reservePublicDemoAiAttempt(
          AND generation = $3
          AND status = 'active'
          AND expires_at > $4
+         AND NOT EXISTS (
+           SELECT 1 FROM public.public_demo_generations AS pending
+           WHERE pending.session_id = public_demo_sessions.id
+             AND pending.state = 'provisioning'
+         )
        FOR UPDATE`,
       [input.sessionId, input.archiveId, input.generation, now]
     );
     const used = session.rows[0]?.ai_attempts_used;
-    if (used === undefined) throw new Error("The public demo session is unavailable or expired.");
+    if (used === undefined) throw new PublicDemoAiAdmissionError("session-stale");
     if (used >= publicDemoSessionPolicy.aiAttemptsPerSession) {
-      throw new Error("The public demo AI attempt limit has been reached.");
+      throw new PublicDemoAiAdmissionError("session-limit");
     }
     const budgets = await client.query<{ running: number; daily: number }>(
       `SELECT
@@ -398,8 +483,12 @@ export async function reservePublicDemoAiAttempt(
        FROM public.public_demo_ai_attempts`,
       [now]
     );
-    if ((budgets.rows[0]?.running ?? 0) >= 5) throw new Error("The public demo AI concurrency limit has been reached.");
-    if ((budgets.rows[0]?.daily ?? 0) >= 150) throw new Error("The public demo AI daily limit has been reached.");
+    if ((budgets.rows[0]?.running ?? 0) >= 5) {
+      throw new PublicDemoAiAdmissionError("global-concurrency");
+    }
+    if ((budgets.rows[0]?.daily ?? 0) >= 150) {
+      throw new PublicDemoAiAdmissionError("global-daily");
+    }
 
     const attemptId = randomUUID();
     await client.query(
@@ -410,24 +499,35 @@ export async function reservePublicDemoAiAttempt(
     );
     await client.query(
       `INSERT INTO public.public_demo_ai_attempts (
-         id, session_id, prompt_id, state, started_at, lease_expires_at
-       ) VALUES ($1::uuid, $2::uuid, $3, 'running', $4, $4 + interval '20 seconds')`,
-      [attemptId, input.sessionId, input.promptId, now]
+         id, session_id, archive_id, generation, prompt_id, state, started_at, lease_expires_at
+       ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'running', $6, $6 + interval '30 seconds')`,
+      [attemptId, input.sessionId, input.archiveId, input.generation, input.promptId, now]
     );
     return { attemptId, remaining: publicDemoSessionPolicy.aiAttemptsPerSession - used - 1 };
   });
 }
 
 export async function completePublicDemoAiAttempt(
-  input: { attemptId: string; outcome: "completed" | "failed" | "timed-out"; now?: Date },
+  input: {
+    attemptId: string;
+    sessionId: string;
+    archiveId: string;
+    generation: number;
+    outcome: "completed" | "failed" | "timed-out";
+    now?: Date;
+  },
   options: DatabaseOptions = {}
 ): Promise<void> {
   const now = validDate(input.now ?? new Date(), "AI completion time");
   const result = await query(
     `UPDATE public.public_demo_ai_attempts
      SET state = $2, completed_at = $3
-     WHERE id = $1::uuid AND state = 'running'`,
-    [input.attemptId, input.outcome, now],
+     WHERE id = $1::uuid
+       AND state = 'running'
+       AND session_id = $4::uuid
+       AND archive_id = $5
+       AND generation = $6`,
+    [input.attemptId, input.outcome, now, input.sessionId, input.archiveId, input.generation],
     options
   );
   if (result.rowCount !== 1) throw new Error("The public demo AI attempt is unavailable.");
@@ -442,6 +542,7 @@ export async function readPublicDemoDiagnostics(
     leaseHeld: boolean;
     lastStartedAt: string | null;
     lastCompletedAt: string | null;
+    lastFailedAt: string | null;
     staleProvisioning: number;
   };
   ai: { maximumConcurrent: 5; running: number; maximumDaily: 150; usedToday: number };
@@ -454,6 +555,7 @@ export async function readPublicDemoDiagnostics(
     cleanup_lease_held: boolean;
     last_cleanup_started_at: Date | string | null;
     last_cleanup_completed_at: Date | string | null;
+    last_cleanup_failed_at: Date | string | null;
     ai_running: number;
     ai_daily: number;
   }>(
@@ -472,6 +574,7 @@ export async function readPublicDemoDiagnostics(
          AND capacity.cleanup_lease_expires_at > $1 AS cleanup_lease_held,
        capacity.last_cleanup_started_at,
        capacity.last_cleanup_completed_at,
+       capacity.last_cleanup_failed_at,
        (SELECT count(*)::int FROM public.public_demo_ai_attempts AS attempt
         WHERE attempt.state = 'running' AND attempt.lease_expires_at > $1) AS ai_running,
        (SELECT count(*)::int FROM public.public_demo_ai_attempts AS attempt
@@ -480,7 +583,8 @@ export async function readPublicDemoDiagnostics(
      LEFT JOIN public.public_demo_sessions AS session ON true
      WHERE capacity.singleton = true
      GROUP BY capacity.cleanup_lease_owner, capacity.cleanup_lease_expires_at,
-       capacity.last_cleanup_started_at, capacity.last_cleanup_completed_at`,
+       capacity.last_cleanup_started_at, capacity.last_cleanup_completed_at,
+       capacity.last_cleanup_failed_at`,
     [now],
     options
   );
@@ -498,6 +602,7 @@ export async function readPublicDemoDiagnostics(
       leaseHeld: row.cleanup_lease_held,
       lastStartedAt: nullableTimestamp(row.last_cleanup_started_at),
       lastCompletedAt: nullableTimestamp(row.last_cleanup_completed_at),
+      lastFailedAt: nullableTimestamp(row.last_cleanup_failed_at),
       staleProvisioning: row.stale_provisioning
     },
     ai: {
@@ -561,6 +666,20 @@ export async function cleanupPublicDemoSessions(
         [staleProvisioning.rows.map(({ id }) => id), now]
       );
     }
+    const staleResetGenerations = await client.query<{ session_id: string }>(
+      `UPDATE public.public_demo_generations AS generation
+       SET state = 'failed', retired_at = COALESCE(generation.retired_at, $1)
+       FROM public.public_demo_sessions AS session
+       WHERE generation.session_id = session.id
+         AND generation.state = 'provisioning'
+         AND generation.created_at <= $1 - interval '2 minutes'
+         AND (
+           session.archive_id <> generation.archive_id
+           OR session.generation <> generation.generation
+         )
+       RETURNING generation.session_id::text`,
+      [now]
+    );
     const expired = await client.query<{ id: string }>(
       `UPDATE public.public_demo_sessions
        SET status = 'expired', token_digest = NULL, ended_at = $1, updated_at = $1
@@ -593,7 +712,7 @@ export async function cleanupPublicDemoSessions(
     );
     return {
       expired: expired.rows.length,
-      staleProvisioningRecovered: staleProvisioning.rows.length,
+      staleProvisioningRecovered: staleProvisioning.rows.length + staleResetGenerations.rows.length,
       archives: archives.rows
     };
   });
@@ -641,23 +760,36 @@ export async function cleanupPublicDemoSessions(
       [now],
       options
     );
-    return {
+    const result = {
       expired: prepared.expired,
       staleProvisioningRecovered: prepared.staleProvisioningRecovered,
       archivesCleaned,
       eventsDeleted
     };
-  } finally {
     await query(
       `UPDATE public.public_demo_capacity
        SET cleanup_lease_owner = NULL,
            cleanup_lease_expires_at = NULL,
-           last_cleanup_completed_at = $2,
-           updated_at = $2
+           last_cleanup_completed_at = clock_timestamp(),
+           last_cleanup_failed_at = NULL,
+           updated_at = clock_timestamp()
        WHERE singleton = true AND cleanup_lease_owner = $1::uuid`,
-      [leaseOwner, now],
+      [leaseOwner],
       options
     );
+    return result;
+  } catch (error) {
+    await query(
+      `UPDATE public.public_demo_capacity
+       SET cleanup_lease_owner = NULL,
+           cleanup_lease_expires_at = NULL,
+           last_cleanup_failed_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       WHERE singleton = true AND cleanup_lease_owner = $1::uuid`,
+      [leaseOwner],
+      options
+    ).catch(() => undefined);
+    throw error;
   }
 }
 
@@ -700,6 +832,46 @@ async function failProvisioningSession(sessionId: string, now: Date, options: Da
       [sessionId, now]
     );
   });
+}
+
+async function failResetGeneration(
+  sessionId: string,
+  generation: number,
+  archiveId: string,
+  now: Date,
+  options: DatabaseOptions
+): Promise<void> {
+  await query(
+    `UPDATE public.public_demo_generations
+     SET state = 'failed', retired_at = COALESCE(retired_at, $4)
+     WHERE session_id = $1::uuid
+       AND generation = $2
+       AND archive_id = $3
+       AND state = 'provisioning'`,
+    [sessionId, generation, archiveId, now],
+    options
+  );
+}
+
+async function assertNoActiveAiLease(
+  client: PoolClient,
+  session: Pick<PublicDemoSessionState, "sessionId" | "archiveId" | "generation">,
+  now: Date
+): Promise<void> {
+  const activeAi = await client.query(
+    `SELECT 1
+     FROM public.public_demo_ai_attempts
+     WHERE session_id = $1::uuid
+       AND archive_id = $2
+       AND generation = $3
+       AND state = 'running'
+       AND lease_expires_at > $4
+     LIMIT 1`,
+    [session.sessionId, session.archiveId, session.generation, now]
+  );
+  if (activeAi.rows.length > 0) {
+    throw new Error("A curated AI request is in progress for this demo session.");
+  }
 }
 
 async function readSessionState(rawToken: string, options: DatabaseOptions): Promise<PublicDemoSessionState | null> {
@@ -821,7 +993,43 @@ async function deletePublicDemoArchive(archiveId: string, options: DatabaseOptio
   if (!/^demo-[a-f0-9]{32}$/.test(archiveId)) {
     throw new Error("Refusing to delete a non-demo archive.");
   }
-  await query("DELETE FROM public.archives WHERE id = $1", [archiveId], options);
+  await withTransaction(options, async (client) => {
+    const eligible = await client.query(
+      `SELECT generation.archive_id
+       FROM public.public_demo_generations AS generation
+       WHERE generation.archive_id = $1
+         AND generation.state IN ('retired', 'failed')
+         AND NOT EXISTS (
+           SELECT 1 FROM public.public_demo_sessions AS session
+           WHERE session.archive_id = generation.archive_id
+             AND session.status IN ('active', 'provisioning')
+         )
+       FOR UPDATE`,
+      [archiveId]
+    );
+    if (eligible.rows.length !== 1) {
+      const existing = await client.query(
+        "SELECT id FROM public.archives WHERE id = $1 FOR UPDATE",
+        [archiveId]
+      );
+      if (existing.rows.length === 0) return;
+      throw new Error("Refusing to delete a live or untracked demo archive.");
+    }
+
+    const deleted = await client.query(
+      "DELETE FROM public.archives WHERE id = $1 AND dataset_mode = 'demo' RETURNING id",
+      [archiveId]
+    );
+    if (deleted.rowCount === 0) {
+      const unsafe = await client.query(
+        "SELECT id FROM public.archives WHERE id = $1 FOR UPDATE",
+        [archiveId]
+      );
+      if (unsafe.rows.length > 0) {
+        throw new Error("Refusing to delete an archive outside the demo dataset.");
+      }
+    }
+  });
 }
 
 function publicDemoArchiveId(): string {
@@ -862,7 +1070,10 @@ function sessionState(row: PublicDemoSessionRow): PublicDemoSessionState {
 }
 
 function sessionView(row: PublicDemoSessionRow): PublicDemoSessionView {
-  const session = sessionState(row);
+  return activeSessionView(sessionState(row));
+}
+
+function activeSessionView(session: PublicDemoSessionState): PublicDemoSessionView {
   if (session.status !== "active") throw new Error("The public demo session is not active.");
   return {
     sessionId: session.sessionId,

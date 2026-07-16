@@ -2,6 +2,7 @@ import { getAuth } from "./auth";
 import { query } from "./db";
 import { isHostedDeployment } from "./hosted-config";
 import type { Role } from "./models";
+import { resolvePublicDemoConfiguration } from "./public-demo-config";
 import { resolvePublicDemoGuestIdentity } from "./public-demo-session-store";
 import { readPublicDemoSessionToken } from "./public-demo-session-token";
 import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "./workspace-store";
@@ -47,7 +48,7 @@ export async function getSessionContext(
 
   const session = await getAuth().api.getSession({ headers: requestHeaders });
   if (!session) {
-    if (process.env.KINRESOLVE_PUBLIC_DEMO_ENABLED === "true") {
+    if (resolvePublicDemoConfiguration().enabled) {
       const token = readPublicDemoSessionToken(requestHeaders);
       if (token) {
         const guest = await resolvePublicDemoGuestIdentity(token, options);

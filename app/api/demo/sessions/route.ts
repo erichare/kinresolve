@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { clientAddressRateLimitSubject } from "@/lib/auth-rate-limit-subject";
 import { resolvePublicDemoConfiguration } from "@/lib/public-demo-config";
+import { isAuthorizedPublicDemoCanary } from "@/lib/public-demo-canary";
 import { publicDemoNoticeVersion } from "@/lib/public-demo-contract";
 import {
   publicDemoSessionCookieName,
@@ -10,6 +11,7 @@ import {
   readPublicDemoSessionToken
 } from "@/lib/public-demo-session-token";
 import { startPublicDemoSession } from "@/lib/public-demo-session-store";
+import { projectPublicDemoSession } from "@/lib/public-demo-session-response";
 import { derivePublicDemoNetworkDigest } from "@/lib/public-demo-rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +33,8 @@ export async function POST(request: Request) {
     const result = await startPublicDemoSession({
       rawToken: readPublicDemoSessionToken(request.headers) ?? undefined,
       noticeVersion: parsed.data.noticeVersion,
-      networkSubjectDigest: derivePublicDemoNetworkDigest(clientAddressRateLimitSubject(request))
+      networkSubjectDigest: derivePublicDemoNetworkDigest(clientAddressRateLimitSubject(request)),
+      isCanary: isAuthorizedPublicDemoCanary(request.headers)
     });
     if (result.kind === "rate-limited") {
       return NextResponse.json({
@@ -60,7 +63,7 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json({
       resumed: result.kind === "resumed",
-      session: result.session,
+      session: projectPublicDemoSession(result.session),
       workspaceUrl: "/app/cases/case-mercer-march-identity?guide=1",
       caseTitle: "The Mercer–March passenger mystery"
     }, { status: result.kind === "created" ? 201 : 200 });
