@@ -31,7 +31,7 @@ describe("failed release containment workflow", () => {
 
   it("classifies exact protected provenance before checkout and fails closed without production credentials", async () => {
     const contents = await workflow();
-    const classify = job(contents, "classify", "contain");
+    const classify = job(contents, "classify", "staging-authorize");
     const validation = classify.indexOf(
       "Validate the failed protected release event before classifier checkout"
     );
@@ -67,6 +67,126 @@ describe("failed release containment workflow", () => {
     expect(contain).toContain("needs.classify.result != 'success'");
     expect(contain).toContain("needs.classify.outputs.authorized == 'true'");
     expect(contain).toContain("needs.classify.outputs.should_contain == 'true'");
+  });
+
+  it("independently authorizes exact failed release provenance for staging without protected credentials", async () => {
+    const contents = await workflow();
+    const authorize = job(contents, "staging-authorize", "staging-contain");
+    const validation = authorize.indexOf(
+      "Validate the exact failed release event for staging containment"
+    );
+    const checkout = authorize.indexOf(
+      "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"
+    );
+    const ancestry = authorize.indexOf("git merge-base --is-ancestor");
+
+    expect(validation).toBeGreaterThan(0);
+    expect(checkout).toBeGreaterThan(validation);
+    expect(ancestry).toBeGreaterThan(checkout);
+    expect(authorize).toContain("github.event.workflow_run.conclusion == 'failure'");
+    expect(authorize).toContain("github.event.workflow_run.conclusion == 'cancelled'");
+    expect(authorize).toContain("github.event.workflow_run.conclusion == 'timed_out'");
+    expect(authorize).toContain('test "$EVENT_ACTION" = "completed"');
+    expect(authorize).toContain('test "$EVENT_REPOSITORY" = "$CURRENT_REPOSITORY"');
+    expect(authorize).toContain('test "$SOURCE_EVENT" = "workflow_dispatch"');
+    expect(authorize).toContain('test "$SOURCE_HEAD_BRANCH" = "main"');
+    expect(authorize).toContain('test "$SOURCE_HEAD_REPOSITORY" = "$CURRENT_REPOSITORY"');
+    expect(authorize).toContain('test "$SOURCE_RUN_REPOSITORY" = "$CURRENT_REPOSITORY"');
+    expect(authorize).toContain(
+      'test "$SOURCE_DISPLAY_TITLE" = "Kin Resolve beta release run $SOURCE_RUN_ID attempt $SOURCE_RUN_ATTEMPT"'
+    );
+    expect(authorize).toContain(
+      'test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/vercel-release.yml"'
+    );
+    expect(authorize).toContain(
+      'test "$(git rev-parse --verify \'HEAD^{commit}\')" = "$SOURCE_HEAD_SHA"'
+    );
+    expect(authorize).toContain("authorized=true");
+    expect(authorize).not.toContain("secrets.");
+    expect(authorize).not.toContain("environment: beta-staging-containment");
+  });
+
+  it("restores the exact isolated staging holding or proves an exact-project fail-closed pause", async () => {
+    const contents = await workflow();
+    const staging = job(contents, "staging-contain", "contain");
+    const eventValidation = staging.indexOf(
+      "Revalidate the exact failed release event before staging credentials"
+    );
+    const checkout = staging.indexOf(
+      "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"
+    );
+    const ancestry = staging.indexOf("git merge-base --is-ancestor");
+    const firstSecret = staging.indexOf("secrets.");
+    const targetBinding = staging.indexOf("Validate and link the exact isolated staging project");
+    const holdingRecord = staging.indexOf("Fetch and validate the pinned staging holding record");
+    const restore = staging.indexOf("Idempotently restore the pinned staging holding deployment");
+    const projectSafety = staging.indexOf(
+      "Set and independently re-read disabled staging domain auto-assignment"
+    );
+    const holdingProof = staging.indexOf("Prove the canonical staging alias resolves to exact holding");
+    const pause = staging.indexOf("Fail closed by pausing the exact staging project");
+    const finalGate = staging.indexOf("Require exact staging holding or a proved fail-closed pause");
+
+    expect(staging).toContain("needs: staging-authorize");
+    expect(staging).toContain("needs.staging-authorize.result == 'success'");
+    expect(staging).toContain("needs.staging-authorize.outputs.authorized == 'true'");
+    expect(staging).toContain("environment: beta-staging-containment");
+    expect(eventValidation).toBeGreaterThan(0);
+    expect(checkout).toBeGreaterThan(eventValidation);
+    expect(ancestry).toBeGreaterThan(checkout);
+    expect(firstSecret).toBeGreaterThan(ancestry);
+    expect(targetBinding).toBeGreaterThan(ancestry);
+    expect(holdingRecord).toBeGreaterThan(targetBinding);
+    expect(restore).toBeGreaterThan(holdingRecord);
+    expect(projectSafety).toBeGreaterThan(restore);
+    expect(holdingProof).toBeGreaterThan(projectSafety);
+    expect(pause).toBeGreaterThan(holdingProof);
+    expect(finalGate).toBeGreaterThan(pause);
+
+    expect(staging).toContain('test "$SOURCE_EVENT" = "workflow_dispatch"');
+    expect(staging).toContain(
+      'test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/vercel-release.yml"'
+    );
+    expect(staging).toContain("EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}");
+    expect(staging).toContain("EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}");
+    expect(staging).toContain('test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"');
+    expect(staging).toContain('test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"');
+    expect(staging).toContain(
+      'test "$VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"'
+    );
+    expect(staging).toContain('test "$APP_BASE_URL" = "https://demo.kinresolve.com"');
+    expect(staging).toContain(
+      "APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}"
+    );
+    expect(staging).toContain(
+      '"https://api.vercel.com/v13/deployments/$APPROVED_HOLDING_DEPLOYMENT_ID$scope_query"'
+    );
+    expect(staging).toContain("scripts/validate-vercel-deployment.mjs holding-record");
+    expect(staging).toContain('vercel promote "$HOLDING_DEPLOYMENT_URL" --yes --timeout=5m');
+    expect(staging).toContain('--data \'{"autoAssignCustomDomains":false}\'');
+    expect(staging).toContain("scripts/validate-vercel-project-safety.mjs");
+    expect(staging).toContain(
+      '"https://api.vercel.com/v13/deployments/$canonical_host$scope_query"'
+    );
+    expect(staging).toContain("scripts/validate-vercel-deployment.mjs holding");
+    expect(staging).toContain(
+      '"https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query"'
+    );
+    expect(staging).toContain('EXPECTED_VERCEL_PROJECT_PAUSED: "true"');
+
+    const recoverableSteps = staging.match(/continue-on-error: true/g) ?? [];
+    expect(recoverableSteps).toHaveLength(4);
+    const gate = staging.slice(finalGate);
+    expect(gate).toContain('test "$PAUSE_OUTCOME" = "success"');
+    expect(gate).toContain('"$HOLDING_RECORD_OUTCOME" = "success"');
+    expect(gate).toContain('"$RESTORE_OUTCOME" = "success"');
+    expect(gate).toContain('"$PROJECT_SAFETY_OUTCOME" = "success"');
+    expect(gate).toContain('"$HOLDING_PROOF_OUTCOME" = "success"');
+    expect(gate).toContain("if: success()");
+
+    const production = job(contents, "contain");
+    expect(production).toContain("needs: classify");
+    expect(production).not.toContain("needs: staging-contain");
   });
 
   it("revalidates provenance before the privileged containment checkout or protected credentials", async () => {
@@ -136,7 +256,7 @@ describe("failed release containment workflow", () => {
     expect(ownershipChecks).toHaveLength(3);
     expect(rollback).toBeGreaterThan(holdingValidation);
     expect(finalValidation).toBeGreaterThan(rollback);
-    expect(contents).not.toContain('vercel promote "$HOLDING_DEPLOYMENT_URL"');
+    expect(job(contents, "contain")).not.toContain('vercel promote "$HOLDING_DEPLOYMENT_URL"');
     expect(contents).toContain("RECOVERY_REQUIRE_STRAGGLER_PROOF: \"true\"");
     expect(contents).toContain("FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID");
     expect(contents).toContain("verify or disable both schedules in the Vercel dashboard");

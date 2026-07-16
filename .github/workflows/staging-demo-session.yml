@@ -1,0 +1,686 @@
+name: Operate Kin Resolve synthetic staging demo session
+run-name: Kin Resolve staging demo ${{ inputs.action }} run ${{ github.run_id }} attempt ${{ github.run_attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Open the attested synthetic demo candidate, or close to the pinned holding page
+        required: true
+        type: choice
+        options:
+          - open
+          - close
+      session_commit:
+        description: Full 40-character commit SHA currently at main
+        required: true
+        type: string
+      source_release_run_id:
+        description: Successful staging-only release workflow run ID; empty for close
+        required: false
+        default: ""
+        type: string
+      source_release_run_attempt:
+        description: Exact successful staging-only release attempt; empty for close
+        required: false
+        default: ""
+        type: string
+      acknowledgement:
+        description: Exact documented open or close acknowledgement
+        required: true
+        type: string
+      auto_assignment_acknowledgement:
+        description: Exact acknowledgement that staging custom-domain auto-assignment is disabled
+        required: true
+        type: string
+      deployment_protection_acknowledgement:
+        description: Exact acknowledgement that generated staging URLs have Standard Protection
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: kinresolve-beta-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Validate the requested synthetic demo session
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      action: ${{ steps.dispatch.outputs.action }}
+      candidate_deployment_id: ${{ steps.source-evidence.outputs.candidate_deployment_id }}
+      release_version: ${{ steps.source-evidence.outputs.release_version }}
+      session_environment: ${{ steps.dispatch.outputs.session_environment }}
+    steps:
+      - name: Validate the request before checkout or protected credentials
+        id: dispatch
+        env:
+          ACKNOWLEDGEMENT: ${{ inputs.acknowledgement }}
+          ACTION: ${{ inputs.action }}
+          AUTO_ASSIGNMENT_ACKNOWLEDGEMENT: ${{ inputs.auto_assignment_acknowledgement }}
+          DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT: ${{ inputs.deployment_protection_acknowledgement }}
+          EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_VALUE: ${{ github.ref }}
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_VALUE" = "refs/heads/main"
+          [[ "$SESSION_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$EXPECTED_GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$SESSION_COMMIT" = "$EXPECTED_GITHUB_SHA"
+          test "$AUTO_ASSIGNMENT_ACKNOWLEDGEMENT" = "I acknowledge Vercel staging deployment auto-assignment is disabled in the protected project dashboard."
+          test "$DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT" = "I acknowledge Vercel Standard Protection covers every generated staging deployment URL and has no exceptions."
+
+          case "$ACTION" in
+            open)
+              test "$ACKNOWLEDGEMENT" = "OPEN KIN RESOLVE SYNTHETIC STAGING DEMO"
+              [[ "$SOURCE_RELEASE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+              [[ "$SOURCE_RELEASE_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,9}$ ]]
+              session_environment="beta-staging"
+              ;;
+            close)
+              test "$ACKNOWLEDGEMENT" = "CLOSE KIN RESOLVE SYNTHETIC STAGING DEMO TO HOLDING"
+              test -z "$SOURCE_RELEASE_RUN_ID"
+              test -z "$SOURCE_RELEASE_RUN_ATTEMPT"
+              session_environment="beta-staging-containment"
+              ;;
+            *) exit 1 ;;
+          esac
+          {
+            printf 'action=%s\n' "$ACTION"
+            printf 'session_environment=%s\n' "$session_environment"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact requested main revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.session_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the request still targets exact current main
+        env:
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SESSION_COMMIT"
+          test "$(git rev-parse refs/remotes/origin/main)" = "$SESSION_COMMIT"
+
+      - name: Set up the pinned Node.js runtime for credential-free authorization
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Refuse unresolved safety work before any protected environment wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: demo
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Fetch the exact staging-only source attempt and complete job evidence
+        if: inputs.action == 'open'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RELEASE_RUN_ID/attempts/$SOURCE_RELEASE_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/staging-demo-source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RELEASE_RUN_ID/attempts/$SOURCE_RELEASE_RUN_ATTEMPT/jobs?per_page=100" \
+            > "$RUNNER_TEMP/staging-demo-source-jobs.json"
+
+      - name: Download the exact attempt-scoped staging candidate evidence
+        if: inputs.action == 'open'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/staging-demo-source-evidence"
+          rm -rf "$evidence_dir"
+          mkdir -p "$evidence_dir"
+          gh run download "$SOURCE_RELEASE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "staging-demo-candidate-evidence-$SOURCE_RELEASE_RUN_ATTEMPT" \
+            --dir "$evidence_dir"
+          test -f "$evidence_dir/staging-demo-candidate-evidence.json"
+          test "$(find "$evidence_dir" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" = "1"
+
+      - name: Validate the successful staging-only source attempt
+        if: inputs.action == 'open'
+        id: source-evidence
+        env:
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: >-
+          node --experimental-strip-types scripts/validate-staging-demo-source.mjs
+          "$RUNNER_TEMP/staging-demo-source-run.json"
+          "$RUNNER_TEMP/staging-demo-source-jobs.json"
+          "$RUNNER_TEMP/staging-demo-source-evidence/staging-demo-candidate-evidence.json"
+
+  session:
+    name: ${{ needs.authorize.outputs.action == 'open' && 'Open attested synthetic staging demo' || 'Close synthetic staging demo to holding' }}
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: ${{ needs.authorize.outputs.session_environment }}
+    steps:
+      - name: Check out the exact authorized session revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.session_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Refuse unresolved release, recovery, holding, or demo safety work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SAFETY_CURRENT_WORKFLOW: demo
+        run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the pinned Vercel CLI before loading deploy credentials
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Reverify exact current main before protected configuration
+        env:
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SESSION_COMMIT"
+          test "$(git rev-parse refs/remotes/origin/main)" = "$SESSION_COMMIT"
+
+      - name: Validate and link the isolated staging Vercel project
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          PRODUCTION_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          test "$APP_BASE_URL" = "https://demo.kinresolve.com"
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          test "$VERCEL_PROJECT_ID" != "$PRODUCTION_VERCEL_PROJECT_ID"
+          mkdir -p .vercel
+          node -e '
+            const { writeFileSync } = require("node:fs");
+            writeFileSync(".vercel/project.json", JSON.stringify({
+              orgId: process.env.VERCEL_ORG_ID,
+              projectId: process.env.VERCEL_PROJECT_ID
+            }) + "\n", { mode: 0o600 });
+          '
+
+      - name: Pull the current isolated staging production settings
+        if: inputs.action == 'open'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          vercel pull --yes --environment=production
+
+      - name: Fetch current staging environment metadata
+        if: inputs.action == 'open'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query="?limit=100"
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="$scope_query&teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/env$scope_query" \
+            --output "$RUNNER_TEMP/staging-demo-environment.json"
+
+      - name: Validate current staging environment metadata
+        if: inputs.action == 'open'
+        env:
+          EXPECTED_BETA_APPLICATIONS_ENABLED: "false"
+        run: >-
+          node --experimental-strip-types scripts/validate-vercel-environment.mjs
+          "$RUNNER_TEMP/staging-demo-environment.json" .vercel/.env.production.local
+
+      - name: Validate the current staging release contract
+        if: inputs.action == 'open'
+        id: staging-contract
+        env:
+          EXPECTED_APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          EXPECTED_ARCHIVE_ID: kinresolve-staging-demo
+          EXPECTED_DATASET_MODE: demo
+          EXPECTED_SCHEDULED_WRITES_ENABLED: "false"
+          EXPECTED_API_V1_ENABLED: "false"
+          EXPECTED_BETA_APPLICATIONS_ENABLED: "false"
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          FORBIDDEN_APP_BASE_URL: https://app.kinresolve.com
+          FORBIDDEN_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
+          RELEASE_COMMIT: ${{ inputs.session_commit }}
+          RELEASE_TAG: ${{ format('v{0}', needs.authorize.outputs.release_version) }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: node --experimental-strip-types scripts/validate-release-contract.mjs
+
+      - name: Revalidate approved staging legal document bytes
+        if: inputs.action == 'open'
+        run: npm run beta:legal:validate -- .vercel/.env.production.local
+
+      - name: Validate the canonical staging holding before open
+        if: inputs.action == 'open'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+            --output "$RUNNER_TEMP/staging-demo-canonical-holding.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding \
+            "$RUNNER_TEMP/staging-demo-canonical-holding.json" \
+            "${APP_BASE_URL#https://}"
+
+      - name: Fetch the exact staging demo candidate record
+        if: inputs.action == 'open'
+        env:
+          CANDIDATE_DEPLOYMENT_ID: ${{ needs.authorize.outputs.candidate_deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$CANDIDATE_DEPLOYMENT_ID$scope_query" \
+            --output "$RUNNER_TEMP/staging-demo-candidate.json"
+
+      - name: Validate the exact staging demo candidate
+        if: inputs.action == 'open'
+        id: candidate
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          EXPECTED_GITHUB_COMMIT_SHA: ${{ inputs.session_commit }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          EXPECTED_GITHUB_RUN_ID: ${{ inputs.source_release_run_id }}
+          PACKAGE_VERSION: ${{ needs.authorize.outputs.release_version }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          RELEASE_TAG: ${{ format('v{0}', needs.authorize.outputs.release_version) }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: >-
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs candidate
+          "$RUNNER_TEMP/staging-demo-candidate.json"
+
+      - name: Prove the generated staging demo candidate still rejects unauthenticated access
+        if: inputs.action == 'open'
+        timeout-minutes: 5
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: >-
+          node --experimental-strip-types scripts/probe-vercel-candidate-protection.mjs
+          "$RUNNER_TEMP/staging-demo-candidate.json"
+
+      - name: Smoke the protected staging demo candidate before open
+        if: inputs.action == 'open'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: demo
+          RELEASE_COMMIT: ${{ inputs.session_commit }}
+          RELEASE_VERSION: ${{ needs.authorize.outputs.release_version }}
+          SMOKE_ORIGIN: ${{ steps.candidate.outputs.deployment_url }}
+          SMOKE_PHASE: full
+          KINRESOLVE_API_V1_ENABLED: "false"
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
+          KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Prove the candidate serves the exact current approved legal bytes
+        if: inputs.action == 'open'
+        env:
+          CANDIDATE_ORIGIN: ${{ steps.candidate.outputs.deployment_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: >-
+          node --env-file=.vercel/.env.production.local --experimental-strip-types
+          scripts/probe-beta-legal-endpoints.mjs "$CANDIDATE_ORIGIN"
+
+      - name: Refetch the staging-only source attempt immediately before mutation
+        if: inputs.action == 'open'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RELEASE_RUN_ID/attempts/$SOURCE_RELEASE_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/staging-demo-mutation-source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RELEASE_RUN_ID/attempts/$SOURCE_RELEASE_RUN_ATTEMPT/jobs?per_page=100" \
+            > "$RUNNER_TEMP/staging-demo-mutation-source-jobs.json"
+
+      - name: Redownload the attempt-scoped candidate evidence immediately before mutation
+        if: inputs.action == 'open'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/staging-demo-mutation-source-evidence"
+          rm -rf "$evidence_dir"
+          mkdir -p "$evidence_dir"
+          gh run download "$SOURCE_RELEASE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "staging-demo-candidate-evidence-$SOURCE_RELEASE_RUN_ATTEMPT" \
+            --dir "$evidence_dir"
+          test -f "$evidence_dir/staging-demo-candidate-evidence.json"
+          test "$(find "$evidence_dir" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" = "1"
+
+      - name: Revalidate the exact fresh staging-only evidence immediately before mutation
+        if: inputs.action == 'open'
+        env:
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: >-
+          env -u GITHUB_OUTPUT node --experimental-strip-types
+          scripts/validate-staging-demo-source.mjs
+          "$RUNNER_TEMP/staging-demo-mutation-source-run.json"
+          "$RUNNER_TEMP/staging-demo-mutation-source-jobs.json"
+          "$RUNNER_TEMP/staging-demo-mutation-source-evidence/staging-demo-candidate-evidence.json"
+
+      - name: Reverify exact current main immediately before session mutation
+        env:
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SESSION_COMMIT"
+          test "$(git rev-parse refs/remotes/origin/main)" = "$SESSION_COMMIT"
+
+      - name: Fetch and validate the pinned staging holding record for close
+        if: inputs.action == 'close'
+        id: close-holding
+        env:
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$APPROVED_HOLDING_DEPLOYMENT_ID$scope_query" \
+            --output "$RUNNER_TEMP/staging-demo-close-holding-record.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding-record \
+            "$RUNNER_TEMP/staging-demo-close-holding-record.json"
+
+      - name: Promote the exact staging demo candidate
+        if: inputs.action == 'open'
+        id: open
+        timeout-minutes: 10
+        env:
+          CANDIDATE_DEPLOYMENT_URL: ${{ steps.candidate.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel promote "$CANDIDATE_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Promote the pinned staging holding deployment for close
+        if: inputs.action == 'close'
+        id: close
+        timeout-minutes: 10
+        env:
+          HOLDING_DEPLOYMENT_URL: ${{ steps.close-holding.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel promote "$HOLDING_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Disable and independently attest staging domain auto-assignment
+        id: project-safety
+        if: >-
+          always() &&
+          (steps.open.outcome == 'success' || steps.close.outcome == 'success')
+        continue-on-error: true
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "false"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          project_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request PATCH \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"autoAssignCustomDomains":false}' \
+            "$project_api" --output "$RUNNER_TEMP/staging-demo-project-patch.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$project_api" --output "$RUNNER_TEMP/staging-demo-project.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/staging-demo-project.json"
+
+      - name: Fail closed by pausing staging when session safety cannot be proved
+        id: pause-fallback
+        if: >-
+          always() &&
+          (steps.open.outcome == 'success' || steps.close.outcome == 'success') &&
+          steps.project-safety.outcome == 'failure'
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "true"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query" \
+            --output "$RUNNER_TEMP/staging-demo-pause.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/staging-demo-project-paused.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/staging-demo-project-paused.json"
+
+      - name: Require safe staging project state before canonical proof
+        if: always() && (steps.open.outcome == 'success' || steps.close.outcome == 'success')
+        env:
+          PAUSE_OUTCOME: ${{ steps.pause-fallback.outcome }}
+          PROJECT_SAFETY_OUTCOME: ${{ steps.project-safety.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$PROJECT_SAFETY_OUTCOME" = "success" ]]; then exit 0; fi
+          test "$PAUSE_OUTCOME" = "success"
+          echo "Staging was fail-closed paused; the requested session action did not complete." >&2
+          exit 1
+
+      - name: Validate the exact opened candidate at the canonical hostname
+        if: inputs.action == 'open' && steps.project-safety.outcome == 'success'
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ needs.authorize.outputs.candidate_deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/staging-demo-opened.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/staging-demo-opened.json" \
+              && env -u GITHUB_OUTPUT node --experimental-strip-types \
+                scripts/validate-vercel-deployment.mjs promoted \
+                "$RUNNER_TEMP/staging-demo-opened.json" \
+                "${APP_BASE_URL#https://}" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then exit 1; fi
+            sleep 3
+          done
+
+      - name: Smoke the opened synthetic demo at the canonical origin
+        if: inputs.action == 'open' && steps.project-safety.outcome == 'success'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-contract.outputs.database_identity }}
+          KINRESOLVE_DATASET_MODE: demo
+          RELEASE_COMMIT: ${{ inputs.session_commit }}
+          RELEASE_VERSION: ${{ needs.authorize.outputs.release_version }}
+          SMOKE_ORIGIN: ${{ vars.APP_BASE_URL }}
+          SMOKE_PHASE: full
+          KINRESOLVE_API_V1_ENABLED: "false"
+          KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
+          KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ""
+        run: node --experimental-strip-types scripts/smoke-release.mjs
+
+      - name: Prove the canonical demo serves the exact current approved legal bytes
+        if: inputs.action == 'open' && steps.project-safety.outcome == 'success'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ""
+        run: >-
+          node --env-file=.vercel/.env.production.local --experimental-strip-types
+          scripts/probe-beta-legal-endpoints.mjs "$APP_BASE_URL"
+
+      - name: Require the opened demo to remain the exact current main revision
+        if: inputs.action == 'open' && steps.project-safety.outcome == 'success'
+        env:
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SESSION_COMMIT"
+          test "$(git rev-parse refs/remotes/origin/main)" = "$SESSION_COMMIT"
+
+      - name: Validate the canonical staging holding after close
+        if: inputs.action == 'close' && steps.project-safety.outcome == 'success'
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          deployment_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/staging-demo-closed.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
+                --output "$RUNNER_TEMP/staging-demo-closed.json" \
+              && env -u GITHUB_OUTPUT node --experimental-strip-types \
+                scripts/validate-vercel-deployment.mjs holding \
+                "$RUNNER_TEMP/staging-demo-closed.json" \
+                "${APP_BASE_URL#https://}" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then exit 1; fi
+            sleep 3
+          done
+
+      - name: Verify the closed canonical origin serves only the holding artifact
+        if: inputs.action == 'close' && steps.project-safety.outcome == 'success'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+        run: |
+          set -euo pipefail
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error "$APP_BASE_URL/" \
+            --output "$RUNNER_TEMP/staging-demo-closed.html"
+          cmp "$RUNNER_TEMP/staging-demo-closed.html" holding/login.html
+          status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' "$APP_BASE_URL/api/health")"
+          test "$status" = "404"
+
+      - name: Record the completed staging demo session action
+        if: success()
+        env:
+          ACTION: ${{ inputs.action }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ needs.authorize.outputs.candidate_deployment_id }}
+          SESSION_COMMIT: ${{ inputs.session_commit }}
+          SOURCE_RELEASE_RUN_ATTEMPT: ${{ inputs.source_release_run_attempt }}
+          SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+        run: |
+          {
+            printf '## Kin Resolve synthetic staging demo session\n\n'
+            printf -- '- Action: %s\n' "$ACTION"
+            printf -- '- Main SHA: %s\n' "$SESSION_COMMIT"
+            if [[ "$ACTION" = "open" ]]; then
+              printf -- '- Source release: %s attempt %s\n' "$SOURCE_RELEASE_RUN_ID" "$SOURCE_RELEASE_RUN_ATTEMPT"
+              printf -- '- Candidate deployment: %s\n' "$CANDIDATE_DEPLOYMENT_ID"
+            else
+              printf -- '- Restored pinned holding: true\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove pulled staging deployment material
+        if: always()
+        run: |
+          rm -f .vercel/.env.production.local .vercel/project.json
+          rm -f "$RUNNER_TEMP/staging-demo-candidate-unauthenticated"
+          rm -f "$RUNNER_TEMP/staging-demo-candidate-unauthenticated.headers"
+          rm -f "$RUNNER_TEMP/staging-demo-"*.json
+          rm -rf "$RUNNER_TEMP/staging-demo-source-evidence"
+          rm -rf "$RUNNER_TEMP/staging-demo-mutation-source-evidence"
+          rm -rf .vercel/output

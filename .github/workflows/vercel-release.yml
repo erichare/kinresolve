@@ -12,6 +12,14 @@ on:
         description: Stable package version without the v prefix
         required: true
         type: string
+      release_target:
+        description: Stop after the isolated staging rehearsal, or continue through production
+        required: true
+        type: choice
+        default: production
+        options:
+          - staging-only
+          - production
       release_policy_acknowledged_at:
         description: RFC3339 timestamp of the forward-only cutover review
         required: true
@@ -21,13 +29,15 @@ on:
         required: true
         type: string
       recovery_run_id:
-        description: Successful production recovery-evidence workflow run ID
-        required: true
+        description: Successful production recovery-evidence workflow run ID; empty for staging-only
+        required: false
         type: string
+        default: ""
       recovery_evidence_sha256:
-        description: SHA-256 of the attested recovery-evidence.json artifact
-        required: true
+        description: SHA-256 of the attested recovery-evidence.json artifact; empty for staging-only
+        required: false
         type: string
+        default: ""
       release_mode:
         description: Keep the developer API disabled, or launch it with attested edge evidence
         required: true
@@ -65,9 +75,10 @@ on:
         required: true
         type: string
       writer_perimeter_acknowledgement:
-        description: Exact acknowledgement that only protected production writers retain database or Blob access
-        required: true
+        description: Exact production writer-perimeter acknowledgement; empty for staging-only
+        required: false
         type: string
+        default: ""
 
 permissions:
   actions: read
@@ -133,6 +144,7 @@ jobs:
           WRITER_PERIMETER_ACKNOWLEDGEMENT: ${{ inputs.writer_perimeter_acknowledgement }}
           RELEASE_COMMIT: ${{ inputs.release_commit }}
           RELEASE_MODE: ${{ inputs.release_mode }}
+          RELEASE_TARGET: ${{ inputs.release_target }}
           BETA_INTAKE_ENABLED: ${{ inputs.beta_intake_enabled }}
           BETA_INTAKE_ACKNOWLEDGEMENT: ${{ inputs.beta_intake_acknowledgement }}
           API_EDGE_EVIDENCE_SHA256: ${{ inputs.api_edge_evidence_sha256 }}
@@ -148,16 +160,33 @@ jobs:
           test "$RELEASE_COMMIT" = "$EXPECTED_GITHUB_SHA"
           test "$AUTO_ASSIGNMENT_ACKNOWLEDGEMENT" = "I acknowledge Vercel production deployment auto-assignment is disabled in the protected project dashboard."
           test "$DEPLOYMENT_PROTECTION_ACKNOWLEDGEMENT" = "I acknowledge Vercel Standard Protection covers every generated deployment URL and has no exceptions."
-          test "$WRITER_PERIMETER_ACKNOWLEDGEMENT" = "I acknowledge the production writer perimeter contains only the canonical Vercel runtime and protected GitHub release/recovery workflows; no external workers, SQL/API writers, or shared database/Blob credentials remain."
           [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          [[ "$RECOVERY_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
-          [[ "$RECOVERY_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$BETA_INTAKE_ENABLED" = "true" || "$BETA_INTAKE_ENABLED" = "false" ]]
           if [[ "$BETA_INTAKE_ENABLED" = "true" ]]; then
             test "$BETA_INTAKE_ACKNOWLEDGEMENT" = "I acknowledge the beta intake canary submits only fixed synthetic fields to the owner-approved controlled delivery sink and deletes its exact database row."
           else
             test -z "$BETA_INTAKE_ACKNOWLEDGEMENT"
           fi
+          case "$RELEASE_TARGET" in
+            staging-only)
+              test "$RELEASE_MODE" = "application"
+              test "$BETA_INTAKE_ENABLED" = "false"
+              test -z "$RECOVERY_RUN_ID"
+              test -z "$RECOVERY_EVIDENCE_SHA256"
+              test -z "$API_EDGE_RUN_ID"
+              test -z "$API_EDGE_EVIDENCE_SHA256"
+              test -z "$WRITER_PERIMETER_ACKNOWLEDGEMENT"
+              ;;
+            production)
+              [[ "$RECOVERY_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+              [[ "$RECOVERY_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+              test "$WRITER_PERIMETER_ACKNOWLEDGEMENT" = "I acknowledge the production writer perimeter contains only the canonical Vercel runtime and protected GitHub release/recovery workflows; no external workers, SQL/API writers, or shared database/Blob credentials remain."
+              ;;
+            *)
+              echo "Unsupported release target." >&2
+              exit 1
+              ;;
+          esac
           case "$RELEASE_MODE" in
             application)
               test -z "$API_EDGE_RUN_ID"
@@ -554,26 +583,11 @@ jobs:
       - name: Prove the generated staging candidate rejects unauthenticated access
         timeout-minutes: 5
         env:
-          CANDIDATE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}
-        run: |
-          set -euo pipefail
-          status="$(curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
-            --silent --show-error \
-            --dump-header "$RUNNER_TEMP/staging-candidate-unauthenticated.headers" \
-            --output "$RUNNER_TEMP/staging-candidate-unauthenticated" \
-            --write-out '%{http_code}' \
-            "$CANDIDATE_ORIGIN/api/health")"
-          node --experimental-strip-types scripts/validate-vercel-protection-response.mjs \
-            "$status" \
-            "$RUNNER_TEMP/staging-candidate-unauthenticated.headers" \
-            "$CANDIDATE_ORIGIN/api/health"
-          if jq -e '
-            type == "object" and
-            (has("database") or has("capabilities") or has("scheduledWrites"))
-          ' "$RUNNER_TEMP/staging-candidate-unauthenticated" > /dev/null 2>&1; then
-            echo "Unauthenticated request reached the Kin Resolve health endpoint." >&2
-            exit 1
-          fi
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: >-
+          node --experimental-strip-types scripts/probe-vercel-candidate-protection.mjs
+          "$RUNNER_TEMP/staging-candidate.json"
 
       - name: Attest the staging candidate database before migration
         env:
@@ -1057,17 +1071,36 @@ jobs:
       - name: Install the pinned Vercel CLI
         run: npm install --global --ignore-scripts vercel@56.1.0
 
-      - name: Restore the captured staging holding deployment idempotently
+      - name: Fetch and validate the protected staging holding record
+        id: finalizer-holding
+        env:
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          PRODUCTION_VERCEL_PROJECT_ID: prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          test "$VERCEL_PROJECT_ID" != "$PRODUCTION_VERCEL_PROJECT_ID"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$APPROVED_HOLDING_DEPLOYMENT_ID$scope_query" \
+            --output "$RUNNER_TEMP/staging-finalizer-holding-record.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding-record \
+            "$RUNNER_TEMP/staging-finalizer-holding-record.json"
+
+      - name: Restore the protected staging holding deployment idempotently
         id: finalizer-restore-staging-holding
-        if: >-
-          ${{ needs.staging.outputs.holding_deployment_id != '' &&
-              needs.staging.outputs.holding_deployment_url != '' &&
-              needs.staging.outputs.app_base_url != '' }}
+        if: ${{ always() && steps.finalizer-holding.outcome == 'success' }}
         timeout-minutes: 10
         env:
-          APP_BASE_URL: ${{ needs.staging.outputs.app_base_url }}
-          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ needs.staging.outputs.holding_deployment_id }}
-          HOLDING_DEPLOYMENT_URL: ${{ needs.staging.outputs.holding_deployment_url }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          HOLDING_DEPLOYMENT_URL: ${{ steps.finalizer-holding.outputs.deployment_url }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -1094,8 +1127,8 @@ jobs:
         if: ${{ always() && steps.finalizer-restore-staging-holding.outcome == 'success' }}
         timeout-minutes: 10
         env:
-          APP_BASE_URL: ${{ needs.staging.outputs.app_base_url }}
-          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ needs.staging.outputs.holding_deployment_id }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -1128,18 +1161,20 @@ jobs:
             "${APP_BASE_URL#https://}"
 
       - name: Smoke the final staging holding application
+        id: finalizer-smoke-staging-holding
         if: ${{ always() && steps.finalizer-validate-staging-holding.outcome == 'success' }}
         env:
-          APP_BASE_URL: ${{ needs.staging.outputs.app_base_url }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ needs.staging.outputs.database_identity }}
           KINRESOLVE_DATASET_MODE: demo
           RELEASE_VERSION: ${{ inputs.release_version }}
-          SMOKE_ORIGIN: ${{ needs.staging.outputs.app_base_url }}
+          SMOKE_ORIGIN: ${{ vars.APP_BASE_URL }}
           SMOKE_PHASE: "pre-migration"
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node --experimental-strip-types scripts/smoke-release.mjs
 
       - name: Download the pre-promotion staging baseline
+        id: finalizer-download-browser-baseline
         if: ${{ always() && needs.staging.outputs.browser_baseline_prepared == 'true' }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -1147,6 +1182,7 @@ jobs:
           path: ${{ runner.temp }}/staging-browser-canary-baseline
 
       - name: Pull isolated staging settings for exact cleanup
+        id: finalizer-pull-staging-settings
         if: ${{ always() && needs.staging.outputs.browser_baseline_prepared == 'true' }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -1158,6 +1194,7 @@ jobs:
           vercel pull --yes --environment=production
 
       - name: Reapply the exact staging archive, identity, and object baseline
+        id: finalizer-reapply-staging-baseline
         if: ${{ always() && needs.staging.outputs.browser_baseline_prepared == 'true' }}
         env:
           KINRESOLVE_CANARY_ALLOW_MUTATION: "true"
@@ -1175,16 +1212,88 @@ jobs:
           scripts/browser-canary-state.ts cleanup staging
           "$RUNNER_TEMP/staging-browser-canary-baseline/staging-browser-canary-state.json"
 
+      - name: Create required staging-only candidate evidence
+        id: create-staging-demo-evidence
+        if: >-
+          ${{ always() && inputs.release_target == 'staging-only' }}
+        env:
+          BASELINE_DOWNLOAD_OUTCOME: ${{ steps.finalizer-download-browser-baseline.outcome }}
+          BASELINE_PREPARED: ${{ needs.staging.outputs.browser_baseline_prepared }}
+          BASELINE_REAPPLY_OUTCOME: ${{ steps.finalizer-reapply-staging-baseline.outcome }}
+          CANDIDATE_DEPLOYMENT_ID: ${{ needs.staging.outputs.candidate_deployment_id }}
+          HOLDING_RESTORE_OUTCOME: ${{ steps.finalizer-restore-staging-holding.outcome }}
+          HOLDING_SMOKE_OUTCOME: ${{ steps.finalizer-smoke-staging-holding.outcome }}
+          HOLDING_VALIDATION_OUTCOME: ${{ steps.finalizer-validate-staging-holding.outcome }}
+          SETTINGS_PULL_OUTCOME: ${{ steps.finalizer-pull-staging-settings.outcome }}
+          STAGING_RESULT: ${{ needs.staging.result }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          test "$STAGING_RESULT" = "success"
+          test "$HOLDING_RESTORE_OUTCOME" = "success"
+          test "$HOLDING_VALIDATION_OUTCOME" = "success"
+          test "$HOLDING_SMOKE_OUTCOME" = "success"
+          test "$BASELINE_PREPARED" = "true"
+          test "$BASELINE_DOWNLOAD_OUTCOME" = "success"
+          test "$SETTINGS_PULL_OUTCOME" = "success"
+          test "$BASELINE_REAPPLY_OUTCOME" = "success"
+          node --experimental-strip-types scripts/create-staging-demo-candidate-evidence.mjs \
+            "$RUNNER_TEMP/staging-demo-candidate-evidence.json"
+
+      - name: Upload required staging-only candidate evidence
+        id: upload-staging-demo-evidence
+        if: >-
+          ${{ always() && inputs.release_target == 'staging-only' &&
+              steps.create-staging-demo-evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-demo-candidate-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/staging-demo-candidate-evidence.json
+          if-no-files-found: error
+          retention-days: 2
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Summarize successful staging-only candidate evidence
+        if: >-
+          ${{ always() && inputs.release_target == 'staging-only' &&
+              steps.upload-staging-demo-evidence.outcome == 'success' }}
+        env:
+          CANDIDATE_DEPLOYMENT_ID: ${{ needs.staging.outputs.candidate_deployment_id }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          # Markdown code spans below are intentionally literal.
+          # shellcheck disable=SC2016
+          {
+            printf '## Kin Resolve staging-only release evidence\n\n'
+            printf -- '- Candidate deployment: `%s`\n' "$CANDIDATE_DEPLOYMENT_ID"
+            printf -- '- Release run: `%s`\n' "$RELEASE_RUN_ID"
+            printf -- '- Release attempt: `%s`\n' "$RELEASE_RUN_ATTEMPT"
+            printf -- '- Commit: `%s`\n' "$RELEASE_COMMIT"
+            printf -- '- Version: `%s`\n' "$RELEASE_VERSION"
+            printf -- '- Result: isolated staging rehearsal and exact holding restoration passed\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove fresh-runner staging environment material
         if: always()
         run: |
           rm -f .vercel/.env.production.local
+          rm -f "$RUNNER_TEMP/staging-demo-candidate-evidence.json"
+          rm -f "$RUNNER_TEMP/staging-finalizer-"*.json
           rm -rf .vercel/output
           rm -rf "$RUNNER_TEMP/staging-browser-canary-baseline"
 
   production:
     name: Deploy and promote production candidate
     needs: [verify, staging, staging-finalize]
+    if: ${{ inputs.release_target == 'production' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     environment: production
@@ -1621,26 +1730,11 @@ jobs:
       - name: Prove the generated production candidate rejects unauthenticated access
         timeout-minutes: 5
         env:
-          CANDIDATE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}
-        run: |
-          set -euo pipefail
-          status="$(curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
-            --silent --show-error \
-            --dump-header "$RUNNER_TEMP/production-candidate-unauthenticated.headers" \
-            --output "$RUNNER_TEMP/production-candidate-unauthenticated" \
-            --write-out '%{http_code}' \
-            "$CANDIDATE_ORIGIN/api/health")"
-          node --experimental-strip-types scripts/validate-vercel-protection-response.mjs \
-            "$status" \
-            "$RUNNER_TEMP/production-candidate-unauthenticated.headers" \
-            "$CANDIDATE_ORIGIN/api/health"
-          if jq -e '
-            type == "object" and
-            (has("database") or has("capabilities") or has("scheduledWrites"))
-          ' "$RUNNER_TEMP/production-candidate-unauthenticated" > /dev/null 2>&1; then
-            echo "Unauthenticated request reached the Kin Resolve health endpoint." >&2
-            exit 1
-          fi
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: >-
+          node --experimental-strip-types scripts/probe-vercel-candidate-protection.mjs
+          "$RUNNER_TEMP/production-candidate.json"
 
       - name: Attest the production candidate database before migration
         env:
@@ -2676,6 +2770,7 @@ jobs:
   marketing:
     name: Publish the evidence-bound marketing intake mode
     needs: production
+    if: ${{ inputs.release_target == 'production' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
@@ -2829,6 +2924,7 @@ jobs:
   publish-release:
     name: Publish stable GitHub release
     needs: [production, marketing]
+    if: ${{ inputs.release_target == 'production' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production

@@ -5,10 +5,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  candidateProtectionOrigins,
   parseVercelDeploymentJson,
   validateCandidateDeployment,
   validateContainmentCanonicalDeployment,
   validateHoldingDeployment,
+  validateHoldingRecordDeployment,
   validatePreviousDeployment,
   validatePromotedDeployment,
   type CandidateDeploymentExpectations,
@@ -83,6 +85,16 @@ function deployment(overrides: Record<string, unknown> = {}): Record<string, unk
 }
 
 describe("Vercel release deployment contract", () => {
+  it("enumerates every generated candidate origin and rejects custom aliases", () => {
+    expect(candidateProtectionOrigins(deployment(), ownership)).toEqual([
+      "https://kinresolve-candidate-a1b2c3-team.vercel.app",
+      "https://kinresolve-git-main-team.vercel.app"
+    ]);
+    expect(() => validateCandidateDeployment(deployment({
+      aliases: ["public-demo.example.com"]
+    }), candidateExpectations)).toThrow(/alias|generated/i);
+  });
+
   it("captures a safe READY production deployment from the expected project and organization", () => {
     expect(validatePreviousDeployment(deployment(), ownership)).toEqual({
       id: "dpl_candidate1234567890abcdef",
@@ -143,6 +155,28 @@ describe("Vercel release deployment contract", () => {
       ...holdingExpectations,
       appBaseUrl: "https://other.example.com"
     })).toThrow(/lookup hostname/i);
+  });
+
+  it("validates the pinned holding record before an idempotent close promotion", () => {
+    const holding = deployment({
+      id: holdingExpectations.approvedHoldingDeploymentId,
+      aliases: ["app.kinresolve.com"],
+      meta: staticHoldingMetadata
+    });
+    expect(validateHoldingRecordDeployment(holding, {
+      ...ownership,
+      approvedHoldingDeploymentId: holdingExpectations.approvedHoldingDeploymentId
+    })).toMatchObject({
+      id: holdingExpectations.approvedHoldingDeploymentId,
+      status: "READY"
+    });
+    expect(() => validateHoldingRecordDeployment(deployment({
+      id: "dpl_other1234567890abcdef",
+      meta: staticHoldingMetadata
+    }), {
+      ...ownership,
+      approvedHoldingDeploymentId: holdingExpectations.approvedHoldingDeploymentId
+    })).toThrow(/approved holding deployment/i);
   });
 
   it.each([
@@ -272,13 +306,13 @@ describe("Vercel release deployment contract", () => {
     }), ownership)).toThrow(/ambiguous.*ID/i);
   });
 
-  it.each(["previous", "holding", "candidate", "promoted"] as const)(
+  it.each(["previous", "holding-record", "holding", "candidate", "promoted"] as const)(
     "validates %s mode through the nonsecret CLI contract",
     async (mode) => {
       const root = await mkdtemp(path.join(tmpdir(), "kinresolve-vercel-contract-"));
       scratchDirectories.push(root);
       const fixturePath = path.join(root, "deployment.json");
-      const fixture = mode === "holding"
+      const fixture = mode === "holding" || mode === "holding-record"
           ? deployment({
               id: holdingExpectations.approvedHoldingDeploymentId,
               meta: staticHoldingMetadata
@@ -290,7 +324,7 @@ describe("Vercel release deployment contract", () => {
 
       expect(result.status).toBe(0);
       expect(result.stderr).toBe("");
-      const expectedId = mode === "holding"
+      const expectedId = mode === "holding" || mode === "holding-record"
         ? holdingExpectations.approvedHoldingDeploymentId
         : "dpl_candidate1234567890abcdef";
       expect(result.stdout.trim().split("\n")).toEqual([
@@ -364,7 +398,7 @@ describe("Vercel release deployment contract", () => {
 });
 
 function runCli(
-  mode: "previous" | "holding" | "candidate" | "containment" | "promoted",
+  mode: "previous" | "holding-record" | "holding" | "candidate" | "containment" | "promoted",
   fixturePath: string,
   environment: Record<string, string> = {},
   canonicalLookupHostname: string | null = ["holding", "containment", "promoted"].includes(mode)
