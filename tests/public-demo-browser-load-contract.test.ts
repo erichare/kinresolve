@@ -41,6 +41,25 @@ describe("public demo browser and capacity launch gates", () => {
     expect(browser).toContain("Share feedback");
   });
 
+  it("covers Chromium and WebKit desktop/mobile plus the Firefox core path", () => {
+    expect(browser).toMatch(/import\s*\{[^}]*chromium[^}]*firefox[^}]*webkit[^}]*\}\s*from\s*["']playwright["']/s);
+    expect(browser).toContain("KINRESOLVE_DEMO_BROWSER");
+    expect(browser).toContain("chromium");
+    expect(browser).toContain("webkit");
+    expect(browser).toContain("firefox");
+    expect(browser).toMatch(/browserName\s*!==\s*["']firefox["']/);
+  });
+
+  it("audits capacity fallback and completes feedback and beta CTA actions", () => {
+    expect(browser).toContain("The public demo is at capacity");
+    expect(browser).toContain("/family");
+    expect(browser).toContain("/challenge");
+    expect(browser).toContain("Send ratings");
+    expect(browser).toContain("Feedback saved");
+    expect(browser).toContain("Apply for the private beta");
+    expect(browser).toContain("beta_cta_clicked");
+  });
+
   it("rewrites protected candidate mutations to the canonical same-origin contract", () => {
     expect(browser).toContain("x-vercel-protection-bypass");
     expect(browser).toContain("x-kinresolve-demo-canary");
@@ -54,6 +73,10 @@ describe("public demo browser and capacity launch gates", () => {
     expect(load).toContain("/api/demo/session");
     expect(load).toContain("/app/cases/case-mercer-march-identity?guide=1");
     expect(load).toContain("/api/demo/session/end");
+    expect(load).toContain("maximumActiveSessions");
+    expect(load).toContain('familyUrl');
+    expect(load).toContain('challengeUrl');
+    expect(load).toContain('retry-after');
     expect(load).toContain("KINRESOLVE_DEMO_CANARY_SECRET");
     expect(load).toContain("Promise.allSettled");
     expect(load).toContain("finally");
@@ -74,13 +97,15 @@ describe("public demo browser and capacity launch gates", () => {
   });
 
   it("installs and runs browser and load gates before promotion and in full monitoring", () => {
-    const install = release.indexOf("npx playwright install --with-deps chromium");
+    const install = release.indexOf("npx playwright install --with-deps chromium webkit firefox");
     const browserRun = release.indexOf("scripts/public-demo-browser-canary.mjs");
     const loadRun = release.indexOf("scripts/public-demo-load-test.mjs");
     const promote = release.indexOf('vercel promote "$CANDIDATE_DEPLOYMENT_URL"');
 
     expect(install).toBeGreaterThan(-1);
     expect(browserRun).toBeGreaterThan(install);
+    expect(release).toContain("KINRESOLVE_DEMO_BROWSER");
+    expect(release).toMatch(/for browser in chromium webkit firefox/);
     expect(loadRun).toBeGreaterThan(browserRun);
     expect(promote).toBeGreaterThan(loadRun);
     expect(monitoring).toContain("npm ci");

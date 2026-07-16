@@ -20,6 +20,14 @@ describe("public demo 25-session load gate", () => {
       expect(headers.has("x-forwarded-for")).toBe(false);
       if (init?.method === "POST" && url.pathname === "/api/demo/sessions") {
         starts += 1;
+        if (starts === 26) {
+          return jsonResponse({
+            error: "The public demo is at capacity. Please try again shortly.",
+            maximumActiveSessions: 25,
+            familyUrl: "/family",
+            challengeUrl: "/challenge"
+          }, 429, { "retry-after": "300" });
+        }
         return jsonResponse(
           { workspaceUrl: "/app/cases/case-mercer-march-identity?guide=1" },
           201,
@@ -46,7 +54,7 @@ describe("public demo 25-session load gate", () => {
       sessionCount: 25,
       p95Milliseconds: expect.any(Number)
     });
-    expect(starts).toBe(25);
+    expect(starts).toBe(26);
     expect(ends).toBe(25);
   });
 
