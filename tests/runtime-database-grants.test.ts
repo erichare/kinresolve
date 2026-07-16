@@ -79,6 +79,21 @@ describe("beta operations runtime database grants", () => {
     expect(script).not.toMatch(/\bsource\b.*\.env\.production\.local/);
   });
 
+  it("pins the runtime backend while its live session identity is observed", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "lib", "runtime-database-grants.ts"),
+      "utf8"
+    );
+    const beginAt = source.indexOf('await runtimeClient.query("BEGIN")');
+    const sessionAt = source.indexOf("const runtimeSession = await runtimeClient.query");
+    const observedAt = source.indexOf("await migrationClient.query(liveRuntimeSessionQuery");
+    const rollbackAt = source.indexOf('await runtimeClient.query("ROLLBACK")', observedAt);
+    expect(beginAt).toBeGreaterThan(-1);
+    expect(beginAt).toBeLessThan(sessionAt);
+    expect(sessionAt).toBeLessThan(observedAt);
+    expect(observedAt).toBeLessThan(rollbackAt);
+  });
+
   it("contains only the exact required DML and never builds protected-table statements", () => {
     expect(betaOperationsRuntimeGrantContract).toEqual([
       { table: "auth_rate_limit_buckets", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },

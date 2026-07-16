@@ -10,10 +10,13 @@ reconcile only that migration's checked-in table-DML contract and must attest th
 
 Before either cell builds or deploys, the workflow parses the pulled Vercel dotenv as
 data (never with `source` or shell evaluation), then opens the runtime and migration
-connections over verified transport. The gate fails unless the migration connection can
-observe the exact live runtime session on the same configured physical database and
-`current_user` differs. Its privacy-safe JSON records only the database fingerprint, a
-domain-separated role-name digest, and boolean posture results.
+connections over verified transport. The gate pins the runtime backend in an explicit
+transaction and fails unless the migration connection can observe that exact PID,
+database OID/name, and session role on the same configured physical database while
+`current_user` differs. This remains valid behind transaction poolers that rewrite
+`application_name` or mask privileged activity columns. Its privacy-safe JSON records
+only the database fingerprint, a domain-separated role-name digest, and boolean posture
+results.
 
 The runtime role must be a login with no `SUPERUSER`, `CREATEDB`, `CREATEROLE`, or
 `REPLICATION`; no membership in the migration role, `pg_write_all_data`, an admin role,

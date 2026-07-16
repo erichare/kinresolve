@@ -119,6 +119,18 @@ SELECT runtime_role.rolname AS role_name,
          AS release_fence_references
 FROM runtime_role`;
 
+// Keep the runtime connection inside an explicit transaction while evaluating
+// this query. A transaction-pooling proxy may rewrite application_name and
+// masks backend_type from bounded migration roles, but PostgreSQL exposes PID,
+// database identity, and session user as general session properties. The open
+// transaction pins that exact backend PID until the observer has matched it.
+export const liveRuntimeSessionQuery = `SELECT 1
+FROM pg_catalog.pg_stat_activity
+WHERE pid = $1
+  AND datid = $2::oid
+  AND datname = $3
+  AND usename = $4`;
+
 export type RuntimeDatabaseRoleAttestation = {
   schemaVersion: 1;
   databaseIdentity: string;
@@ -314,17 +326,12 @@ export async function attestRuntimeDatabaseRole(
       throw new Error("The runtime and migration credentials do not reach the same database.");
     }
 
-    const observed = await migrationPool.query(
-      `SELECT 1
-       FROM pg_catalog.pg_stat_activity
-       WHERE pid = $1
-         AND datid = $2::oid
-         AND datname = $3
-         AND application_name = $4
-         AND usename = $5
-         AND backend_type = 'client backend'`,
-      [posture.backendPid, posture.databaseOid, posture.databaseName, sessionName, posture.roleName]
-    );
+    const observed = await migrationPool.query(liveRuntimeSessionQuery, [
+      posture.backendPid,
+      posture.databaseOid,
+      posture.databaseName,
+      posture.roleName
+    ]);
     if (observed.rows.length !== 1) {
       throw new Error("The migration connection cannot observe the exact live runtime database session.");
     }

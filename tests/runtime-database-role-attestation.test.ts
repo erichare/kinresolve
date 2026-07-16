@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Pool } from "pg";
@@ -10,6 +10,7 @@ import { readDatabaseIdentity } from "@/lib/database-attestation";
 import { runPendingMigrations } from "@/lib/migrations";
 import {
   attestRuntimeDatabaseRole,
+  liveRuntimeSessionQuery,
   runtimeDatabaseRoleQuery,
   validateRuntimeDatabaseRoleRow
 } from "@/lib/runtime-database-role-attestation";
@@ -141,6 +142,28 @@ describe("runtime database role attestation", () => {
     ]) {
       expect(runtimeDatabaseRoleQuery).toContain(evidence);
     }
+  });
+
+  it("binds live sessions without proxy-rewritten or privilege-masked fields", () => {
+    expect(liveRuntimeSessionQuery).toContain("pid = $1");
+    expect(liveRuntimeSessionQuery).toContain("datid = $2::oid");
+    expect(liveRuntimeSessionQuery).toContain("datname = $3");
+    expect(liveRuntimeSessionQuery).toContain("usename = $4");
+    expect(liveRuntimeSessionQuery).not.toContain("application_name");
+    expect(liveRuntimeSessionQuery).not.toContain("backend_type");
+
+    const source = readFileSync(
+      path.join(process.cwd(), "lib", "runtime-database-role-attestation.ts"),
+      "utf8"
+    );
+    const beginAt = source.indexOf('await runtimeClient.query("BEGIN")');
+    const postureAt = source.indexOf("const runtimeResult = await runtimeClient.query");
+    const observedAt = source.indexOf("await migrationPool.query(liveRuntimeSessionQuery");
+    const rollbackAt = source.indexOf('await runtimeClient.query("ROLLBACK")', observedAt);
+    expect(beginAt).toBeGreaterThan(-1);
+    expect(beginAt).toBeLessThan(postureAt);
+    expect(postureAt).toBeLessThan(observedAt);
+    expect(observedAt).toBeLessThan(rollbackAt);
   });
 
   it("rejects equal credentials and unverified remote transport before connecting", async () => {
