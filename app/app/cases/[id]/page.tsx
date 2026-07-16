@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { CaseResearchGuide } from "@/components/case-research-guide";
 import { CaseTaskList } from "@/components/case-task-list";
+import { DemoGuidedCaseJourney } from "@/components/demo-guided-case-journey";
 import { Confidence, Status } from "@/components/ui";
 import { getSessionContext } from "@/lib/auth-session";
 import { isDnaResearchCase, projectResearchCaseForDnaCapability } from "@/lib/case-search";
@@ -17,10 +18,11 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const capabilities = resolveHostedCapabilities();
   const { id } = await params;
   const session = await getSessionContext(await headers());
-  const workspace = await readWorkspace(session ? { archiveId: session.archiveId } : {});
+  if (!session) notFound();
+  const workspace = await readWorkspace({ archiveId: session.archiveId });
   const researchCase = workspace.cases.find((item) => item.id === id);
   const guidedResearchEnabled = isGuidedResearchEnabled();
-  const canWriteCases = Boolean(session && hasPermission(session.role, "cases:write"));
+  const canWriteCases = session.kind !== "demo-guest" && hasPermission(session.role, "cases:write");
 
   if (!researchCase || (!capabilities.dna && isDnaResearchCase(researchCase))) {
     notFound();
@@ -41,7 +43,9 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
         <Status tone={visibleResearchCase.status === "planning" || visibleResearchCase.status === "paused" ? "warning" : "ok"}>{visibleResearchCase.status}</Status>
       </section>
 
-      {guidedResearchEnabled ? (
+      {session.kind === "demo-guest" ? (
+        <DemoGuidedCaseJourney initialCase={visibleResearchCase} />
+      ) : guidedResearchEnabled ? (
         <CaseResearchGuide
           initialCase={visibleResearchCase}
           canWrite={canWriteCases}
