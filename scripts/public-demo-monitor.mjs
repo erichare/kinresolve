@@ -167,12 +167,17 @@ function resolveConfiguration(mode, environment) {
   if (mode === "full" && !canarySecret) {
     throw new Error("KINRESOLVE_DEMO_CANARY_SECRET is required for a full monitor.");
   }
-  return Object.freeze({ origin: origin.origin, bypassSecret, canarySecret });
+  return Object.freeze({
+    origin: origin.origin,
+    requestOrigin: canonical ? origin.origin : "https://demo.kinresolve.com",
+    bypassSecret,
+    canarySecret
+  });
 }
 
 function requestHeaders(configuration, additions = {}) {
   return {
-    "origin": configuration.origin,
+    "origin": configuration.requestOrigin,
     "sec-fetch-site": "same-origin",
     "user-agent": "kinresolve-public-demo-monitor/1.0",
     ...(configuration.bypassSecret

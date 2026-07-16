@@ -218,7 +218,7 @@ jobs:
           }
           for (const name of [
             "AI_API_KEY", "AUTH_SECRET", "CRON_SECRET", "DATABASE_URL",
-            "KINRESOLVE_DEMO_PRIVACY_HMAC_SECRET"
+            "KINRESOLVE_DEMO_CANARY_SECRET", "KINRESOLVE_DEMO_PRIVACY_HMAC_SECRET"
           ]) {
             if (!process.env[name]?.trim()) process.exit(1);
           }
@@ -243,6 +243,64 @@ jobs:
           set -euo pipefail
           npm run db:migrate
           npm run archive:provision -- --mode demo
+
+      - name: Grant and re-attest public demo runtime access
+        env:
+          EXPECTED_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          output="$RUNNER_TEMP/public-demo-runtime-grants.json"
+          npm run db:runtime-role:grant-beta-operations -- "$output"
+          jq -e --arg database_identity "$EXPECTED_DATABASE_IDENTITY" '
+            (. | keys | sort) == ([
+              "credentialsDistinct", "databaseCreate", "databaseIdentity", "exactPrivilegesAttested",
+              "grantContract", "managedTablePrivileges", "persistentDataMutation",
+              "protectedTablePrivileges", "publicSchemaCreate", "publicSchemaUsage",
+              "representativeAppWriteRolledBack", "runtimeRoleIdentitySha256",
+              "safeRuntimeRoleReattested", "sameDatabaseSessionVerified", "schemaVersion"
+            ] | sort) and
+            .schemaVersion == 1 and .grantContract == "beta-operations-v1" and
+            .databaseIdentity == $database_identity and
+            (.runtimeRoleIdentitySha256 | test("^[a-f0-9]{64}$")) and
+            .credentialsDistinct == true and .sameDatabaseSessionVerified == true and
+            .safeRuntimeRoleReattested == true and .databaseCreate == false and
+            .publicSchemaUsage == true and .publicSchemaCreate == false and
+            .exactPrivilegesAttested == true and
+            .representativeAppWriteRolledBack == true and .persistentDataMutation == false and
+            (.managedTablePrivileges | map({table, select, insert, update, delete})) == [
+              {"table":"auth_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_applications","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"beta_data_operations","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"beta_worker_heartbeats","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_tokens","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"api_rate_limit_buckets","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"public_demo_capacity","select":true,"insert":true,"update":true,"delete":false},
+              {"table":"public_demo_sessions","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"public_demo_rate_limits","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"public_demo_generations","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"public_demo_ai_attempts","select":true,"insert":true,"update":true,"delete":true},
+              {"table":"public_demo_events","select":true,"insert":true,"update":false,"delete":true},
+              {"table":"security_events","select":false,"insert":true,"update":false,"delete":false}
+            ] and
+            all(.managedTablePrivileges[];
+              (. | keys | sort) == ([
+                "delete", "grantOptions", "insert", "maintain", "references",
+                "select", "table", "trigger", "truncate", "update"
+              ] | sort) and .truncate == false and .references == false and
+              .trigger == false and .maintain == false and .grantOptions == false) and
+            (.protectedTablePrivileges | map(.table)) == [
+              "release_write_fences", "schema_migrations"
+            ] and
+            all(.protectedTablePrivileges[];
+              (. | keys | sort) == ([
+                "delete", "grantOptions", "insert", "maintain", "references",
+                "select", "table", "trigger", "truncate", "update"
+              ] | sort) and .select == true and .insert == false and .update == false and
+              .delete == false and .truncate == false and .references == false and
+              .trigger == false and .maintain == false and .grantOptions == false)
+          ' "$output" > /dev/null
 
       - name: Capture the current healthy canonical deployment for rollback
         id: previous
