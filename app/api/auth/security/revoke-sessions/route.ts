@@ -23,6 +23,12 @@ export async function POST(request: NextRequest) {
         headers: { "cache-control": "private, no-store" }
       });
     }
+    if (session.kind === "demo-guest") {
+      return apiErrorResponse(403, "Permission denied", {
+        requestId,
+        headers: { "cache-control": "private, no-store" }
+      });
+    }
 
     const result = await getAuth().api.revokeSessions({ headers: request.headers });
     if (result.status !== true) return unavailable(requestId);

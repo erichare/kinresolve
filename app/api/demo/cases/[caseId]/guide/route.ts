@@ -42,8 +42,23 @@ const fixedDecisionReasons = {
 
 type RouteContext = { params: Promise<{ caseId: string }> };
 
+async function recordDemoEventSafely(input: Parameters<typeof recordPublicDemoEvent>[0]): Promise<void> {
+  try {
+    await recordPublicDemoEvent(input);
+  } catch {
+    // Aggregate telemetry must never change a visitor-facing command result.
+  }
+}
+
 export const POST = withDemoGuestCapability("demo:guide", async (request, guest, route: RouteContext) => {
   try {
+    const archiveOptions = {
+      archiveId: guest.archiveId,
+      demoGuestFence: {
+        generation: guest.generation,
+        sessionId: guest.sessionId
+      }
+    };
     const { caseId } = await route.params;
     if (caseId !== guidedCaseId) {
       return NextResponse.json({ error: "Guided demo case not found" }, { status: 404 });
@@ -55,7 +70,7 @@ export const POST = withDemoGuestCapability("demo:guide", async (request, guest,
       return NextResponse.json({ error: "Invalid guided demo command" }, { status: 400 });
     }
 
-    const researchCase = await readResearchCase(caseId, { archiveId: guest.archiveId });
+    const researchCase = await readResearchCase(caseId, archiveOptions);
     if (!researchCase) {
       return NextResponse.json({ error: "Guided demo case not found" }, { status: 404 });
     }
@@ -63,7 +78,7 @@ export const POST = withDemoGuestCapability("demo:guide", async (request, guest,
     if (parsed.data.command === "start_assignment") {
       const task = researchCase.tasks.find((candidate) => candidate.id === guidedTaskId);
       if (!task) return NextResponse.json({ error: "Guided assignment not found" }, { status: 404 });
-      await recordPublicDemoEvent({ sessionId: guest.sessionId, eventName: "guide_started" });
+      await recordDemoEventSafely({ sessionId: guest.sessionId, eventName: "guide_started" });
       return NextResponse.json({ task, next: "record_outcome" });
     }
 
@@ -88,9 +103,9 @@ export const POST = withDemoGuestCapability("demo:guide", async (request, guest,
           actorId: `demo:${guest.sessionId}`,
           actorName: "Demo Guest"
         },
-        { archiveId: guest.archiveId }
+        archiveOptions
       );
-      await recordPublicDemoEvent({ sessionId: guest.sessionId, eventName: "outcome_completed" });
+      await recordDemoEventSafely({ sessionId: guest.sessionId, eventName: "outcome_completed" });
       return NextResponse.json({
         task: result.task,
         next: "hypothesis_decision",
@@ -116,7 +131,7 @@ export const POST = withDemoGuestCapability("demo:guide", async (request, guest,
         actorId: `demo:${guest.sessionId}`,
         actorName: "Demo Guest"
       },
-      { archiveId: guest.archiveId }
+      archiveOptions
     );
     return NextResponse.json({ hypothesis: result.hypothesis, next: "case_next_steps" });
   } catch (error) {

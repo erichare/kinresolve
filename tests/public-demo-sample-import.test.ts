@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   applyPreparedGedcomImport: vi.fn(),
+  assertDemoGuestGenerationFenceInTransaction: vi.fn(),
   readWorkspace: vi.fn(),
   restoreWorkspaceBackupInTransaction: vi.fn(),
   clientQuery: vi.fn()
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/workspace-store", () => ({
   applyPreparedGedcomImport: mocks.applyPreparedGedcomImport,
+  assertDemoGuestGenerationFenceInTransaction: mocks.assertDemoGuestGenerationFenceInTransaction,
   readWorkspace: mocks.readWorkspace,
   restoreWorkspaceBackupInTransaction: mocks.restoreWorkspaceBackupInTransaction
 }));
@@ -22,6 +24,8 @@ vi.mock("@/lib/db", () => ({
 describe("bundled public demo GEDCOM", () => {
   beforeEach(() => {
     mocks.applyPreparedGedcomImport.mockReset();
+    mocks.assertDemoGuestGenerationFenceInTransaction.mockReset();
+    mocks.assertDemoGuestGenerationFenceInTransaction.mockResolvedValue(undefined);
     mocks.readWorkspace.mockReset();
     mocks.readWorkspace.mockResolvedValue({ imports: [], backups: [] });
     mocks.restoreWorkspaceBackupInTransaction.mockReset();
@@ -33,7 +37,7 @@ describe("bundled public demo GEDCOM", () => {
     const result = await runPublicDemoSampleImport(
       "review",
       "hartwell-mercer-sample-v1",
-      { archiveId: "archive-guest" }
+      demoOptions
     );
 
     expect(result).toMatchObject({
@@ -60,14 +64,14 @@ describe("bundled public demo GEDCOM", () => {
     const result = await runPublicDemoSampleImport(
       "apply",
       "hartwell-mercer-sample-v1",
-      { archiveId: "archive-guest" }
+      demoOptions
     );
 
     expect(mocks.applyPreparedGedcomImport).toHaveBeenCalledWith(
       expect.objectContaining({
         appliedImport: expect.objectContaining({ sourceName: expect.stringMatching(/fictional/i) })
       }),
-      { archiveId: "archive-guest" }
+      demoOptions
     );
     expect(result).toMatchObject({ action: "apply", backupId: "backup-demo" });
   });
@@ -77,7 +81,7 @@ describe("bundled public demo GEDCOM", () => {
     const review = await runPublicDemoSampleImport(
       "review",
       "hartwell-mercer-sample-v1",
-      { archiveId: "archive-guest" }
+      demoOptions
     );
     if (!("snapshot" in review) || !review.snapshot) {
       throw new Error("Expected the bundled fixture review snapshot");
@@ -90,7 +94,7 @@ describe("bundled public demo GEDCOM", () => {
     await expect(runPublicDemoSampleImport(
       "apply",
       "hartwell-mercer-sample-v1",
-      { archiveId: "archive-guest" }
+      demoOptions
     )).rejects.toThrow(/already applied/i);
     expect(mocks.applyPreparedGedcomImport).not.toHaveBeenCalled();
   });
@@ -108,10 +112,10 @@ describe("bundled public demo GEDCOM", () => {
     const result = await runPublicDemoSampleImport(
       "rollback",
       "hartwell-mercer-sample-v1",
-      { archiveId: "archive-guest" }
+      demoOptions
     );
 
-    expect(mocks.readWorkspace).toHaveBeenCalledWith({ archiveId: "archive-guest" });
+    expect(mocks.readWorkspace).toHaveBeenCalledWith(demoOptions);
     expect(mocks.clientQuery).toHaveBeenCalledWith(
       expect.stringMatching(/UPDATE archives/),
       ["archive-guest"]
@@ -128,3 +132,11 @@ describe("bundled public demo GEDCOM", () => {
     });
   });
 });
+
+const demoOptions = {
+  archiveId: "archive-guest",
+  demoGuestFence: {
+    generation: 1,
+    sessionId: "11111111-1111-4111-8111-111111111111"
+  }
+};

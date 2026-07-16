@@ -14,21 +14,11 @@ const operationMocks = vi.hoisted(() => ({
 const invitationMocks = vi.hoisted(() => ({
   cleanupExpiredBetaStateForSystem: vi.fn()
 }));
-const publicDemoMocks = vi.hoisted(() => ({
-  cleanupPublicDemoSessions: vi.fn(),
-  publicDemoEnabled: vi.fn()
-}));
 
 vi.mock("@/lib/gedcom/blob-storage", () => storageMocks);
 vi.mock("@/lib/release-fence", () => releaseFenceMocks);
 vi.mock("@/lib/beta-operations", () => operationMocks);
 vi.mock("@/lib/beta-invitations", () => invitationMocks);
-vi.mock("@/lib/public-demo-config", () => ({
-  publicDemoEnabled: publicDemoMocks.publicDemoEnabled
-}));
-vi.mock("@/lib/public-demo-session-store", () => ({
-  cleanupPublicDemoSessions: publicDemoMocks.cleanupPublicDemoSessions
-}));
 
 import { GET } from "@/app/api/cron/import-uploads/route";
 
@@ -48,12 +38,6 @@ beforeEach(() => {
     expiredRateLimits: 0,
     expiredVerificationTokens: 0,
     removedOperatorNonces: 0
-  });
-  publicDemoMocks.publicDemoEnabled.mockReturnValue(false);
-  publicDemoMocks.cleanupPublicDemoSessions.mockResolvedValue({
-    archivesCleaned: 0,
-    eventsDeleted: 0,
-    expired: 0
   });
   process.env.KINRESOLVE_DEPLOYMENT_MODE = "self-hosted";
   delete process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED;
@@ -177,31 +161,6 @@ describe("scheduled GEDCOM upload cleanup", () => {
       "import-upload-cleanup",
       "retention-cleanup"
     ]);
-  });
-
-  it("runs the public demo lifecycle worker inside the existing five-minute cleanup cron", async () => {
-    process.env.CRON_SECRET = "expected-secret";
-    setHostedScheduledWrites("true");
-    process.env.KINRESOLVE_DATASET_MODE = "demo";
-    publicDemoMocks.publicDemoEnabled.mockReturnValue(true);
-    publicDemoMocks.cleanupPublicDemoSessions.mockResolvedValue({
-      archivesCleaned: 2,
-      eventsDeleted: 7,
-      expired: 3
-    });
-    storageMocks.cleanupAllStaleGedcomUploads.mockResolvedValue(0);
-
-    const response = await GET(cleanupRequest("expected-secret"));
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      demo: {
-        archivesCleaned: 2,
-        eventsDeleted: 7,
-        expired: 3
-      }
-    });
-    expect(publicDemoMocks.cleanupPublicDemoSessions).toHaveBeenCalledOnce();
   });
 
   it("returns 423 with the exact active fence before cleanup starts", async () => {

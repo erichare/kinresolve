@@ -1,5 +1,6 @@
 import type { Permission } from "./rbac";
 import { apiV1RouteDefinitions, type ApiV1Scope } from "./api-v1-contract";
+import type { DemoGuestCapability } from "./public-demo-capabilities";
 
 export const apiMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
 
@@ -9,6 +10,7 @@ export type ApiAccess =
   | { kind: "bootstrap" }
   | { kind: "service" }
   | { kind: "api-token"; scope: ApiV1Scope }
+  | { kind: "demo-session"; capability: DemoGuestCapability }
   | { kind: "permission"; permission: Permission };
 export type ApiRequestPolicy =
   | "read-only"
@@ -37,6 +39,7 @@ const bootstrapAccess = { kind: "bootstrap" } as const;
 const serviceAccess = { kind: "service" } as const;
 const permission = (value: Permission): ApiAccess => ({ kind: "permission", permission: value });
 const apiToken = (scope: ApiV1Scope): ApiAccess => ({ kind: "api-token", scope });
+const demoSession = (capability: DemoGuestCapability): ApiAccess => ({ kind: "demo-session", capability });
 const register = (access: ApiAccess, requestPolicy: ApiRequestPolicy): ApiMethodRegistration => ({
   access,
   requestPolicy
@@ -88,6 +91,38 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
   {
     path: "/api/public/beta-applications",
     methods: { POST: register(publicAccess, "marketing-native-form") }
+  },
+  {
+    path: "/api/demo/sessions",
+    methods: { POST: register(publicAccess, "same-origin-cookie") }
+  },
+  {
+    path: "/api/demo/session",
+    methods: { GET: register(demoSession("demo:session-control"), "read-only") }
+  },
+  {
+    path: "/api/demo/session/reset",
+    methods: { POST: register(demoSession("demo:session-control"), "same-origin-cookie") }
+  },
+  {
+    path: "/api/demo/session/end",
+    methods: { POST: register(demoSession("demo:session-control"), "same-origin-cookie") }
+  },
+  {
+    path: "/api/demo/cases/[caseId]/guide",
+    methods: { POST: register(demoSession("demo:guide"), "same-origin-cookie") }
+  },
+  {
+    path: "/api/demo/sample-import",
+    methods: { POST: register(demoSession("demo:sample-import"), "same-origin-cookie") }
+  },
+  {
+    path: "/api/demo/ai",
+    methods: { POST: register(demoSession("demo:ai"), "same-origin-cookie") }
+  },
+  {
+    path: "/api/demo/feedback",
+    methods: { POST: register(demoSession("demo:feedback"), "same-origin-cookie") }
   },
   {
     path: "/api/cases",

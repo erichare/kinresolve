@@ -2,15 +2,28 @@ import { getAuth } from "./auth";
 import { query } from "./db";
 import { isHostedDeployment } from "./hosted-config";
 import type { Role } from "./models";
+import { resolvePublicDemoGuestIdentity } from "./public-demo-session-store";
+import { readPublicDemoSessionToken } from "./public-demo-session-token";
 import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "./workspace-store";
 
-export type SessionContext = {
+export type MemberSessionContext = {
+  kind: "member";
   userId: string;
   email: string;
   name: string;
   role: Role;
   archiveId: string;
 };
+
+export type DemoGuestSessionContext = {
+  kind: "demo-guest";
+  sessionId: string;
+  archiveId: string;
+  generation: number;
+  expiresAt: string;
+};
+
+export type SessionContext = MemberSessionContext | DemoGuestSessionContext;
 
 // Resolves the caller's identity and archive role from the better-auth
 // session — never from request input. Returns null for anonymous callers and
@@ -19,16 +32,28 @@ export async function getSessionContext(
   requestHeaders: Headers,
   options: WorkspaceStoreOptions = {}
 ): Promise<SessionContext | null> {
-  const archiveId = getArchiveId(options);
-
   // Local development without AUTH_SECRET keeps the workspace open, matching
   // the proxy's dev-open behavior; production fails closed there instead.
   if (!process.env.AUTH_SECRET && process.env.NODE_ENV !== "production") {
-    return { userId: "dev", email: "dev@localhost", name: "Development", role: "owner", archiveId };
+    return {
+      kind: "member",
+      userId: "dev",
+      email: "dev@localhost",
+      name: "Development",
+      role: "owner",
+      archiveId: getArchiveId(options)
+    };
   }
 
   const session = await getAuth().api.getSession({ headers: requestHeaders });
   if (!session) {
+    if (process.env.KINRESOLVE_PUBLIC_DEMO_ENABLED === "true") {
+      const token = readPublicDemoSessionToken(requestHeaders);
+      if (token) {
+        const guest = await resolvePublicDemoGuestIdentity(token, options);
+        if (guest) return { kind: "demo-guest", ...guest };
+      }
+    }
     return null;
   }
 
@@ -37,12 +62,14 @@ export async function getSessionContext(
     return null;
   }
 
+  const archiveId = getArchiveId(options);
   const role = await resolveMembershipRole(session.user.id, archiveId, hosted, options);
   if (!role) {
     return null;
   }
 
   return {
+    kind: "member",
     userId: session.user.id,
     email: session.user.email,
     name: session.user.name,

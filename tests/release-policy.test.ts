@@ -134,6 +134,13 @@ const expectedMigrations = [
     risk: "moderate",
     compatibility: "expansion-compatible",
     notes: "Adds a deployment-global minimal-PII beta application table with fixed fields, consent and delivery invariants, 90-day retention, HMAC identities, explicit API-role denial, and no changes to existing writers."
+  },
+  {
+    file: "018_public_demo.sql",
+    sha256: "4b50c3ad882a8010761812b996e59f2bddefd93ad2ecbf457372889204fb2c00",
+    risk: "moderate",
+    compatibility: "expansion-compatible",
+    notes: "Adds bounded server-only public-demo capacity, digest-only guest sessions, archive generations, AI leases, and fixed-schema 30-day events without changing existing application tables or writers."
   }
 ] as const;
 
@@ -244,7 +251,7 @@ describe("forward-only first-cutover release policy", () => {
   it("proves a filename bijection and exact checksum equality with checksums.json", () => {
     const missing = policyFixture();
     (missing.migrations as unknown[]).pop();
-    expect(() => validateReleasePolicy(validationInput(missing))).toThrow(/missing.*017_beta_applications\.sql/i);
+    expect(() => validateReleasePolicy(validationInput(missing))).toThrow(/missing.*018_public_demo\.sql/i);
 
     const duplicate = policyFixture();
     (duplicate.migrations as unknown[]).push(structuredClone((duplicate.migrations as unknown[])[0]));
@@ -348,7 +355,7 @@ describe("forward-only first-cutover release policy", () => {
     });
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toMatch(/verified 17 migration.*v0\.17\.4.*forward-only/i);
+    expect(result.stdout).toMatch(/verified 18 migration.*v0\.17\.4.*forward-only/i);
     expect(result.stdout).toMatch(/owner erichare.*2026-07-15T04:30:00Z/i);
     expect(result.stdout).not.toContain(FIRST_CUTOVER_ACKNOWLEDGEMENT);
     expect(result.stderr).not.toContain(FIRST_CUTOVER_ACKNOWLEDGEMENT);

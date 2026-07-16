@@ -39,8 +39,19 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
     return privateJson({ error: "Choose one of the curated demo questions." }, 400);
   }
 
-  const archiveOptions = { archiveId: authorization.archiveId };
-  const workspace = await readWorkspace(archiveOptions);
+  const archiveOptions = {
+    archiveId: authorization.archiveId,
+    demoGuestFence: {
+      generation: authorization.generation,
+      sessionId: authorization.sessionId
+    }
+  };
+  let workspace: Awaited<ReturnType<typeof readWorkspace>>;
+  try {
+    workspace = await readWorkspace(archiveOptions);
+  } catch {
+    return privateJson({ error: "This demo workspace changed. Refresh and try again." }, 409);
+  }
   const selectedCase = workspace.cases.find(({ id }) => id === parsed.data.caseId);
   const guidedTask = selectedCase?.tasks.find(({ id }) => id === "task-compare-signatures");
   if (!selectedCase || guidedTask?.status !== "done" || !guidedTask.outcomes?.length) {
@@ -50,6 +61,8 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
   let reservation: Awaited<ReturnType<typeof reservePublicDemoAiAttempt>>;
   try {
     reservation = await reservePublicDemoAiAttempt({
+      archiveId: authorization.archiveId,
+      generation: authorization.generation,
       sessionId: authorization.sessionId,
       promptId: parsed.data.questionId
     });
@@ -60,11 +73,11 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
   await recordPublicDemoEvent({
     eventName: "ai_attempted",
     sessionId: authorization.sessionId
-  });
+  }).catch(() => undefined);
 
-  const capabilities = resolveHostedCapabilities();
   let result: AIAnalysisResult;
   try {
+    const capabilities = resolveHostedCapabilities();
     result = await runAIAnalysis({
       role: "owner",
       question: publicDemoAiPrompts[parsed.data.questionId],
@@ -90,7 +103,7 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
     await completePublicDemoAiAttempt({
       attemptId: reservation.attemptId,
       outcome: "failed"
-    });
+    }).catch(() => undefined);
     return privateJson({
       analysis: deterministicUnavailableAnalysis(),
       remainingAiAttempts: reservation.remaining
@@ -139,7 +152,7 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
   await completePublicDemoAiAttempt({
     attemptId: reservation.attemptId,
     outcome: fallback ? "failed" : "completed"
-  });
+  }).catch(() => undefined);
 
   return privateJson({
     analysis: safeResult,
@@ -149,6 +162,9 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
 
 function aiLimitResponse(error: unknown): NextResponse {
   const message = error instanceof Error ? error.message : "";
+  if (/unavailable|expired|generation|archive/i.test(message)) {
+    return privateJson({ error: "This demo workspace changed. Refresh and try again." }, 409);
+  }
   const retryAfter = /daily/i.test(message) ? 3600 : /concurrency/i.test(message) ? 5 : 0;
   return privateJson(
     { error: "The curated AI demo limit has been reached." },

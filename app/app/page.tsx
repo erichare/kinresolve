@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
 import { Confidence, Metric, Status, TableScroll } from "@/components/ui";
@@ -7,13 +9,16 @@ import { buildDashboardSummary } from "@/lib/dashboard";
 import { isGuidedResearchEnabled } from "@/lib/guided-research-config";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { buildResearchGuide } from "@/lib/research-guide";
+import { getSessionContext } from "@/lib/auth-session";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppDashboardPage() {
   const capabilities = resolveHostedCapabilities();
-  const workspace = await readWorkspace();
+  const session = await getSessionContext(await headers());
+  if (!session) notFound();
+  const workspace = await readWorkspace({ archiveId: session.archiveId });
   const dashboard = buildDashboardSummary(workspace, {
     dnaEnabled: capabilities.dna,
     publicPublishingEnabled: capabilities.publicPublishing

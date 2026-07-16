@@ -13,10 +13,20 @@ const operationMocks = vi.hoisted(() => ({
   recordWorkerStarted: vi.fn(),
   recordWorkerSucceeded: vi.fn()
 }));
+const publicDemoMocks = vi.hoisted(() => ({
+  cleanupPublicDemoSessions: vi.fn(),
+  resolvePublicDemoConfiguration: vi.fn()
+}));
 
 vi.mock("@/lib/integrations/worker", () => workerMocks);
 vi.mock("@/lib/release-fence", () => releaseFenceMocks);
 vi.mock("@/lib/beta-operations", () => operationMocks);
+vi.mock("@/lib/public-demo-config", () => ({
+  resolvePublicDemoConfiguration: publicDemoMocks.resolvePublicDemoConfiguration
+}));
+vi.mock("@/lib/public-demo-session-store", () => ({
+  cleanupPublicDemoSessions: publicDemoMocks.cleanupPublicDemoSessions
+}));
 
 import { GET } from "@/app/api/cron/integration-jobs/route";
 
@@ -29,6 +39,13 @@ beforeEach(() => {
   operationMocks.recordWorkerFailed.mockResolvedValue(true);
   operationMocks.recordWorkerStarted.mockResolvedValue(undefined);
   operationMocks.recordWorkerSucceeded.mockResolvedValue(true);
+  publicDemoMocks.resolvePublicDemoConfiguration.mockReturnValue({ enabled: false });
+  publicDemoMocks.cleanupPublicDemoSessions.mockResolvedValue({
+    archivesCleaned: 0,
+    eventsDeleted: 0,
+    expired: 0,
+    staleProvisioningRecovered: 0
+  });
   process.env.CRON_SECRET = "synthetic-cron-secret";
   process.env.KINRESOLVE_DEPLOYMENT_MODE = "self-hosted";
   delete process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED;
@@ -164,6 +181,35 @@ describe("hosted integration worker invocation", () => {
       { archiveId: expect.any(String) }
     );
     vi.useRealTimers();
+  });
+
+  it("uses the existing five-minute cron slot for bounded public demo cleanup", async () => {
+    setHostedScheduledWrites("true");
+    process.env.KINRESOLVE_DATASET_MODE = "demo";
+    publicDemoMocks.resolvePublicDemoConfiguration.mockReturnValue({ enabled: true });
+    publicDemoMocks.cleanupPublicDemoSessions.mockResolvedValue({
+      archivesCleaned: 2,
+      eventsDeleted: 7,
+      expired: 3,
+      staleProvisioningRecovered: 1
+    });
+
+    const response = await GET(request("synthetic-cron-secret"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      demoCleanup: {
+        archivesCleaned: 2,
+        eventsDeleted: 7,
+        expired: 3,
+        staleProvisioningRecovered: 1
+      }
+    });
+    expect(publicDemoMocks.cleanupPublicDemoSessions).toHaveBeenCalledExactlyOnceWith({ limit: 100 });
+    expect(workerMocks.runIntegrationWorkerBatch).not.toHaveBeenCalled();
+    expect(workerMocks.runIntegrationWorkerMaintenance).not.toHaveBeenCalled();
+    expect(operationMocks.recordWorkerStarted).toHaveBeenCalledOnce();
+    expect(operationMocks.recordWorkerSucceeded).toHaveBeenCalledOnce();
   });
 
   it("returns 423 with the exact active fence before leasing or maintenance", async () => {

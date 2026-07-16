@@ -40,6 +40,30 @@ export const betaOperationsRuntimeGrantContract = [
     privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
   },
   {
+    table: "public_demo_capacity",
+    privileges: ["SELECT", "INSERT", "UPDATE"]
+  },
+  {
+    table: "public_demo_sessions",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_rate_limits",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_generations",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_ai_attempts",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_events",
+    privileges: ["SELECT", "INSERT", "DELETE"]
+  },
+  {
     table: "security_events",
     privileges: ["INSERT"]
   }

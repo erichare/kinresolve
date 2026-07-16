@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
@@ -5,6 +6,7 @@ import { Icons } from "@/components/icons";
 import { PersonCurationPanel } from "@/components/person-curation-panel";
 import { Confidence, EmptyState, Status } from "@/components/ui";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
+import { getSessionContext } from "@/lib/auth-session";
 import type { PersonSummary } from "@/lib/models";
 import { readWorkspace } from "@/lib/workspace-store";
 
@@ -14,7 +16,9 @@ export default async function AppPersonPage({ params }: { params: Promise<{ id: 
   const capabilities = resolveHostedCapabilities();
   const { id } = await params;
   const personId = decodeURIComponent(id);
-  const workspace = await readWorkspace();
+  const session = await getSessionContext(await headers());
+  if (!session) notFound();
+  const workspace = await readWorkspace({ archiveId: session.archiveId });
   const person = workspace.people.find((item) => item.id === personId);
 
   if (!person) {

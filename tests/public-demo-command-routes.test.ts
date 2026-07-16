@@ -99,7 +99,10 @@ describe("public demo command routes", () => {
         actorName: "Demo Guest",
         note: expect.stringMatching(/fictional signatures/i)
       }),
-      { archiveId: "archive-demo-private" }
+      {
+        archiveId: "archive-demo-private",
+        demoGuestFence: { generation: 2, sessionId: "session-demo" }
+      }
     );
     expect(mocks.recordPublicDemoEvent).toHaveBeenCalledWith({
       sessionId: "session-demo",
@@ -141,7 +144,10 @@ describe("public demo command routes", () => {
         reason: expect.stringMatching(/fictional signature/i),
         actorId: "demo:session-demo"
       }),
-      { archiveId: "archive-demo-private" }
+      {
+        archiveId: "archive-demo-private",
+        demoGuestFence: { generation: 2, sessionId: "session-demo" }
+      }
     );
   });
 
@@ -156,7 +162,10 @@ describe("public demo command routes", () => {
     expect(mocks.runSampleImport).toHaveBeenCalledWith(
       "review",
       "hartwell-mercer-sample-v1",
-      { archiveId: "archive-demo-private" }
+      {
+        archiveId: "archive-demo-private",
+        demoGuestFence: { generation: 2, sessionId: "session-demo" }
+      }
     );
   });
 

@@ -87,6 +87,12 @@ describe("beta operations runtime database grants", () => {
       { table: "beta_worker_heartbeats", privileges: ["SELECT", "INSERT", "UPDATE"] },
       { table: "api_tokens", privileges: ["SELECT", "INSERT", "UPDATE"] },
       { table: "api_rate_limit_buckets", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_capacity", privileges: ["SELECT", "INSERT", "UPDATE"] },
+      { table: "public_demo_sessions", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_rate_limits", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_generations", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_ai_attempts", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_events", privileges: ["SELECT", "INSERT", "DELETE"] },
       { table: "security_events", privileges: ["INSERT"] }
     ]);
     const statements = buildBetaOperationsGrantStatements('runtime "role"');
@@ -103,6 +109,18 @@ describe("beta operations runtime database grants", () => {
       'GRANT SELECT, INSERT, UPDATE ON TABLE public."api_tokens" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."api_rate_limit_buckets" FROM "runtime ""role"""',
       'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_capacity" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public."public_demo_capacity" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_sessions" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_sessions" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_rate_limits" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_rate_limits" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_generations" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_generations" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_ai_attempts" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_ai_attempts" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_events" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, DELETE ON TABLE public."public_demo_events" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."security_events" FROM "runtime ""role"""',
       'GRANT INSERT ON TABLE public."security_events" TO "runtime ""role"""'
     ]);
@@ -110,7 +128,12 @@ describe("beta operations runtime database grants", () => {
     expect(statements.filter((statement) => /\bDELETE\b/.test(statement))).toEqual([
       'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."auth_rate_limit_buckets" TO "runtime ""role"""',
       'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."beta_applications" TO "runtime ""role"""',
-      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""'
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_sessions" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_rate_limits" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_generations" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_ai_attempts" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, DELETE ON TABLE public."public_demo_events" TO "runtime ""role"""'
     ]);
     expect(statements.join("\n")).not.toMatch(/\bTRUNCATE\b|\bREFERENCES\b|\bTRIGGER\b|\bMAINTAIN\b/);
   });
@@ -123,6 +146,12 @@ describe("beta operations runtime database grants", () => {
       expect.objectContaining({ table: "beta_worker_heartbeats", select: true, insert: true, update: true }),
       expect.objectContaining({ table: "api_tokens", select: true, insert: true, update: true, delete: false }),
       expect.objectContaining({ table: "api_rate_limit_buckets", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_capacity", select: true, insert: true, update: true, delete: false }),
+      expect.objectContaining({ table: "public_demo_sessions", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_rate_limits", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_generations", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_ai_attempts", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_events", select: true, insert: true, update: false, delete: true }),
       expect.objectContaining({ table: "security_events", select: false, insert: true, update: false, delete: false }),
       expect.objectContaining({ table: "release_write_fences", select: true, insert: false, update: false }),
       expect.objectContaining({ table: "schema_migrations", select: true, insert: false, update: false })

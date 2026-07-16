@@ -104,9 +104,15 @@ describe("POST /api/demo/ai", () => {
       remainingAiAttempts: 2
     });
     expect(mocks.readWorkspace).toHaveBeenCalledExactlyOnceWith({
-      archiveId: "demo-archive-alpha"
+      archiveId: "demo-archive-alpha",
+      demoGuestFence: {
+        generation: 1,
+        sessionId: "11111111-1111-4111-8111-111111111111"
+      }
     });
     expect(mocks.reservePublicDemoAiAttempt).toHaveBeenCalledExactlyOnceWith({
+      archiveId: "demo-archive-alpha",
+      generation: 1,
       promptId: "case_next_steps",
       sessionId: "11111111-1111-4111-8111-111111111111"
     });
@@ -126,7 +132,13 @@ describe("POST /api/demo/ai", () => {
       expect.objectContaining({
         question: publicDemoAiPrompts.case_next_steps
       }),
-      { archiveId: "demo-archive-alpha" }
+      {
+        archiveId: "demo-archive-alpha",
+        demoGuestFence: {
+          generation: 1,
+          sessionId: "11111111-1111-4111-8111-111111111111"
+        }
+      }
     );
     expect(mocks.completePublicDemoAiAttempt).toHaveBeenCalledWith({
       attemptId: "22222222-2222-4222-8222-222222222222",

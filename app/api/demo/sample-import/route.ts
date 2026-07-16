@@ -27,7 +27,13 @@ export const POST = withDemoGuestCapability("demo:sample-import", async (request
     const result = await runPublicDemoSampleImport(
       parsed.data.action,
       parsed.data.fixtureId,
-      { archiveId: guest.archiveId }
+      {
+        archiveId: guest.archiveId,
+        demoGuestFence: {
+          generation: guest.generation,
+          sessionId: guest.sessionId
+        }
+      }
     );
     return NextResponse.json(result, { status: parsed.data.action === "apply" ? 201 : 200 });
   } catch (error) {

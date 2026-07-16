@@ -2,8 +2,10 @@ import { withTransaction, type DatabaseOptions } from "./db";
 import { prepareGedcomImport } from "./gedcom/apply";
 import {
   applyPreparedGedcomImport,
+  assertDemoGuestGenerationFenceInTransaction,
   readWorkspace,
-  restoreWorkspaceBackupInTransaction
+  restoreWorkspaceBackupInTransaction,
+  type DemoGuestGenerationFence
 } from "./workspace-store";
 
 export const publicDemoSampleFixtureId = "hartwell-mercer-sample-v1" as const;
@@ -58,7 +60,10 @@ const bundledGedcom = [
   "0 TRLR"
 ].join("\n");
 
-type PublicDemoSampleImportOptions = DatabaseOptions & { archiveId: string };
+type PublicDemoSampleImportOptions = DatabaseOptions & {
+  archiveId: string;
+  demoGuestFence: DemoGuestGenerationFence;
+};
 
 export async function runPublicDemoSampleImport(
   action: PublicDemoSampleImportAction,
@@ -97,17 +102,11 @@ export async function runPublicDemoSampleImport(
   }
 
   if (action === "apply") {
-    const workspace = await readWorkspace({
-      archiveId: options.archiveId,
-      databaseUrl: options.databaseUrl
-    });
+    const workspace = await readWorkspace(options);
     if (workspace.imports.some((candidate) => candidate.id === prepared.appliedImport.id)) {
       throw new Error("The bundled sample is already applied in this sandbox");
     }
-    const applied = await applyPreparedGedcomImport(prepared, {
-      archiveId: options.archiveId,
-      databaseUrl: options.databaseUrl
-    });
+    const applied = await applyPreparedGedcomImport(prepared, options);
     return {
       action,
       fixtureId,
@@ -119,10 +118,7 @@ export async function runPublicDemoSampleImport(
     };
   }
 
-  const workspace = await readWorkspace({
-    archiveId: options.archiveId,
-    databaseUrl: options.databaseUrl
-  });
+  const workspace = await readWorkspace(options);
   const backup = workspace.backups
     .filter((candidate) => candidate.reason === preImportReason)
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
@@ -138,6 +134,11 @@ export async function runPublicDemoSampleImport(
     if (locked.rowCount !== 1) {
       throw new Error("Public demo archive not found");
     }
+    await assertDemoGuestGenerationFenceInTransaction(
+      client,
+      options.archiveId,
+      options.demoGuestFence
+    );
     await restoreWorkspaceBackupInTransaction(client, options.archiveId, backup.id);
   });
 

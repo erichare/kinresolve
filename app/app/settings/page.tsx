@@ -122,11 +122,11 @@ export default async function SettingsPage() {
 
       <AccountSecurityControl />
 
-      {session && hasPermission(session.role, "api-tokens:manage") && apiV1Enabled()
+      {session && session.kind !== "demo-guest" && hasPermission(session.role, "api-tokens:manage") && apiV1Enabled()
         ? <ApiTokenControl />
         : null}
 
-      {session && hasPermission(session.role, "archive:data-portability")
+      {session && session.kind !== "demo-guest" && hasPermission(session.role, "archive:data-portability")
         ? <DataPortabilityControl />
         : null}
 

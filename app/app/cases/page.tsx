@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { CaseWorkspace } from "@/components/case-workspace";
 import {
@@ -5,6 +7,7 @@ import {
   projectEvidenceQueueForDnaCapability
 } from "@/lib/case-search";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
+import { getSessionContext } from "@/lib/auth-session";
 import { caseEvidenceQueueFromDb, searchCasesPageFromDb } from "@/lib/store/case-queries";
 import { readArchiveBranding } from "@/lib/store/people-queries";
 
@@ -12,9 +15,11 @@ export const dynamic = "force-dynamic";
 
 export default async function CasesPage() {
   const capabilities = resolveHostedCapabilities();
-  const queryOptions = { includeDnaEvidence: capabilities.dna };
+  const session = await getSessionContext(await headers());
+  if (!session) notFound();
+  const queryOptions = { archiveId: session.archiveId, includeDnaEvidence: capabilities.dna };
   const [branding, initialResult, initialEvidenceQueue] = await Promise.all([
-    readArchiveBranding(),
+    readArchiveBranding({ archiveId: session.archiveId }),
     searchCasesPageFromDb({ sort: "status" }, { page: 1, pageSize: 25 }, queryOptions),
     caseEvidenceQueueFromDb(queryOptions)
   ]);

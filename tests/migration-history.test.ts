@@ -64,7 +64,8 @@ describe("migration checksum history", () => {
         "014_beta_invitations.sql",
         "015_beta_operations.sql",
         "016_beta_api_tokens.sql",
-        "017_beta_applications.sql"
+        "017_beta_applications.sql",
+        "018_public_demo.sql"
       ],
       releaseAnchors: ["v0.17.4"]
     });

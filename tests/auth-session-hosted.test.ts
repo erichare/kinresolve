@@ -69,6 +69,7 @@ describe("hosted session authorization", () => {
     mocks.query.mockResolvedValue({ rows: [{ role: "viewer" }] });
 
     await expect(getSessionContext(new Headers())).resolves.toEqual({
+      kind: "member",
       userId: "user-beta",
       email: "participant@example.com",
       name: "Participant",

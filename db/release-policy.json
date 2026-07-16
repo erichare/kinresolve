@@ -166,6 +166,13 @@
       "risk": "moderate",
       "compatibility": "expansion-compatible",
       "notes": "Adds a deployment-global minimal-PII beta application table with fixed fields, consent and delivery invariants, 90-day retention, HMAC identities, explicit API-role denial, and no changes to existing writers."
+    },
+    {
+      "file": "018_public_demo.sql",
+      "sha256": "4b50c3ad882a8010761812b996e59f2bddefd93ad2ecbf457372889204fb2c00",
+      "risk": "moderate",
+      "compatibility": "expansion-compatible",
+      "notes": "Adds bounded server-only public-demo capacity, digest-only guest sessions, archive generations, AI leases, and fixed-schema 30-day events without changing existing application tables or writers."
     }
   ]
 }

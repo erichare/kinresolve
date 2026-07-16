@@ -17,6 +17,9 @@ export async function POST(request: Request) {
   if (!context) {
     return apiErrorResponse(401, "Authentication required");
   }
+  if (context.kind === "demo-guest") {
+    return apiErrorResponse(403, "Permission denied");
+  }
 
   return NextResponse.json({ role: context.role, archiveId: context.archiveId });
 }

@@ -16,8 +16,6 @@ import {
   emitOperationalEvent,
   operationalErrorCode
 } from "@/lib/observability";
-import { publicDemoEnabled } from "@/lib/public-demo-config";
-import { cleanupPublicDemoSessions } from "@/lib/public-demo-session-store";
 import { getArchiveId } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -54,13 +52,10 @@ export async function GET(request: Request) {
       route: "/api/cron/import-uploads",
       workerKind: "import-upload-cleanup"
     });
-    const [deleted, retention, demo] = await Promise.all([
+    const [deleted, retention] = await Promise.all([
       cleanupAllStaleGedcomUploads(),
       isHostedDeployment()
         ? cleanupExpiredBetaStateForSystem({ requestId }, operationOptions)
-        : Promise.resolve(null),
-      publicDemoEnabled()
-        ? cleanupPublicDemoSessions()
         : Promise.resolve(null)
     ]);
     await recordWorkerSucceeded("import-upload-cleanup", requestId, operationOptions);
@@ -81,11 +76,7 @@ export async function GET(request: Request) {
       route: "/api/cron/import-uploads",
       workerKind: "import-upload-cleanup"
     });
-    return NextResponse.json({
-      deleted,
-      retention,
-      ...(demo ? { demo } : {})
-    });
+    return NextResponse.json({ deleted, retention });
   } catch (error) {
     try {
       await recordWorkerFailed(

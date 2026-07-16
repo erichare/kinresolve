@@ -171,7 +171,7 @@ describeIfDatabase("account-based auth", () => {
         .map((value) => value.split(";")[0])
         .join("; ");
       const context = await getSessionContext(new Headers({ cookie }), options);
-      roles.push(context?.role ?? null);
+      roles.push(context?.kind === "member" ? context.role : null);
     }
 
     expect(roles.filter((role) => role === "owner")).toHaveLength(1);
@@ -246,7 +246,8 @@ describeIfDatabase("account-based auth", () => {
     const context = await getSessionContext(new Headers({ cookie }), options);
 
     expect(context).not.toBeNull();
-    expect(context?.role).toBe("owner");
+    expect(context?.kind).toBe("member");
+    expect(context?.kind === "member" ? context.role : null).toBe("owner");
     expect(context?.archiveId).toBe(archiveId);
 
     const membership = await query<{ role: string }>(
