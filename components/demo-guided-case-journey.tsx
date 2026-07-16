@@ -217,7 +217,7 @@ export function DemoGuidedCaseJourney({ initialCase }: { initialCase: ResearchCa
             <p className="muted">{remainingAiAttempts} curated AI attempts remain in this sandbox.</p>
           ) : null}
           {analysis?.answer ? (
-            <article className="demo-ai-result" tabIndex={-1}>
+            <article aria-label="Curated AI result" className="demo-ai-result" tabIndex={-1}>
               <span>{analysis.label ?? (analysis.fallback ? "Deterministic demo analysis" : "Curated AI analysis")}</span>
               <p>{analysis.answer}</p>
               {analysis.uncertainty?.length ? (

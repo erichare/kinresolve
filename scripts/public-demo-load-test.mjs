@@ -58,6 +58,8 @@ export async function runPublicDemoLoadTest(
       throw new Error("The demo session-creation p95 exceeded five seconds.");
     }
 
+    await assertCapacityBoundary(configuration, fetchImplementation);
+
     const reads = await Promise.allSettled(cookies.flatMap((cookie) => [
       readSession(configuration, fetchImplementation, cookie),
       readGuidedPage(configuration, fetchImplementation, cookie)
@@ -81,6 +83,37 @@ export async function runPublicDemoLoadTest(
     if (cleanup.some(({ status }) => status === "rejected")) {
       throw new Error("The load gate could not clean up every disposable session.");
     }
+  }
+}
+
+async function assertCapacityBoundary(configuration, fetchImplementation) {
+  const response = await request(configuration, fetchImplementation, "/api/demo/sessions", {
+    body: JSON.stringify({ noticeVersion }),
+    method: "POST"
+  });
+  const retryAfter = response.headers.get("retry-after");
+  const setCookie = response.headers.get("set-cookie");
+  if (
+    response.status !== 429
+    || response.redirected
+    || response.headers.has("location")
+    || !retryAfter
+    || !/^\d+$/.test(retryAfter)
+    || Number(retryAfter) < 1
+    || setCookie !== null
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("The 26th demo start did not fail closed at capacity.");
+  }
+  const document = await boundedJson(response);
+  if (
+    document.maximumActiveSessions !== 25
+    || document.familyUrl !== "/family"
+    || document.challengeUrl !== "/challenge"
+    || typeof document.error !== "string"
+    || !document.error.includes("at capacity")
+  ) {
+    throw new Error("The capacity rejection did not include the safe fallback contract.");
   }
 }
 

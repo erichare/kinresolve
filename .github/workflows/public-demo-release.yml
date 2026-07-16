@@ -110,7 +110,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium webkit firefox
           npm install --global --ignore-scripts vercel@56.1.0
 
       - name: Reverify exact current main before protected configuration
@@ -219,7 +219,8 @@ jobs:
           }
           for (const name of [
             "AI_API_KEY", "AUTH_SECRET", "CRON_SECRET", "DATABASE_URL",
-            "KINRESOLVE_DEMO_CANARY_SECRET", "KINRESOLVE_DEMO_PRIVACY_HMAC_SECRET"
+            "KINRESOLVE_DEMO_CANARY_SECRET", "KINRESOLVE_DEMO_PRIVACY_HMAC_SECRET",
+            "KINRESOLVE_OBSERVABILITY_PROBE_SECRET"
           ]) {
             if (!process.env[name]?.trim()) process.exit(1);
           }
@@ -427,12 +428,24 @@ jobs:
           node --experimental-strip-types scripts/probe-vercel-candidate-protection.mjs
           "$RUNNER_TEMP/public-demo-candidate.json"
 
-      - name: Run the protected disposable public demo browser canary
+      - name: Prove protected public demo operational health on the candidate
+        env:
+          KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
+          PUBLIC_DEMO_ORIGIN: ${{ steps.candidate.outputs.deployment_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/public-demo-internal-health-monitor.mjs
+
+      - name: Run the protected cross-browser public demo canaries
         env:
           KINRESOLVE_DEMO_CANARY_SECRET: ${{ secrets.KINRESOLVE_DEMO_CANARY_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ steps.candidate.outputs.deployment_url }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-        run: node --experimental-strip-types scripts/public-demo-browser-canary.mjs
+        run: |
+          set -euo pipefail
+          for browser in chromium webkit firefox; do
+            KINRESOLVE_DEMO_BROWSER="$browser" \
+              node --experimental-strip-types scripts/public-demo-browser-canary.mjs
+          done
 
       - name: Prove 25-session capacity and five-second p95 on the held demo cell
         env:
@@ -466,6 +479,7 @@ jobs:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           CANDIDATE_DEPLOYMENT_ID: ${{ steps.candidate.outputs.deployment_id }}
           KINRESOLVE_DEMO_CANARY_SECRET: ${{ secrets.KINRESOLVE_DEMO_CANARY_SECRET }}
+          KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ vars.APP_BASE_URL }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -490,6 +504,7 @@ jobs:
             sleep 3
           done
           node --experimental-strip-types scripts/public-demo-monitor.mjs full
+          node --experimental-strip-types scripts/public-demo-internal-health-monitor.mjs
 
       - name: Roll back a failed promotion to the previously validated deployment
         id: rollback

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import axeCore from "axe-core";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 import { runPublicDemoMonitor } from "./public-demo-monitor.mjs";
 
@@ -8,57 +8,73 @@ const canonicalOrigin = "https://demo.kinresolve.com";
 const guidedPath = "/app/cases/case-mercer-march-identity?guide=1";
 const sessionCookieName = "__Host-kinresolve-demo";
 const timeoutMs = 30_000;
+const browserTypes = Object.freeze({ chromium, firefox, webkit });
 
 export async function runPublicDemoBrowserCanary(
   environment = process.env,
-  dependencies = { browserType: chromium, shallowMonitor: runPublicDemoMonitor, axeSource: axeCore.source }
+  dependencies = {
+    browserTypes,
+    shallowMonitor: runPublicDemoMonitor,
+    axeSource: axeCore.source
+  }
 ) {
   const configuration = resolveConfiguration(environment);
   await dependencies.shallowMonitor("shallow", environment);
 
-  const browserInstance = await dependencies.browserType.launch({ headless: true });
+  const browserType = dependencies.browserTypes[configuration.browserName];
+  if (!browserType) throw new Error("The requested public demo browser is unavailable.");
+  const browserInstance = await browserType.launch({ headless: true });
   let desktopContext;
   let mobileContext;
   let staleContext;
   try {
-    desktopContext = await browserInstance.newContext({
-      baseURL: configuration.origin,
+    await auditCapacityFallback(browserInstance, configuration, dependencies.axeSource);
+
+    desktopContext = await createContext(browserInstance, configuration, {
       viewport: { width: 1280, height: 900 }
     });
-    mobileContext = await browserInstance.newContext({
-      baseURL: configuration.origin,
-      isMobile: true,
-      viewport: { width: 390, height: 844 }
-    });
-    for (const context of [desktopContext, mobileContext]) {
-      context.setDefaultTimeout(timeoutMs);
-      context.setDefaultNavigationTimeout(timeoutMs);
-      await installProtectedCandidateRoute(context, configuration);
+    if (configuration.browserName !== "firefox") {
+      mobileContext = await createContext(browserInstance, configuration, {
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 390, height: 844 }
+      });
     }
 
-    const desktopPage = await desktopContext.newPage();
-    const mobilePage = await mobileContext.newPage();
-    await Promise.all([
-      startGuidedDemo(desktopPage, dependencies.axeSource, false),
-      startGuidedDemo(mobilePage, dependencies.axeSource, true)
-    ]);
+    const journeys = [
+      {
+        context: desktopContext,
+        mobile: false,
+        outcome: "found",
+        outcomeLabel: "Likely the same writer"
+      },
+      ...(mobileContext ? [{
+        context: mobileContext,
+        mobile: true,
+        outcome: "inconclusive",
+        outcomeLabel: "Not enough to decide"
+      }] : [])
+    ];
+    const pages = await Promise.all(journeys.map(async (journey) => {
+      const page = await journey.context.newPage();
+      await startGuidedDemo(page, dependencies.axeSource, journey.mobile);
+      await chooseOutcome(page, journey.outcomeLabel);
+      await auditAccessibility(page, dependencies.axeSource);
+      if (journey.mobile) await assertNoMobileOverflow(page);
+      await assertGuidedOutcome(journey.context, configuration, journey.outcome);
+      return { ...journey, page };
+    }));
 
-    await Promise.all([
-      chooseOutcome(desktopPage, "Likely the same writer"),
-      chooseOutcome(mobilePage, "Not enough to decide")
-    ]);
-    await Promise.all([
-      auditAccessibility(desktopPage, dependencies.axeSource),
-      auditAccessibility(mobilePage, dependencies.axeSource)
-    ]);
-    await assertNoMobileOverflow(mobilePage);
+    if (configuration.browserName !== "firefox") {
+      await Promise.all(pages.map(async ({ page, mobile }) => {
+        await runOptionalAiAndAudit(page, dependencies.axeSource);
+        await submitFeedbackAndAudit(page, dependencies.axeSource);
+        await exerciseBetaCta(page);
+        if (mobile) await assertNoMobileOverflow(page);
+      }));
+    }
 
-    await assertGuidedOutcome(desktopContext, configuration, "found");
-    await assertGuidedOutcome(mobileContext, configuration, "inconclusive");
-
-    await runOptionalAiAndAudit(desktopPage, dependencies.axeSource);
-    await openFeedbackAndAudit(desktopPage, dependencies.axeSource);
-
+    const desktopPage = pages[0].page;
     const staleCookie = await requireSessionCookie(desktopContext, configuration.origin);
     await activateByKeyboard(desktopPage, "Reset demo");
     await desktopPage.getByRole("group", { name: "Confirm demo reset" }).waitFor();
@@ -94,15 +110,16 @@ export async function runPublicDemoBrowserCanary(
     if (stale.status() !== 401 && stale.status() !== 403) {
       throw new Error("The stale browser credential remained authorized; expected 401 or 403.");
     }
-    await assertGuidedOutcome(mobileContext, configuration, "inconclusive");
+    if (mobileContext) {
+      await assertGuidedOutcome(mobileContext, configuration, "inconclusive");
+    }
   } finally {
-    const cleanup = await Promise.allSettled([
-      endContextSession(desktopContext, configuration),
-      endContextSession(mobileContext, configuration)
-    ]);
+    const sessionContexts = [desktopContext, mobileContext].filter(Boolean);
+    const cleanup = await Promise.allSettled(sessionContexts.map((context) => (
+      endContextSession(context, configuration)
+    )));
     await staleContext?.close().catch(() => undefined);
-    await desktopContext?.close().catch(() => undefined);
-    await mobileContext?.close().catch(() => undefined);
+    await Promise.allSettled(sessionContexts.map((context) => context.close()));
     await browserInstance.close().catch(() => undefined);
     if (cleanup.some(({ status }) => status === "rejected")) {
       throw new Error("The browser canary could not clean up every disposable session.");
@@ -110,9 +127,64 @@ export async function runPublicDemoBrowserCanary(
   }
 }
 
+async function createContext(browserInstance, configuration, options) {
+  const context = await browserInstance.newContext({
+    baseURL: configuration.origin,
+    ...options
+  });
+  context.setDefaultTimeout(timeoutMs);
+  context.setDefaultNavigationTimeout(timeoutMs);
+  await installProtectedCandidateRoute(context, configuration);
+  return context;
+}
+
+async function auditCapacityFallback(browserInstance, configuration, axeSource) {
+  const context = await createContext(browserInstance, configuration, {
+    hasTouch: true,
+    isMobile: configuration.browserName !== "firefox",
+    viewport: { width: 390, height: 844 }
+  });
+  try {
+    const page = await context.newPage();
+    await page.route("**/api/demo/sessions", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        body: JSON.stringify({
+          error: "The public demo is at capacity. Please try again shortly.",
+          maximumActiveSessions: 25,
+          familyUrl: "/family",
+          challengeUrl: "/challenge"
+        }),
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "application/json",
+          "retry-after": "300"
+        },
+        status: 429
+      });
+    });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await activateByKeyboard(page, "Start guided demo");
+    await page.getByRole("alert").getByText("The public demo is at capacity. Please try again shortly.").waitFor();
+    const family = page.getByRole("link", { name: "Explore the fictional family" });
+    const challenge = page.getByRole("link", { name: "Try the research challenge" });
+    if (await family.getAttribute("href") !== "/family" || await challenge.getAttribute("href") !== "/challenge") {
+      throw new Error("The capacity state did not expose only fixed safe fallbacks.");
+    }
+    await auditAccessibility(page, axeSource);
+    await assertNoMobileOverflow(page);
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+}
+
 async function startGuidedDemo(page, axeSource, mobile) {
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
   if (response?.status() !== 200) throw new Error("The demo landing page was unavailable.");
+  await page.getByRole("note").getByText("Safe, synthetic, and temporary.").waitFor();
   await page.getByRole("button", { name: "Start guided demo" }).waitFor();
   await auditAccessibility(page, axeSource);
   if (mobile) await assertNoMobileOverflow(page);
@@ -136,26 +208,74 @@ async function chooseOutcome(page, label) {
 
 async function runOptionalAiAndAudit(page, axeSource) {
   await activateByKeyboard(page, "Suggest the next three checks");
-  await page.locator(".demo-ai-result").waitFor();
+  await page.getByRole("article", { name: "Curated AI result" }).waitFor();
   await auditAccessibility(page, axeSource);
 }
 
-async function openFeedbackAndAudit(page, axeSource) {
+async function submitFeedbackAndAudit(page, axeSource) {
   await activateByKeyboard(page, "Share feedback");
-  await page.getByRole("radiogroup", { name: "Usefulness rating" }).waitFor();
+  const usefulness = page.getByRole("radiogroup", { name: "Usefulness rating" })
+    .getByRole("radio").last();
+  const clarity = page.getByRole("radiogroup", { name: "Clarity rating" })
+    .getByRole("radio").last();
+  const feature = page.getByLabel("What would you explore next?");
+  const betaInterest = page.getByRole("group", { name: "Interested in the private beta?" })
+    .getByRole("radio").first();
+  await activateLocatorByKeyboard(page, usefulness, "Space");
+  await activateLocatorByKeyboard(page, clarity, "Space");
+  await focusByKeyboard(page, feature);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await activateLocatorByKeyboard(page, betaInterest, "Space");
+  await activateByKeyboard(page, "Send ratings");
+  await page.getByText(
+    "Thanks—your ratings were saved without free-form text or contact details."
+  ).waitFor();
+  await page.getByRole("button", { name: "Feedback saved" }).waitFor();
   await auditAccessibility(page, axeSource);
+}
+
+async function exerciseBetaCta(page) {
+  const link = page.getByRole("link", { name: "Apply for the private beta" });
+  if (await link.getAttribute("href") !== "https://kinresolve.com/beta") {
+    throw new Error("The demo beta CTA destination changed.");
+  }
+  await link.evaluate((element) => {
+    element.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  });
+  const tracked = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === "/api/demo/events"
+      && response.request().method() === "POST"
+  ));
+  await activateLocatorByKeyboard(page, link, "Enter");
+  const response = await tracked;
+  let body;
+  try {
+    body = response.request().postDataJSON();
+  } catch {
+    throw new Error("The beta CTA analytics request was not fixed JSON.");
+  }
+  if (response.status() !== 202 || body?.eventName !== "beta_cta_clicked") {
+    throw new Error("The beta CTA fixed-schema event was not accepted.");
+  }
 }
 
 async function activateByKeyboard(page, accessibleName) {
   const target = page.getByRole("button", { name: accessibleName }).or(
     page.getByText(accessibleName, { exact: true })
   ).first();
+  await activateLocatorByKeyboard(page, target, "Enter");
+}
+
+async function activateLocatorByKeyboard(page, target, key) {
+  await focusByKeyboard(page, target);
+  await page.keyboard.press(key);
+}
+
+async function focusByKeyboard(page, target) {
   await target.waitFor();
-  for (let index = 0; index < 100; index += 1) {
-    if (await target.evaluate((element) => element === document.activeElement)) {
-      await page.keyboard.press("Enter");
-      return;
-    }
+  for (let index = 0; index < 240; index += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
     await page.keyboard.press("Tab");
   }
   throw new Error("The demo journey was not keyboard operable.");
@@ -278,8 +398,13 @@ function resolveConfiguration(environment) {
   if (origin !== canonicalOrigin && (!generatedCandidate || !bypassSecret)) {
     throw new Error("The browser canary origin is not an approved public demo deployment.");
   }
+  const browserName = environment.KINRESOLVE_DEMO_BROWSER ?? "chromium";
+  if (!Object.hasOwn(browserTypes, browserName)) {
+    throw new Error("KINRESOLVE_DEMO_BROWSER is invalid.");
+  }
   return Object.freeze({
     origin,
+    browserName,
     bypassSecret,
     canarySecret: requiredSecret(environment.KINRESOLVE_DEMO_CANARY_SECRET)
   });

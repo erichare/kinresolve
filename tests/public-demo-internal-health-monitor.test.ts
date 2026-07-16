@@ -33,7 +33,10 @@ describe("public demo protected internal-health monitor", () => {
 
   it("requires candidate protection and never sends credentials to another origin", async () => {
     const runMonitor = await loadMonitor();
-    const fetchImplementation = vi.fn(async () => healthyResponse());
+    const fetchImplementation = vi.fn(async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit
+    ) => healthyResponse());
 
     await expect(runMonitor({
       ...canonicalEnvironment,

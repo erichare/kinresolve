@@ -35,11 +35,13 @@ jobs:
 
       - name: Run the body-aware shallow monitor
         env:
+          KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ vars.APP_BASE_URL }}
         run: |
           set -euo pipefail
           test "$PUBLIC_DEMO_ORIGIN" = "https://demo.kinresolve.com"
           node --experimental-strip-types scripts/public-demo-monitor.mjs shallow
+          node --experimental-strip-types scripts/public-demo-internal-health-monitor.mjs
 
       - name: Signal a fixed-schema shallow monitor failure
         if: failure()
@@ -61,7 +63,7 @@ jobs:
     needs: shallow
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 */6 * * *'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     environment: demo-monitoring
     steps:
       - name: Check out the exact monitored main revision
