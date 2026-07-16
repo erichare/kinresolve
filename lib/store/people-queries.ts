@@ -2,7 +2,6 @@ import { query } from "../db";
 import type { PersonFact, PersonSummary } from "../models";
 import type { PeopleListItem, PeopleSearchFilters, PeopleSearchResult, PeopleSearchStats } from "../people-search";
 import { maximumPageSize, type PaginationInput } from "../pagination";
-import { canPublishPerson } from "../privacy";
 import { ensureWorkspaceProvisioned, getArchiveId, type WorkspaceStoreOptions } from "../workspace-store";
 
 // SQL-side people reads for the hot paths (people search, public archive
@@ -49,7 +48,6 @@ type PersonRow = {
   privacy: PersonSummary["privacy"];
   published: boolean;
   relatives: string[] | null;
-  notes: string | null;
   fact_count?: number;
 };
 
@@ -63,6 +61,18 @@ type FactRow = {
   source_text: string | null;
   privacy: PersonFact["privacy"] | null;
   confidence: string | number;
+};
+
+export type PublicPlaceProjection = {
+  name: string;
+  referenceCount: number;
+  personNames: string[];
+};
+
+type PublicPlaceRow = {
+  name: string;
+  reference_count: number;
+  person_names: string[];
 };
 
 export async function searchPeoplePageFromDb(
@@ -138,22 +148,38 @@ export async function searchPeoplePageFromDb(
   };
 }
 
-export async function listPublicPeople(options: WorkspaceStoreOptions = {}): Promise<PersonSummary[]> {
+export async function listPublicPeople(
+  options: WorkspaceStoreOptions & { archiveId: string }
+): Promise<PersonSummary[]> {
   await ensureWorkspaceProvisioned(options);
-  const archiveId = getArchiveId(options);
+  const archiveId = requireExplicitArchiveId(options);
 
   const peopleResult = await query<PersonRow>(
-    "SELECT * FROM people WHERE archive_id = $1 AND published ORDER BY sort_order ASC, display_name ASC",
+    `SELECT p.id, p.slug, p.display_name, p.given_name, p.surname, p.sex,
+       p.birth_date, p.birth_place, p.death_date, p.death_place,
+       p.living_status, p.privacy, p.published, ARRAY[]::text[] AS relatives
+     FROM people p
+     WHERE p.archive_id = $1
+       AND p.published
+       AND p.privacy = 'public'
+       AND p.living_status = 'deceased'
+     ORDER BY p.sort_order ASC, p.display_name ASC`,
     [archiveId],
     options
   );
-  const publishable = peopleResult.rows.map((row) => mapPerson(row, [])).filter(canPublishPerson);
+  const publishable = peopleResult.rows.map((row) => mapPerson(row, []));
   if (publishable.length === 0) {
     return [];
   }
 
   const factsResult = await query<FactRow>(
-    "SELECT * FROM person_facts WHERE archive_id = $1 AND person_id = ANY($2) ORDER BY sort_order ASC, id ASC",
+    `SELECT pf.id, pf.person_id, pf.fact_type, pf.date_text, pf.place_text,
+       pf.value_text, pf.source_text, pf.privacy, pf.confidence
+     FROM person_facts pf
+     WHERE pf.archive_id = $1
+       AND pf.person_id = ANY($2)
+       AND pf.privacy = 'public'
+     ORDER BY pf.sort_order ASC, pf.id ASC`,
     [archiveId, publishable.map((person) => person.id)],
     options
   );
@@ -168,13 +194,22 @@ export async function listPublicPeople(options: WorkspaceStoreOptions = {}): Pro
 
 export async function getPublicPersonBySlug(
   slug: string,
-  options: WorkspaceStoreOptions = {}
+  options: WorkspaceStoreOptions & { archiveId: string }
 ): Promise<{ person: PersonSummary; publishedRelatives: PersonSummary[] } | undefined> {
   await ensureWorkspaceProvisioned(options);
-  const archiveId = getArchiveId(options);
+  const archiveId = requireExplicitArchiveId(options);
 
   const personResult = await query<PersonRow>(
-    "SELECT * FROM people WHERE archive_id = $1 AND slug = $2 AND published LIMIT 1",
+    `SELECT p.id, p.slug, p.display_name, p.given_name, p.surname, p.sex,
+       p.birth_date, p.birth_place, p.death_date, p.death_place,
+       p.living_status, p.privacy, p.published, ARRAY[]::text[] AS relatives
+     FROM people p
+     WHERE p.archive_id = $1
+       AND p.slug = $2
+       AND p.published
+       AND p.privacy = 'public'
+       AND p.living_status = 'deceased'
+     LIMIT 1`,
     [archiveId, slug],
     options
   );
@@ -184,39 +219,85 @@ export async function getPublicPersonBySlug(
   }
 
   const withoutFacts = mapPerson(row, []);
-  if (!canPublishPerson(withoutFacts)) {
-    return undefined;
-  }
 
   const factsResult = await query<FactRow>(
-    "SELECT * FROM person_facts WHERE archive_id = $1 AND person_id = $2 ORDER BY sort_order ASC, id ASC",
+    `SELECT pf.id, pf.person_id, pf.fact_type, pf.date_text, pf.place_text,
+       pf.value_text, pf.source_text, pf.privacy, pf.confidence
+     FROM person_facts pf
+     WHERE pf.archive_id = $1
+       AND pf.person_id = $2
+       AND pf.privacy = 'public'
+     ORDER BY pf.sort_order ASC, pf.id ASC`,
     [archiveId, withoutFacts.id],
     options
   );
-  const person = { ...withoutFacts, facts: factsResult.rows.map(mapFact) };
-
-  // Relative cards only render name and slug, so their facts stay unloaded.
-  // Order follows the person's relatives array (import order), matching the
-  // previous in-memory rendering.
-  let publishedRelatives: PersonSummary[] = [];
-  if (person.relatives.length > 0) {
-    const relativeRows = await query<PersonRow>(
-      "SELECT * FROM people WHERE archive_id = $1 AND id = ANY($2) AND published",
-      [archiveId, person.relatives],
-      options
-    );
-    const relativesById = new Map(relativeRows.rows.map((row) => [row.id, mapPerson(row, [])]));
-    publishedRelatives = person.relatives
-      .map((relativeId) => relativesById.get(relativeId))
-      .filter((relative): relative is PersonSummary => Boolean(relative) && canPublishPerson(relative as PersonSummary));
-  }
+  const relativeRows = await query<PersonRow>(
+    `SELECT relative_person.id, relative_person.slug, relative_person.display_name, relative_person.given_name,
+       relative_person.surname, relative_person.sex, relative_person.birth_date, relative_person.birth_place,
+       relative_person.death_date, relative_person.death_place, relative_person.living_status,
+       relative_person.privacy, relative_person.published, ARRAY[]::text[] AS relatives
+     FROM people subject
+     CROSS JOIN LATERAL unnest(subject.relatives) WITH ORDINALITY AS link(relative_id, position)
+     JOIN people relative_person
+       ON relative_person.archive_id = subject.archive_id
+      AND relative_person.id = link.relative_id
+     WHERE subject.archive_id = $1
+       AND subject.id = $2
+       AND relative_person.published
+       AND relative_person.privacy = 'public'
+       AND relative_person.living_status = 'deceased'
+     ORDER BY link.position ASC`,
+    [archiveId, withoutFacts.id],
+    options
+  );
+  const publishedRelatives = relativeRows.rows.map((relative) => mapPerson(relative, []));
+  const person = {
+    ...withoutFacts,
+    facts: factsResult.rows.map(mapFact),
+    relatives: publishedRelatives.map((relative) => relative.id)
+  };
 
   return { person, publishedRelatives };
 }
 
-export async function readArchiveBranding(options: WorkspaceStoreOptions = {}): Promise<{ name: string; tagline: string }> {
+export async function listPublicPlaces(
+  options: WorkspaceStoreOptions & { archiveId: string }
+): Promise<PublicPlaceProjection[]> {
   await ensureWorkspaceProvisioned(options);
-  const archiveId = getArchiveId(options);
+  const archiveId = requireExplicitArchiveId(options);
+
+  const result = await query<PublicPlaceRow>(
+    `SELECT pf.place_text AS name,
+       count(*)::int AS reference_count,
+       array_agg(DISTINCT p.display_name ORDER BY p.display_name) AS person_names
+     FROM people p
+     JOIN person_facts pf
+       ON pf.archive_id = p.archive_id
+      AND pf.person_id = p.id
+     WHERE p.archive_id = $1
+       AND p.published
+       AND p.privacy = 'public'
+       AND p.living_status = 'deceased'
+       AND pf.privacy = 'public'
+       AND nullif(btrim(pf.place_text), '') IS NOT NULL
+     GROUP BY pf.place_text
+     ORDER BY pf.place_text ASC`,
+    [archiveId],
+    options
+  );
+
+  return result.rows.map((row) => ({
+    name: row.name,
+    referenceCount: row.reference_count,
+    personNames: row.person_names
+  }));
+}
+
+export async function readArchiveBranding(
+  options: WorkspaceStoreOptions & { archiveId: string }
+): Promise<{ name: string; tagline: string }> {
+  await ensureWorkspaceProvisioned(options);
+  const archiveId = requireExplicitArchiveId(options);
 
   const result = await query<{ name: string; tagline: string }>(
     "SELECT name, tagline FROM archives WHERE id = $1",
@@ -327,9 +408,16 @@ function mapPerson(row: PersonRow, facts: PersonFact[]): PersonSummary {
     privacy: row.privacy,
     published: row.published,
     facts,
-    relatives: row.relatives ?? [],
-    notes: row.notes ?? undefined
+    relatives: row.relatives ?? []
   };
+}
+
+function requireExplicitArchiveId(options: WorkspaceStoreOptions & { archiveId: string }): string {
+  const archiveId = options.archiveId?.trim();
+  if (!archiveId) {
+    throw new Error("Public archive queries require an explicit archiveId.");
+  }
+  return archiveId;
 }
 
 function mapFact(row: FactRow): PersonFact {

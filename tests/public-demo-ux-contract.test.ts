@@ -9,6 +9,7 @@ const publicDemoEnvironment = {
   KINRESOLVE_DATASET_MODE: "demo",
   KINRESOLVE_PUBLIC_DEMO_ENABLED: "true",
   KINRESOLVE_PUBLIC_DEMO_ORIGIN: "https://demo.kinresolve.com",
+  APP_BASE_URL: "https://demo.kinresolve.com",
   KINRESOLVE_DNA_ENABLED: "true",
   KINRESOLVE_EXTERNAL_AI_ENABLED: "true",
   KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "true",

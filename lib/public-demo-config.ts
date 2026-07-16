@@ -12,6 +12,7 @@ export type PublicDemoConfiguration = {
 };
 
 const canonicalPublicDemoOrigin = "https://demo.kinresolve.com" as const;
+export const publicDemoCanonicalArchiveId = "kinresolve-demo-public" as const;
 
 const policy = {
   sessionDurationSeconds: 86_400,
@@ -42,6 +43,12 @@ export function resolvePublicDemoConfiguration(
   if (origin !== canonicalPublicDemoOrigin) {
     throw new Error(
       `KINRESOLVE_PUBLIC_DEMO_ORIGIN must be exactly ${canonicalPublicDemoOrigin} when the public demo is enabled.`
+    );
+  }
+  const appBaseUrl = environment.APP_BASE_URL?.trim();
+  if (appBaseUrl !== canonicalPublicDemoOrigin) {
+    throw new Error(
+      `APP_BASE_URL must be exactly ${canonicalPublicDemoOrigin} when the public demo is enabled.`
     );
   }
 

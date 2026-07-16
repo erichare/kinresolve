@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 
 describe("disabled public archive page boundary", () => {
   it.each([
-    ["app/page.tsx", "readWorkspace()"],
-    ["app/people/page.tsx", "Promise.all([readArchiveBranding()"],
+    ["app/page.tsx", "publicDemoEnabled()"],
+    ["app/people/page.tsx", "resolvePublicArchiveId()"],
     ["app/people/[slug]/page.tsx", "await params"],
-    ["app/places/page.tsx", "readWorkspace()"],
+    ["app/places/page.tsx", "resolvePublicArchiveId()"],
     ["app/stories/page.tsx", "return ("],
     ["app/kinsleuth/page.tsx", "return ("]
   ] as const)("guards %s before route work", async (file, workMarker) => {

@@ -1,4 +1,8 @@
 import { resolveHostedCapabilities } from "./hosted-capabilities";
+import {
+  publicDemoCanonicalArchiveId,
+  resolvePublicDemoConfiguration
+} from "./public-demo-config";
 
 type Environment = Record<string, string | undefined>;
 
@@ -17,4 +21,12 @@ export function publicArchiveEnabled(environment: Environment = process.env): bo
   } catch {
     return false;
   }
+}
+
+export function resolvePublicArchiveId(environment: Environment = process.env): string {
+  if (resolvePublicDemoConfiguration(environment).enabled) {
+    return publicDemoCanonicalArchiveId;
+  }
+
+  return environment.KINSLEUTH_ARCHIVE_ID?.trim() || "archive-default";
 }

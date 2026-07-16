@@ -60,6 +60,11 @@ const accentedGedcom = [
 async function seededWorkspace() {
   await applyGedcomImport({ sourceName: "accented.ged", content: accentedGedcom }, storeOptions);
   await updatePersonCuration("@I1@", { published: true, privacy: "public", livingStatus: "deceased" }, storeOptions);
+  await query(
+    "UPDATE person_facts SET privacy = 'public' WHERE archive_id = $1 AND person_id = $2",
+    [storeOptions.archiveId, "@I1@"],
+    storeOptions
+  );
   await updatePersonCuration("@I2@", { privacy: "sensitive", livingStatus: "living" }, storeOptions);
   return readWorkspace(storeOptions);
 }

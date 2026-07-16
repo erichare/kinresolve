@@ -5,11 +5,10 @@ import { DemoStartForm } from "@/components/demo-start-form";
 import { Icons } from "@/components/icons";
 import { PublicShell } from "@/components/public-shell";
 import { Status, TableScroll } from "@/components/ui";
-import { canPublishPerson, publicFactFilter } from "@/lib/privacy";
 import { publicDemoGuidedCaseTitle } from "@/lib/public-demo-contract";
 import { publicDemoEnabled } from "@/lib/public-demo-config";
-import { privateWorkspaceLoginPath, publicArchiveEnabled } from "@/lib/public-surface";
-import { readWorkspace } from "@/lib/workspace-store";
+import { privateWorkspaceLoginPath, publicArchiveEnabled, resolvePublicArchiveId } from "@/lib/public-surface";
+import { listPublicPeople, readArchiveBranding } from "@/lib/store/people-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -20,26 +19,29 @@ export default async function HomePage() {
   if (publicDemoEnabled()) {
     return <PublicDemoLanding />;
   }
-  const workspace = await readWorkspace();
-  const publishedPeople = workspace.people
-    .filter((person) => person.published && canPublishPerson(person))
+  const publicArchiveId = resolvePublicArchiveId();
+  const archiveOptions = { archiveId: publicArchiveId };
+  const [branding, publicPeople] = await Promise.all([
+    readArchiveBranding(archiveOptions),
+    listPublicPeople(archiveOptions)
+  ]);
+  const publishedPeople = publicPeople
     .map((person) => {
-      const publicFacts = person.facts.filter(publicFactFilter);
       return {
         person,
-        publicFacts,
-        publicBirth: publicFacts.find((fact) => fact.type.toUpperCase() === "BIRT" || fact.type.toLowerCase() === "birth")
+        publicFacts: person.facts,
+        publicBirth: person.facts.find((fact) => fact.type.toUpperCase() === "BIRT" || fact.type.toLowerCase() === "birth")
       };
     });
   const publishedFactCount = publishedPeople.reduce((total, { publicFacts }) => total + publicFacts.length, 0);
 
   return (
-    <PublicShell active="/" tagline={workspace.archiveTagline}>
+    <PublicShell active="/" tagline={branding.tagline}>
       <div className="page-wrap">
         <section className="hero">
           <div>
             <span className="eyebrow">Public family archive</span>
-            <h1>{workspace.archiveName}</h1>
+            <h1>{branding.name}</h1>
             <p>A family-history archive for profiles explicitly published after person-level privacy checks. Private research, DNA triage, and living-person details stay in the signed-in workspace.</p>
             <p className="fiction-disclosure" role="note">
               <strong>Fictional demo universe.</strong> Every demo name, date, place, record, photograph, story, and DNA match is invented. No real family data is used in the Hartwell–Mercer examples.

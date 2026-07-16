@@ -5,15 +5,19 @@ const canonicalPublicArchiveId = "kinresolve-demo-public";
 
 describe("public archive route projections", () => {
   it("binds every database-backed public route to the explicit canonical archive", async () => {
-    const [home, people, person, places, config] = await Promise.all([
+    const [home, people, person, places, config, publicSurface] = await Promise.all([
       source("app/page.tsx"),
       source("app/people/page.tsx"),
       source("app/people/[slug]/page.tsx"),
       source("app/places/page.tsx"),
-      source("lib/public-demo-config.ts")
+      source("lib/public-demo-config.ts"),
+      source("lib/public-surface.ts")
     ]);
 
     expect(config).toContain(`publicDemoCanonicalArchiveId = "${canonicalPublicArchiveId}"`);
+    expect(publicSurface).toMatch(/resolvePublicArchiveId/);
+    expect(publicSurface).toMatch(/resolvePublicDemoConfiguration\(environment\)\.enabled/);
+    expect(publicSurface).toMatch(/return publicDemoCanonicalArchiveId/);
 
     for (const [path, route] of [
       ["app/page.tsx", home],
@@ -21,8 +25,9 @@ describe("public archive route projections", () => {
       ["app/people/[slug]/page.tsx", person],
       ["app/places/page.tsx", places]
     ] as const) {
-      expect(route, path).toContain("publicDemoCanonicalArchiveId");
-      expect(route, path).toMatch(/archiveId:\s*publicDemoCanonicalArchiveId/);
+      expect(route, path).toContain("resolvePublicArchiveId");
+      expect(route, path).toMatch(/const publicArchiveId = resolvePublicArchiveId\(\)/);
+      expect(route, path).toMatch(/archiveId:\s*publicArchiveId/);
       expect(route, path).not.toMatch(/readWorkspace\s*\(\s*\)/);
     }
   });
@@ -33,7 +38,8 @@ describe("public archive route projections", () => {
       source("lib/store/people-queries.ts")
     ]);
 
-    expect(places).toMatch(/listPublicPlaces\s*\(\s*\{\s*archiveId:\s*publicDemoCanonicalArchiveId\s*\}\s*\)/s);
+    expect(places).toMatch(/const archiveOptions = \{ archiveId: publicArchiveId \}/);
+    expect(places).toMatch(/listPublicPlaces\(archiveOptions\)/);
     expect(places).not.toMatch(/readWorkspace|canPublishPerson|publicFactFilter/);
 
     const projection = exportedFunction(queries, "listPublicPlaces");
