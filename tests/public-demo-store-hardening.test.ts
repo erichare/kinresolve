@@ -46,6 +46,47 @@ describe("public demo lifecycle hardening", () => {
       start.indexOf("consumePublicDemoNetworkRateLimit")
     );
   });
+
+  it("reserves a reset generation before provisioning and fails the reservation on error", async () => {
+    const reset = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function resetPublicDemoSession",
+      "export async function endPublicDemoSession"
+    );
+
+    const reserve = reset.indexOf("INSERT INTO public.public_demo_generations");
+    const provision = reset.indexOf("provisionArchive");
+    expect(reserve).toBeGreaterThan(-1);
+    expect(reserve).toBeLessThan(provision);
+    expect(reset).toMatch(/public_demo_generations[\s\S]*'provisioning'/);
+    expect(reset).toMatch(/SET state = 'failed'[\s\S]*state = 'provisioning'/);
+    expect(reset).toMatch(/SET state = 'active'[\s\S]*generation/);
+  });
+
+  it("deletes archives only after checking fixture mode, generation state, and live references", async () => {
+    const remove = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "async function deletePublicDemoArchive",
+      "function publicDemoArchiveId"
+    );
+
+    expect(remove).toMatch(/dataset_mode\s*=\s*'demo'/);
+    expect(remove).toMatch(/state IN \('retired', 'failed'\)/);
+    expect(remove).toMatch(/status IN \('active', 'provisioning'\)/);
+    expect(remove).toContain("FOR UPDATE");
+  });
+
+  it("records cleanup completion only on success and persists a failure timestamp", async () => {
+    const cleanup = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function cleanupPublicDemoSessions",
+      "async function activateProvisionedSession"
+    );
+
+    expect(cleanup).toContain("last_cleanup_failed_at");
+    expect(cleanup).toMatch(/last_cleanup_completed_at\s*=\s*clock_timestamp\(\)/);
+    expect(cleanup).not.toMatch(/finally[\s\S]*last_cleanup_completed_at\s*=\s*\$[0-9]+/);
+  });
 });
 
 async function functionSource(relativePath: string, start: string, end: string): Promise<string> {

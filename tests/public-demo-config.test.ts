@@ -7,7 +7,8 @@ const enabledDemoEnvironment = {
   KINRESOLVE_DEPLOYMENT_MODE: "hosted",
   KINRESOLVE_DATASET_MODE: "demo",
   KINRESOLVE_PUBLIC_DEMO_ENABLED: "true",
-  KINRESOLVE_PUBLIC_DEMO_ORIGIN: "https://demo.kinresolve.com"
+  KINRESOLVE_PUBLIC_DEMO_ORIGIN: "https://demo.kinresolve.com",
+  APP_BASE_URL: "https://demo.kinresolve.com"
 } as const;
 
 describe("public demo runtime configuration", () => {
@@ -58,6 +59,14 @@ describe("public demo runtime configuration", () => {
     {
       name: "missing origin",
       environment: { ...enabledDemoEnvironment, KINRESOLVE_PUBLIC_DEMO_ORIGIN: "" }
+    },
+    {
+      name: "non-canonical app base URL",
+      environment: { ...enabledDemoEnvironment, APP_BASE_URL: "https://candidate-team.vercel.app" }
+    },
+    {
+      name: "missing app base URL",
+      environment: { ...enabledDemoEnvironment, APP_BASE_URL: "" }
     }
   ])("rejects an enabled public demo with $name", ({ environment }) => {
     expect(() => resolvePublicDemoConfiguration(environment)).toThrow(/public demo|KINRESOLVE_PUBLIC_DEMO/i);

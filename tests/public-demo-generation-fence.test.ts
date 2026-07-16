@@ -36,6 +36,27 @@ describe("public demo generation fencing", () => {
     expect(reserve).toMatch(/archive_id = \$[0-9]+/);
     expect(reserve).toMatch(/generation = \$[0-9]+/);
   });
+
+  it("persists the AI attempt generation and keeps the lease beyond the provider timeout", async () => {
+    const migration = await source("db/migrations/018_public_demo.sql");
+    const store = await source("lib/public-demo-session-store.ts");
+    const reserve = store.slice(
+      store.indexOf("export async function reservePublicDemoAiAttempt"),
+      store.indexOf("export async function completePublicDemoAiAttempt")
+    );
+    const complete = store.slice(
+      store.indexOf("export async function completePublicDemoAiAttempt"),
+      store.indexOf("export async function readPublicDemoDiagnostics")
+    );
+
+    expect(migration).toMatch(/CREATE TABLE public\.public_demo_ai_attempts[\s\S]*archive_id text NOT NULL[\s\S]*generation integer NOT NULL/);
+    expect(reserve).toMatch(/INSERT INTO public\.public_demo_ai_attempts[\s\S]*archive_id[\s\S]*generation/);
+    expect(reserve).toMatch(/interval '30 seconds'/);
+    expect(complete).toContain("archiveId: string");
+    expect(complete).toContain("generation: number");
+    expect(complete).toMatch(/archive_id = \$[0-9]+/);
+    expect(complete).toMatch(/generation = \$[0-9]+/);
+  });
 });
 
 function source(relativePath: string): Promise<string> {

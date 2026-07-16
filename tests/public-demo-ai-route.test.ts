@@ -6,7 +6,12 @@ const mocks = vi.hoisted(() => ({
   recordPublicDemoEvent: vi.fn(),
   reservePublicDemoAiAttempt: vi.fn(),
   runAIAnalysis: vi.fn(),
-  saveAIAnalysisRun: vi.fn()
+  saveAIAnalysisRun: vi.fn(),
+  admissionErrorCode: vi.fn((error: unknown) => (
+    error && typeof error === "object" && "code" in error
+      ? (error as { code: string }).code
+      : null
+  ))
 }));
 
 vi.mock("@/lib/api-authorization", () => ({
@@ -31,6 +36,7 @@ vi.mock("@/lib/hosted-capabilities", () => ({
 }));
 vi.mock("@/lib/public-demo-session-store", () => ({
   completePublicDemoAiAttempt: mocks.completePublicDemoAiAttempt,
+  publicDemoAiAdmissionErrorCode: mocks.admissionErrorCode,
   recordPublicDemoEvent: mocks.recordPublicDemoEvent,
   reservePublicDemoAiAttempt: mocks.reservePublicDemoAiAttempt
 }));
@@ -141,8 +147,11 @@ describe("POST /api/demo/ai", () => {
       }
     );
     expect(mocks.completePublicDemoAiAttempt).toHaveBeenCalledWith({
+      archiveId: "demo-archive-alpha",
       attemptId: "22222222-2222-4222-8222-222222222222",
-      outcome: "completed"
+      generation: 1,
+      outcome: "completed",
+      sessionId: "11111111-1111-4111-8111-111111111111"
     });
   });
 
@@ -168,9 +177,44 @@ describe("POST /api/demo/ai", () => {
     expect(serialized).toContain("Safe deterministic fictional analysis.");
     expect(serialized).not.toMatch(/provider-private-diagnostic|private-provider\.example/);
     expect(mocks.completePublicDemoAiAttempt).toHaveBeenCalledWith({
+      archiveId: "demo-archive-alpha",
       attemptId: "22222222-2222-4222-8222-222222222222",
-      outcome: "failed"
+      generation: 1,
+      outcome: "failed",
+      sessionId: "11111111-1111-4111-8111-111111111111"
     });
+  });
+
+  it("returns 503 for an unexpected reservation failure instead of mislabeling it as a quota", async () => {
+    mocks.reservePublicDemoAiAttempt.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const response = await POST(request({
+      caseId: "case-mercer-march-identity",
+      questionId: "case_next_steps"
+    }));
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+    await expect(response.json()).resolves.toEqual({
+      error: "The curated AI demo is temporarily unavailable."
+    });
+  });
+
+  it.each([
+    ["session-limit", 429, "0"],
+    ["global-concurrency", 429, "5"],
+    ["global-daily", 429, "3600"],
+    ["session-stale", 409, null]
+  ])("maps the typed %s admission outcome", async (code, status, retryAfter) => {
+    mocks.reservePublicDemoAiAttempt.mockRejectedValueOnce(Object.assign(new Error(code), { code }));
+
+    const response = await POST(request({
+      caseId: "case-mercer-march-identity",
+      questionId: "case_next_steps"
+    }));
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("retry-after")).toBe(retryAfter);
   });
 });
 

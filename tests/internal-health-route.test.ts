@@ -200,6 +200,37 @@ describe("GET /api/internal/health", () => {
     expect(body.jobLag).toBeNull();
     expect(JSON.stringify(body)).not.toMatch(/database-private-marker|private-password|db\.internal/);
   });
+
+  it.each([
+    {
+      name: "missing cleanup completion",
+      diagnostics: { lastCompletedAt: null, staleProvisioning: 0 }
+    },
+    {
+      name: "stale cleanup completion",
+      diagnostics: { lastCompletedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(), staleProvisioning: 0 }
+    },
+    {
+      name: "stale provisioning",
+      diagnostics: { lastCompletedAt: new Date().toISOString(), staleProvisioning: 1 }
+    }
+  ])("degrades protected health for $name", async ({ diagnostics }) => {
+    mocks.authenticate.mockReturnValue(true);
+    mocks.readPublicDemoDiagnostics.mockResolvedValue({
+      capacity: { active: 0, maximum: 25, provisioning: 0, available: 25 },
+      cleanup: {
+        leaseHeld: false,
+        lastStartedAt: diagnostics.lastCompletedAt,
+        lastCompletedAt: diagnostics.lastCompletedAt,
+        staleProvisioning: diagnostics.staleProvisioning
+      },
+      ai: { maximumConcurrent: 5, maximumDaily: 150, usedToday: 0, running: 0 }
+    });
+
+    const response = await GET(probeRequest);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ status: "degraded" });
+  });
 });
 
 function runtimeStatus() {

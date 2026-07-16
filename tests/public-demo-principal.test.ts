@@ -34,6 +34,7 @@ describe("discriminated public demo request principal", () => {
     vi.stubEnv("KINRESOLVE_DATASET_MODE", "demo");
     vi.stubEnv("KINRESOLVE_PUBLIC_DEMO_ENABLED", "true");
     vi.stubEnv("KINRESOLVE_PUBLIC_DEMO_ORIGIN", "https://demo.kinresolve.com");
+    vi.stubEnv("APP_BASE_URL", "https://demo.kinresolve.com");
   });
 
   afterEach(() => {
@@ -104,5 +105,12 @@ describe("discriminated public demo request principal", () => {
     expect(roleDeclaration).toContain('"owner"');
     expect(roleDeclaration).toContain('"viewer"');
     expect(roleDeclaration).not.toContain("demo-guest");
+  });
+
+  it("authenticates demo guests only through the fail-closed hosted-demo resolver", async () => {
+    const authSession = await readFile(path.join(process.cwd(), "lib/auth-session.ts"), "utf8");
+
+    expect(authSession).toContain("resolvePublicDemoConfiguration");
+    expect(authSession).not.toMatch(/process\.env\.KINRESOLVE_PUBLIC_DEMO_ENABLED\s*===\s*["']true["']/);
   });
 });
