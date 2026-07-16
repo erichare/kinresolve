@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   getArchiveId: vi.fn(),
   getRuntimeStatus: vi.fn(),
   isRuntimeReady: vi.fn(),
+  publicDemoEnabled: vi.fn(),
+  readPublicDemoDiagnostics: vi.fn(),
   readJobLagHealth: vi.fn(),
   readWorkerFreshness: vi.fn()
 }));
@@ -19,6 +21,12 @@ vi.mock("@/lib/runtime-status", () => ({
 vi.mock("@/lib/beta-operations", () => ({
   readJobLagHealth: mocks.readJobLagHealth,
   readWorkerFreshness: mocks.readWorkerFreshness
+}));
+vi.mock("@/lib/public-demo-config", () => ({
+  publicDemoEnabled: mocks.publicDemoEnabled
+}));
+vi.mock("@/lib/public-demo-session-store", () => ({
+  readPublicDemoDiagnostics: mocks.readPublicDemoDiagnostics
 }));
 vi.mock("@/lib/workspace-store", () => ({
   getArchiveId: mocks.getArchiveId
@@ -38,6 +46,26 @@ beforeEach(() => {
   mocks.getArchiveId.mockReturnValue("pilot-archive");
   mocks.getRuntimeStatus.mockResolvedValue(runtimeStatus());
   mocks.isRuntimeReady.mockReturnValue(true);
+  mocks.publicDemoEnabled.mockReturnValue(true);
+  mocks.readPublicDemoDiagnostics.mockResolvedValue({
+    capacity: {
+      active: 3,
+      maximum: 25,
+      occupied: 4,
+      provisioning: 1
+    },
+    cleanup: {
+      freshness: "healthy",
+      lastCompletedAt: "2026-07-16T15:55:00.000Z"
+    },
+    staleProvisioning: 0,
+    aiBudget: {
+      concurrentLimit: 5,
+      dailyLimit: 150,
+      dailyUsed: 12,
+      running: 1
+    }
+  });
   mocks.readWorkerFreshness.mockResolvedValue([
     {
       workerKind: "integration-jobs",
@@ -71,6 +99,7 @@ describe("GET /api/internal/health", () => {
     await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
     expect(mocks.getRuntimeStatus).not.toHaveBeenCalled();
     expect(mocks.getArchiveId).not.toHaveBeenCalled();
+    expect(mocks.readPublicDemoDiagnostics).not.toHaveBeenCalled();
     expect(mocks.readWorkerFreshness).not.toHaveBeenCalled();
     expect(mocks.readJobLagHealth).not.toHaveBeenCalled();
   });
@@ -119,6 +148,25 @@ describe("GET /api/internal/health", () => {
         recentFailedCount: 0,
         recentFailedCountCapped: false,
         freshness: "healthy"
+      },
+      publicDemo: {
+        capacity: {
+          active: 3,
+          maximum: 25,
+          occupied: 4,
+          provisioning: 1
+        },
+        cleanup: {
+          freshness: "healthy",
+          lastCompletedAt: "2026-07-16T15:55:00.000Z"
+        },
+        staleProvisioning: 0,
+        aiBudget: {
+          concurrentLimit: 5,
+          dailyLimit: 150,
+          dailyUsed: 12,
+          running: 1
+        }
       }
     });
     expect(mocks.readWorkerFreshness).toHaveBeenCalledExactlyOnceWith({
@@ -127,6 +175,7 @@ describe("GET /api/internal/health", () => {
     expect(mocks.readJobLagHealth).toHaveBeenCalledExactlyOnceWith({
       archiveId: "pilot-archive"
     });
+    expect(mocks.readPublicDemoDiagnostics).toHaveBeenCalledOnce();
     expect(JSON.stringify(body)).not.toMatch(
       /database-private-marker|archiveName|archiveTagline|archiveCount|peopleCount|caseCount|aiRunCount|baseUrl|chatModel|embeddingModel/
     );
