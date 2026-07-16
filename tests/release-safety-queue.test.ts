@@ -232,6 +232,27 @@ describe("release safety queue", () => {
     }))).toEqual({ safe: true, issues: [] });
   });
 
+  it("requires the exact holding-safety receipt for a failed public-demo holding attempt", () => {
+    const failed = run({
+      id: 813,
+      conclusion: "failure",
+      display_title: "Kin Resolve static holding public-demo run 813 attempt 1"
+    });
+    expect(assessReleaseSafetyQueue(input({ holdingRuns: list(failed) }))).toMatchObject({
+      safe: false,
+      issues: [expect.objectContaining({ source: "holding", runId: "813", runAttempt: "1" })]
+    });
+    const receipt = run({
+      id: 913,
+      event: "workflow_run",
+      display_title: "Repair holding run 813 attempt 1"
+    });
+    expect(assessReleaseSafetyQueue(input({
+      holdingRuns: list(failed),
+      holdingSafetyRuns: list(receipt)
+    }))).toEqual({ safe: true, issues: [] });
+  });
+
   it("includes earlier attempts when the current workflow is a holding deployment", () => {
     const priorHoldingAttempt = boundSourceRun("holding", 820, 1, {
       conclusion: "cancelled",

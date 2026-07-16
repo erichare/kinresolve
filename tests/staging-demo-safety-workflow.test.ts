@@ -15,8 +15,7 @@ describe("staging demo automatic safety workflow", () => {
     expect(contents).toContain('test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/staging-demo-session.yml"');
     expect(contents).toContain('test "$SOURCE_EVENT" = "workflow_dispatch"');
     expect(contents).toContain('test "$SOURCE_HEAD_BRANCH" = "main"');
-    expect(contents).toContain("group: kinresolve-beta-staging-demo-safety");
-    expect(contents).not.toContain("group: kinresolve-beta-release\n");
+    expect(contents).toContain("group: kinresolve-public-demo-release");
     expect(contents).toContain("environment: beta-staging-containment");
     const authorize = contents.slice(contents.indexOf("  authorize:"), contents.indexOf("  close:"));
     expect(authorize).not.toMatch(/^    environment:/m);
