@@ -15,12 +15,12 @@ Use `npm run dev` for local development. The production repository also exposes 
 
 ## Deployment
 
-The site is linked to the isolated Vercel project `kinresolve-marketing`; it does not share the product project. `kinresolve.com` is live and `www.kinresolve.com` redirects to the apex. `app.kinresolve.com` is not configured yet.
+The site is linked to the isolated Vercel project `kinresolve-marketing`; it does not share the product project. `kinresolve.com` is live and `www.kinresolve.com` redirects to the apex. `app.kinresolve.com` is configured separately and currently serves the verified zero-runtime product holding page, not the Kin Resolve runtime.
 
 - Pull requests verify the portable static artifact but never receive deployment credentials.
 - Standalone preview and production deployments are manual, main-only runs of `.github/workflows/site-deploy.yml`; they are hard-bound to prelaunch claims. Hosted-live claims publish only from the product release workflow after its production evidence gates pass.
-- The workflow uses `VERCEL_TOKEN` and `VERCEL_ORG_ID` secrets plus the `MARKETING_VERCEL_PROJECT_ID` repository variable.
-- Cloudflare DNS remains outside the workflow. Marketing DNS is live; the future `app.kinresolve.com` record requires separate owner approval after product candidate, TLS, auth, and rollback checks.
+- The workflow reads `VERCEL_TOKEN` and `VERCEL_ORG_ID` secrets plus the `MARKETING_VERCEL_PROJECT_ID` variable only from its selected `preview` or `production` GitHub environment; these values are not repository-wide.
+- Cloudflare DNS remains outside the workflow. Marketing and product DNS are live, while the product hostname stays pinned to the approved holding deployment until the protected runtime release gates pass.
 
 The default beta form remains the verified native `mailto:` fallback. Set
 `KINRESOLVE_MARKETING_BETA_APPLICATION_MODE=application` at build time only after
