@@ -115,9 +115,12 @@ describe("public demo monitor", () => {
       PUBLIC_DEMO_ORIGIN: "https://candidate-team.vercel.app",
       VERCEL_AUTOMATION_BYPASS_SECRET: "v".repeat(43)
     }, fetchImplementation)).resolves.toMatchObject({ mode: "shallow" });
-    expect(new Headers(fetchImplementation.mock.calls.at(-1)?.[1]?.headers).get(
-      "x-vercel-protection-bypass"
-    )).toBe("v".repeat(43));
+    for (const [input, init] of fetchImplementation.mock.calls.slice(-3)) {
+      expect(new URL(String(input)).origin).toBe("https://candidate-team.vercel.app");
+      const headers = new Headers(init?.headers);
+      expect(headers.get("origin")).toBe("https://demo.kinresolve.com");
+      expect(headers.get("x-vercel-protection-bypass")).toBe("v".repeat(43));
+    }
   });
 
   it("fails when a successful response serves the wrong body", async () => {

@@ -132,6 +132,38 @@ describe("public demo operational boundary", () => {
     expect(publicDemoRelease).not.toMatch(/^\s+environment: (?:beta-staging|production)$/m);
   });
 
+  it("grants and re-attests the demo runtime role after migration and before candidate deployment", () => {
+    const migration = publicDemoRelease.indexOf(
+      "Migrate and provision only the isolated demo database"
+    );
+    const grant = publicDemoRelease.indexOf(
+      "npm run db:runtime-role:grant-beta-operations"
+    );
+    const deployment = publicDemoRelease.indexOf(
+      "Deploy the unaliased public demo candidate"
+    );
+
+    expect(migration).toBeGreaterThan(-1);
+    expect(grant).toBeGreaterThan(migration);
+    expect(deployment).toBeGreaterThan(grant);
+
+    const grantStepStart = publicDemoRelease.lastIndexOf("- name:", grant);
+    const grantStepEnd = publicDemoRelease.indexOf("\n      - name:", grant);
+    const grantStep = publicDemoRelease.slice(grantStepStart, grantStepEnd);
+    expect(grantStep).toContain(
+      "EXPECTED_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}"
+    );
+    expect(grantStep).toContain(
+      "MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}"
+    );
+    expect(grantStep).toContain('grantContract == "beta-operations-v1"');
+    expect(grantStep).toContain(".sameDatabaseSessionVerified == true");
+    expect(grantStep).toContain(".safeRuntimeRoleReattested == true");
+    expect(grantStep).toContain(".exactPrivilegesAttested == true");
+    expect(grantStep).toContain(".persistentDataMutation == false");
+    expect(grantStep).not.toMatch(/(?:source|\.)\s+\.vercel\/\.env\.production\.local/);
+  });
+
   it("runs body-aware shallow monitoring every 15 minutes and a full demo canary every six hours", () => {
     expect(publicDemoMonitoring).toContain("name: Monitor Kin Resolve public demo");
     expect(triggerBlock(publicDemoMonitoring)).toContain('- cron: "*/15 * * * *"');
