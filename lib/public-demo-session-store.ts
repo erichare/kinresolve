@@ -176,11 +176,13 @@ export async function startPublicDemoSession(
       create: candidate
     });
     if (decision.kind !== "create") return decision;
-    const rateLimit = await consumePublicDemoNetworkRateLimit(
-      client,
-      input.networkSubjectDigest,
-      now
-    );
+    const rateLimit = input.isCanary === true
+      ? ({ allowed: true } as const)
+      : await consumePublicDemoNetworkRateLimit(
+          client,
+          input.networkSubjectDigest,
+          now
+        );
     if (!rateLimit.allowed) {
       return { kind: "rate-limited", retryAfterSeconds: rateLimit.retryAfterSeconds } as const;
     }

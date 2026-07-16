@@ -10,7 +10,8 @@ const workflowFiles = {
   containment: "release-containment.yml",
   cleanup: "recovery-cleanup.yml",
   holdingSafety: "holding-safety.yml",
-  demoSafety: "staging-demo-safety.yml"
+  demoSafety: "staging-demo-safety.yml",
+  publicDemoSafety: "public-demo-safety.yml"
 };
 const safetyContractEpoch = "2026-07-14T00:00:00Z";
 
@@ -31,20 +32,24 @@ try {
     recoveryRuns,
     holdingRuns,
     demoRuns,
+    publicDemoRuns,
     containmentRuns,
     cleanupRuns,
     holdingSafetyRuns,
     demoSafetyRuns,
+    publicDemoSafetyRuns,
     currentSourceRunDocument
   ] = await Promise.all([
     workflowRuns(repository, workflowFiles.release, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.recovery, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.holding, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.demo, "workflow_dispatch", headers),
+    workflowRuns(repository, workflowFiles.publicDemo, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.containment, "workflow_run", headers),
     workflowRuns(repository, workflowFiles.cleanup, "workflow_run", headers),
     workflowRuns(repository, workflowFiles.holdingSafety, "workflow_run", headers),
     workflowRuns(repository, workflowFiles.demoSafety, "workflow_run", headers),
+    workflowRuns(repository, workflowFiles.publicDemoSafety, "workflow_run", headers),
     apiJson(
       `${apiBase()}/repos/${repository}/actions/runs/${currentRunId}`,
       headers,
@@ -70,10 +75,12 @@ try {
     recoveryRuns,
     holdingRuns,
     demoRuns,
+    publicDemoRuns,
     containmentRuns,
     cleanupRuns,
     holdingSafetyRuns,
     demoSafetyRuns,
+    publicDemoSafetyRuns,
     currentSourceRun: {
       source: currentSource,
       expectedRepository: repository,
@@ -93,11 +100,11 @@ try {
     const { appendFile } = await import("node:fs/promises");
     await appendFile(
       process.env.GITHUB_STEP_SUMMARY,
-      "## Kin Resolve release safety queue\n\n- Prior failed release containment: resolved\n- Prior failed recovery cleanup: resolved\n- Prior failed holding auto-assignment repair: resolved\n- Prior failed staging demo closure: resolved\n",
+      "## Kin Resolve release safety queue\n\n- Prior failed release containment: resolved\n- Prior failed recovery cleanup: resolved\n- Prior failed holding auto-assignment repair: resolved\n- Prior failed staging demo closure: resolved\n- Prior failed public demo containment: resolved\n",
       "utf8"
     );
   }
-  console.log("Verified that no prior release containment, recovery cleanup, holding repair, or demo closure is unresolved.");
+  console.log("Verified that no prior release containment, recovery cleanup, holding repair, demo closure, or public demo containment is unresolved.");
 } catch (error) {
   console.error(error instanceof Error ? error.message : "Release safety queue validation failed.");
   process.exitCode = 1;

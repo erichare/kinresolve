@@ -110,6 +110,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
+          npx playwright install --with-deps chromium
           npm install --global --ignore-scripts vercel@56.1.0
 
       - name: Reverify exact current main before protected configuration
@@ -233,6 +234,16 @@ jobs:
           npm run migrations:verify
           npm run demo:verify
 
+      - name: Attest the exact demo migration database before mutation
+        env:
+          DATABASE_IDENTITY_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          EXPECTED_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
+        run: |
+          set -euo pipefail
+          actual_database_identity="$(npm run --silent db:identity)"
+          [[ "$actual_database_identity" =~ ^[a-f0-9]{64}$ ]]
+          test "$actual_database_identity" = "$EXPECTED_DATABASE_IDENTITY"
+
       - name: Migrate and provision only the isolated demo database
         env:
           DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
@@ -243,6 +254,13 @@ jobs:
           set -euo pipefail
           npm run db:migrate
           npm run archive:provision -- --mode demo
+
+      - name: Verify the exact demo migration ledger and canonical archive
+        env:
+          EXPECTED_ARCHIVE_ID: kinresolve-demo-public
+          KINRESOLVE_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: npm run db:migrations:verify-production
 
       - name: Grant and re-attest public demo runtime access
         env:
@@ -415,6 +433,13 @@ jobs:
           PUBLIC_DEMO_ORIGIN: ${{ steps.candidate.outputs.deployment_url }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node --experimental-strip-types scripts/public-demo-browser-canary.mjs
+
+      - name: Prove 25-session capacity and five-second p95 on the held demo cell
+        env:
+          KINRESOLVE_DEMO_CANARY_SECRET: ${{ secrets.KINRESOLVE_DEMO_CANARY_SECRET }}
+          PUBLIC_DEMO_ORIGIN: ${{ steps.candidate.outputs.deployment_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node --experimental-strip-types scripts/public-demo-load-test.mjs
 
       - name: Reverify exact current main immediately before promotion
         env:

@@ -31,6 +31,7 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Run the body-aware shallow monitor
         env:
@@ -73,8 +74,15 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Start, complete, and end one disposable demo session
+      - name: Install the exact browser-canary dependencies
+        run: npm ci
+
+      - name: Install the pinned Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the HTTP and Playwright disposable demo journeys
         env:
           KINRESOLVE_DEMO_CANARY_SECRET: ${{ secrets.KINRESOLVE_DEMO_CANARY_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ vars.APP_BASE_URL }}
@@ -82,6 +90,7 @@ jobs:
           set -euo pipefail
           test "$PUBLIC_DEMO_ORIGIN" = "https://demo.kinresolve.com"
           node --experimental-strip-types scripts/public-demo-monitor.mjs full
+          node scripts/public-demo-browser-canary.mjs
 
       - name: Signal a fixed-schema full monitor failure
         if: failure()
