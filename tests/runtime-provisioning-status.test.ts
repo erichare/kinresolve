@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { provisionArchive } from "@/lib/archive-provisioning";
+import { demoFixtureVersion, provisionArchive } from "@/lib/archive-provisioning";
 import { closeDatabasePools, query } from "@/lib/db";
 import { getRuntimeStatus } from "@/lib/runtime-status";
 
@@ -68,7 +68,7 @@ describeIfDatabase("runtime archive provisioning status", () => {
       datasetMode: "demo",
       expectedDatasetMode: "pilot",
       datasetModeMatches: false,
-      demoFixtureVersion: 1
+      demoFixtureVersion
     });
     expect(status.database.error).toMatch(/does not match/i);
   });

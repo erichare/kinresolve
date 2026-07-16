@@ -217,7 +217,7 @@ describe("beta operations runtime database grants", () => {
 });
 
 describeIfDatabase("beta operations runtime grants against PostgreSQL", () => {
-  it("repairs only the five post-migration tables and re-attests exact effective access", async () => {
+  it("repairs only the exact managed tables and re-attests effective access", async () => {
     const suffix = `${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
     const roleName = `kr_runtime_grant_${suffix}`;
     const extraRoleName = `kr_extra_${suffix}`;
@@ -309,7 +309,7 @@ describeIfDatabase("beta operations runtime grants against PostgreSQL", () => {
         representativeAppWriteRolledBack: true,
         persistentDataMutation: false
       });
-      expect(receipt.managedTablePrivileges).toHaveLength(7);
+      expect(receipt.managedTablePrivileges).toHaveLength(betaOperationsRuntimeGrantContract.length);
       expect(receipt.protectedTablePrivileges).toHaveLength(2);
 
       const runtimePool = new Pool({ connectionString: runtimeUrl.toString(), max: 1 });
