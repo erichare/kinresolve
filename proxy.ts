@@ -20,6 +20,7 @@ import {
   isPublicArchivePath,
   publicArchiveEnabled
 } from "@/lib/public-surface";
+import { demoGuestCan } from "@/lib/public-demo-capabilities";
 import { evaluateSameOriginRequest } from "@/lib/same-origin-request";
 import { getActiveReleaseFence } from "@/lib/release-fence";
 import { releaseFenceLockedResponse } from "@/lib/release-fence-http";
@@ -56,19 +57,22 @@ export async function proxy(request: NextRequest) {
   }
 
   const isApi = pathname === "/api" || pathname.startsWith("/api/");
+  const isDemoApi = pathname === "/api/demo" || pathname.startsWith("/api/demo/");
   const apiRoute = isApi ? resolveApiRoute(pathname) : null;
   const apiAccess = isApi ? resolveApiAccess(pathname, request.method) : null;
   const apiRequestPolicy = isApi ? resolveApiMethodPolicy(pathname, request.method) : null;
-  const protectsApi = apiAccess?.kind === "permission";
+  const protectsApi = apiAccess?.kind === "permission" || apiAccess?.kind === "demo-session";
   const disabledPublicArchive = isPublicArchivePath(pathname) && !publicArchiveEnabled();
   const protectsPage = disabledPublicArchive
     || protectedPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const protectResponse = <ResponseType extends NextResponse>(response: ResponseType): ResponseType =>
+    protectsApi || protectsPage || isDemoApi ? markPrivateNoIndex(response) : response;
 
   if (isApi && !apiRoute) {
     if (isApiV1Path(pathname)) {
       return apiV1ErrorResponse(404, "not_found", "Not found", createApiV1RequestId());
     }
-    return apiErrorResponse(404, "Not found");
+    return protectResponse(apiErrorResponse(404, "Not found"));
   }
 
   if (isApi && apiRoute && !apiAccess) {
@@ -81,9 +85,9 @@ export async function proxy(request: NextRequest) {
         { headers: { allow: allowedApiMethods(apiRoute).join(", ") } }
       );
     }
-    return apiErrorResponse(405, "Method not allowed", {
+    return protectResponse(apiErrorResponse(405, "Method not allowed", {
       headers: { allow: allowedApiMethods(apiRoute).join(", ") }
-    });
+    }));
   }
 
   if (
@@ -93,24 +97,24 @@ export async function proxy(request: NextRequest) {
     return apiErrorResponse(403, "Forbidden");
   }
 
-  if (isApi && isApiWriteBlockedByReleaseFence(pathname, request.method)) {
-    try {
-      const activeFence = await getActiveReleaseFence();
-      if (activeFence) return releaseFenceLockedResponse(activeFence);
-    } catch {
-      return apiErrorResponse(503, "Release write safety check unavailable", {
-        headers: { "cache-control": "private, no-store" }
-      });
-    }
-  }
-
   if (apiRequestPolicy === "same-origin-cookie") {
     const sameOriginEvaluation = evaluateSameOriginRequest(request);
     if (sameOriginEvaluation === "misconfigured") {
-      return apiErrorResponse(503, "Application request origin is not configured");
+      return protectResponse(apiErrorResponse(503, "Application request origin is not configured"));
     }
     if (sameOriginEvaluation === "forbidden") {
-      return apiErrorResponse(403, "Forbidden");
+      return protectResponse(apiErrorResponse(403, "Forbidden"));
+    }
+  }
+
+  if (isApi && isApiWriteBlockedByReleaseFence(pathname, request.method)) {
+    try {
+      const activeFence = await getActiveReleaseFence();
+      if (activeFence) return protectResponse(releaseFenceLockedResponse(activeFence));
+    } catch {
+      return protectResponse(apiErrorResponse(503, "Release write safety check unavailable", {
+        headers: { "cache-control": "private, no-store" }
+      }));
     }
   }
 
@@ -118,18 +122,18 @@ export async function proxy(request: NextRequest) {
     if (process.env.NODE_ENV === "production") {
       const requiresAuthConfiguration = apiRoute?.requiresAuthSecret === true;
       if (!requiresAuthConfiguration && !protectsApi && !protectsPage) {
-        return NextResponse.next();
+        return protectResponse(NextResponse.next());
       }
 
       const message = "Private workspace authentication is not configured";
       return isApi
-        ? apiErrorResponse(503, message)
-        : new NextResponse(message, { status: 503 });
+        ? protectResponse(apiErrorResponse(503, message))
+        : protectResponse(new NextResponse(message, { status: 503 }));
     }
 
     // Local development stays open until auth is configured, matching the
     // previous password-gate behavior; lib/auth-session.ts mirrors this.
-    return NextResponse.next();
+    return protectResponse(NextResponse.next());
   }
 
   if (disabledPublicArchive) {
@@ -139,26 +143,39 @@ export async function proxy(request: NextRequest) {
     loginUrl.searchParams.set("next", "/app");
     const response = NextResponse.redirect(loginUrl);
     response.headers.set("x-robots-tag", "noindex, nofollow, noarchive");
-    return response;
+    return protectResponse(response);
   }
 
   if (!protectsApi && !protectsPage) {
-    return NextResponse.next();
+    return protectResponse(NextResponse.next());
   }
 
-  // Gate on archive MEMBERSHIP, not merely session existence: an
-  // authenticated account with no membership (e.g. an open-signup account, or
-  // one created by racing first-run setup) must not reach private data.
-  // getSessionContext resolves session -> membership and returns null for
-  // both anonymous callers and membership-less accounts.
+  // Resolve the request principal and its server-owned archive before private
+  // access. Member sessions still require persisted archive membership; demo
+  // guests resolve only through their expiring token digest. Neither path
+  // accepts an archive identifier from the request.
   await ensureDatabaseSchema();
   const context = await getSessionContext(request.headers);
   if (context) {
-    return NextResponse.next();
+    if (apiAccess?.kind === "demo-session") {
+      if (context.kind !== "demo-guest" || !demoGuestCan(apiAccess.capability)) {
+        return protectResponse(apiErrorResponse(403, "Forbidden"));
+      }
+    }
+
+    if (
+      apiAccess?.kind === "permission"
+      && context.kind === "demo-guest"
+      && !demoGuestCan(apiAccess.permission)
+    ) {
+      return protectResponse(apiErrorResponse(403, "Forbidden"));
+    }
+
+    return protectResponse(NextResponse.next());
   }
 
   if (protectsApi) {
-    return apiErrorResponse(401, "Authentication required");
+    return protectResponse(apiErrorResponse(401, "Authentication required"));
   }
 
   const loginUrl = process.env.APP_BASE_URL
@@ -167,7 +184,13 @@ export async function proxy(request: NextRequest) {
   loginUrl.pathname = "/login";
   loginUrl.search = "";
   loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
-  return NextResponse.redirect(loginUrl);
+  return protectResponse(NextResponse.redirect(loginUrl));
+}
+
+function markPrivateNoIndex<ResponseType extends NextResponse>(response: ResponseType): ResponseType {
+  response.headers.set("cache-control", "private, no-store");
+  response.headers.set("x-robots-tag", "noindex, nofollow, noarchive");
+  return response;
 }
 
 export const config = {
