@@ -53,6 +53,24 @@ describe("public demo lifecycle hardening", () => {
     );
   });
 
+  it("bypasses only the network bucket for an authorized canary while preserving capacity admission", async () => {
+    const start = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function startPublicDemoSession",
+      "export async function resetPublicDemoSession"
+    );
+
+    const capacityAdmission = start.indexOf("decidePublicDemoAdmission");
+    const canaryBranch = start.indexOf("input.isCanary", capacityAdmission);
+    const ordinaryNetworkBucket = start.indexOf("consumePublicDemoNetworkRateLimit", canaryBranch);
+
+    expect(capacityAdmission).toBeGreaterThan(-1);
+    expect(canaryBranch).toBeGreaterThan(capacityAdmission);
+    expect(ordinaryNetworkBucket).toBeGreaterThan(canaryBranch);
+    expect(start.slice(canaryBranch, ordinaryNetworkBucket)).toMatch(/allowed:\s*true/);
+    expect(start).toContain("input.networkSubjectDigest");
+  });
+
   it("reserves a reset generation before provisioning and fails the reservation on error", async () => {
     const reset = await functionSource(
       "lib/public-demo-session-store.ts",

@@ -28,7 +28,7 @@ function list(...runs: unknown[]): WorkflowRunList {
 }
 
 function boundSourceRun(
-  source: "release" | "recovery" | "holding" | "demo",
+  source: "release" | "recovery" | "holding" | "demo" | "public-demo",
   id: number,
   attempt: number,
   overrides: Record<string, unknown> = {}
@@ -53,6 +53,11 @@ function boundSourceRun(
       name: "Operate Kin Resolve synthetic staging demo session",
       path: ".github/workflows/staging-demo-session.yml",
       title: `Kin Resolve staging demo open run ${id} attempt ${attempt}`
+    },
+    "public-demo": {
+      name: "Release Kin Resolve public demo",
+      path: ".github/workflows/public-demo-release.yml",
+      title: `Public demo release ${"a".repeat(40)} run ${id} attempt ${attempt}`
     }
   }[source];
   return run({
@@ -85,7 +90,12 @@ function currentSourceBinding(
   } as const;
 }
 
-function input(overrides: Partial<Parameters<typeof assessReleaseSafetyQueue>[0]> = {}) {
+type FuturePublicDemoSafetyInput = Parameters<typeof assessReleaseSafetyQueue>[0] & {
+  publicDemoRuns: WorkflowRunList;
+  publicDemoSafetyRuns: WorkflowRunList;
+};
+
+function input(overrides: Partial<FuturePublicDemoSafetyInput> = {}): FuturePublicDemoSafetyInput {
   return {
     releaseRuns: list(),
     recoveryRuns: list(),
@@ -96,6 +106,7 @@ function input(overrides: Partial<Parameters<typeof assessReleaseSafetyQueue>[0]
     cleanupRuns: list(),
     holdingSafetyRuns: list(),
     demoSafetyRuns: list(),
+    publicDemoSafetyRuns: list(),
     ...overrides
   };
 }
@@ -330,6 +341,75 @@ describe("release safety queue", () => {
     }))).toEqual({ safe: true, issues: [] });
   });
 
+  it.each(["failure", "cancelled", "timed_out"] as const)(
+    "requires an exact successful public-demo containment receipt after a %s",
+    (conclusion) => {
+      const runId = conclusion === "failure" ? 851 : conclusion === "cancelled" ? 852 : 853;
+      const failed = boundSourceRun("public-demo", runId, 2, { conclusion });
+
+      expect(assessReleaseSafetyQueue(input({
+        publicDemoRuns: list(failed)
+      }))).toMatchObject({
+        safe: false,
+        issues: [{
+          kind: "unresolved-source-run",
+          source: "public-demo",
+          runId: String(runId),
+          runAttempt: "2"
+        }]
+      });
+
+      const wrongAttempt = run({
+        id: 950 + runId,
+        event: "workflow_run",
+        display_title: `Contain public demo run ${runId} attempt 1`
+      });
+      expect(assessReleaseSafetyQueue(input({
+        publicDemoRuns: list(failed),
+        publicDemoSafetyRuns: list(wrongAttempt)
+      })).safe).toBe(false);
+
+      const exactReceipt = run({
+        id: 960 + runId,
+        event: "workflow_run",
+        display_title: `Contain public demo run ${runId} attempt 2`
+      });
+      expect(assessReleaseSafetyQueue(input({
+        publicDemoRuns: list(failed),
+        publicDemoSafetyRuns: list(exactReceipt)
+      }))).toEqual({ safe: true, issues: [] });
+    }
+  );
+
+  it("blocks pending and failed public-demo safety automation", () => {
+    const pending = run({
+      id: 854,
+      status: "in_progress",
+      conclusion: null,
+      event: "workflow_run",
+      display_title: "Contain public demo run 851 attempt 1"
+    });
+    expect(assessReleaseSafetyQueue(input({
+      publicDemoSafetyRuns: list(pending)
+    }))).toMatchObject({
+      safe: false,
+      issues: [{ kind: "pending-safety-run", source: "safety", runId: "854" }]
+    });
+
+    const failed = run({
+      id: 855,
+      conclusion: "failure",
+      event: "workflow_run",
+      display_title: "Contain public demo run 852 attempt 1"
+    });
+    expect(assessReleaseSafetyQueue(input({
+      publicDemoSafetyRuns: list(failed)
+    }))).toMatchObject({
+      safe: false,
+      issues: [{ kind: "failed-safety-run", source: "safety", runId: "855" }]
+    });
+  });
+
   it("declares a distinct public-demo source in the release workflow and safety CLI", async () => {
     const [workflow, script] = await Promise.all([
       readFile(path.join(process.cwd(), ".github", "workflows", "public-demo-release.yml"), "utf8"),
@@ -337,7 +417,10 @@ describe("release safety queue", () => {
     ]);
 
     expect(workflow).toContain("RELEASE_SAFETY_CURRENT_WORKFLOW: public-demo");
-    expect(script).toContain('"public-demo-release.yml"');
+    expect(script).toContain('publicDemo: "public-demo-release.yml"');
+    expect(script).toContain('publicDemoSafety: "public-demo-safety.yml"');
+    expect(script).toContain('workflowFiles.publicDemo, "workflow_dispatch"');
+    expect(script).toContain('workflowFiles.publicDemoSafety, "workflow_run"');
     expect(script).toContain('"public-demo"');
   });
 
@@ -389,6 +472,8 @@ describe("release safety queue", () => {
     expect(script).toContain('workflowFiles.holdingSafety, "workflow_run"');
     expect(script).toContain('workflowFiles.demo, "workflow_dispatch"');
     expect(script).toContain('workflowFiles.demoSafety, "workflow_run"');
+    expect(script).toContain('workflowFiles.publicDemo, "workflow_dispatch"');
+    expect(script).toContain('workflowFiles.publicDemoSafety, "workflow_run"');
     expect(script).toContain('const safetyContractEpoch = "2026-07-14T00:00:00Z"');
     expect(script).toContain('created: `>=${safetyContractEpoch}`');
     expect(script).toContain("if (currentRunAttempt > 1)");
