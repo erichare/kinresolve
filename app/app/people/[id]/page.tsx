@@ -6,7 +6,7 @@ import { Icons } from "@/components/icons";
 import { PersonCurationPanel } from "@/components/person-curation-panel";
 import { Confidence, EmptyState, Status } from "@/components/ui";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
-import { getSessionContext } from "@/lib/auth-session";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import type { PersonSummary } from "@/lib/models";
 import { readWorkspace } from "@/lib/workspace-store";
 
@@ -18,7 +18,7 @@ export default async function AppPersonPage({ params }: { params: Promise<{ id: 
   const personId = decodeURIComponent(id);
   const session = await getSessionContext(await headers());
   if (!session) notFound();
-  const workspace = await readWorkspace({ archiveId: session.archiveId });
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const person = workspace.people.find((item) => item.id === personId);
 
   if (!person) {
@@ -60,11 +60,13 @@ export default async function AppPersonPage({ params }: { params: Promise<{ id: 
               <Status tone="private">{person.livingStatus}</Status>
             </div>
           </div>
-          <PersonCurationPanel
-            key={person.id}
-            person={person}
-            publicPublishingEnabled={capabilities.publicPublishing}
-          />
+          {session.kind === "member" ? (
+            <PersonCurationPanel
+              key={person.id}
+              person={person}
+              publicPublishingEnabled={capabilities.publicPublishing}
+            />
+          ) : null}
         </div>
         <div className="tabs">
           <span className="active">Facts</span>

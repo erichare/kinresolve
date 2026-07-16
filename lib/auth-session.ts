@@ -26,6 +26,21 @@ export type DemoGuestSessionContext = {
 
 export type SessionContext = MemberSessionContext | DemoGuestSessionContext;
 
+export function workspaceOptionsForSession(
+  session: SessionContext
+): WorkspaceStoreOptions & { archiveId: string } {
+  if (session.kind === "member") {
+    return { archiveId: session.archiveId };
+  }
+  return {
+    archiveId: session.archiveId,
+    demoGuestFence: {
+      sessionId: session.sessionId,
+      generation: session.generation
+    }
+  };
+}
+
 // Resolves the caller's identity and archive role from the better-auth
 // session — never from request input. Returns null for anonymous callers and
 // for authenticated users with no membership on the archive.

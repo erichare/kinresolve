@@ -7,7 +7,7 @@ import {
   projectEvidenceQueueForDnaCapability
 } from "@/lib/case-search";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
-import { getSessionContext } from "@/lib/auth-session";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { caseEvidenceQueueFromDb, searchCasesPageFromDb } from "@/lib/store/case-queries";
 import { readArchiveBranding } from "@/lib/store/people-queries";
 
@@ -17,9 +17,10 @@ export default async function CasesPage() {
   const capabilities = resolveHostedCapabilities();
   const session = await getSessionContext(await headers());
   if (!session) notFound();
-  const queryOptions = { archiveId: session.archiveId, includeDnaEvidence: capabilities.dna };
+  const archiveOptions = workspaceOptionsForSession(session);
+  const queryOptions = { ...archiveOptions, includeDnaEvidence: capabilities.dna };
   const [branding, initialResult, initialEvidenceQueue] = await Promise.all([
-    readArchiveBranding({ archiveId: session.archiveId }),
+    readArchiveBranding(archiveOptions),
     searchCasesPageFromDb({ sort: "status" }, { page: 1, pageSize: 25 }, queryOptions),
     caseEvidenceQueueFromDb(queryOptions)
   ]);

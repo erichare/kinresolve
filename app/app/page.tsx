@@ -9,7 +9,7 @@ import { buildDashboardSummary } from "@/lib/dashboard";
 import { isGuidedResearchEnabled } from "@/lib/guided-research-config";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { buildResearchGuide } from "@/lib/research-guide";
-import { getSessionContext } from "@/lib/auth-session";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function AppDashboardPage() {
   const capabilities = resolveHostedCapabilities();
   const session = await getSessionContext(await headers());
   if (!session) notFound();
-  const workspace = await readWorkspace({ archiveId: session.archiveId });
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const dashboard = buildDashboardSummary(workspace, {
     dnaEnabled: capabilities.dna,
     publicPublishingEnabled: capabilities.publicPublishing
@@ -49,7 +49,12 @@ export default async function AppDashboardPage() {
       title="Investigation Dashboard"
       active="/app"
       archiveName={workspace.archiveName}
-      actions={
+      actions={session.kind === "demo-guest" ? (
+        <Link className="button" href="/app/cases/case-mercer-march-identity?guide=1">
+          <Icons.FileSearch size={16} aria-hidden />
+          Continue guided demo
+        </Link>
+      ) : (
         <div className="hero-actions" style={{ marginTop: 0 }}>
           <Link className="button" href="/app/cases">
             <Icons.FileSearch size={16} aria-hidden />
@@ -60,7 +65,7 @@ export default async function AppDashboardPage() {
             Import GEDCOM
           </Link>
         </div>
-      }
+      )}
     >
       <div className="metric-row">
         <Metric icon={<Icons.Users size={18} aria-hidden />} label="Imported people" value={dashboard.metrics.people.toLocaleString()} detail="from private workspace" />

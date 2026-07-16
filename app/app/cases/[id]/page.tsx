@@ -5,7 +5,7 @@ import { CaseResearchGuide } from "@/components/case-research-guide";
 import { CaseTaskList } from "@/components/case-task-list";
 import { DemoGuidedCaseJourney } from "@/components/demo-guided-case-journey";
 import { Confidence, Status } from "@/components/ui";
-import { getSessionContext } from "@/lib/auth-session";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { isDnaResearchCase, projectResearchCaseForDnaCapability } from "@/lib/case-search";
 import { isGuidedResearchEnabled } from "@/lib/guided-research-config";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
@@ -19,7 +19,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const { id } = await params;
   const session = await getSessionContext(await headers());
   if (!session) notFound();
-  const workspace = await readWorkspace({ archiveId: session.archiveId });
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const researchCase = workspace.cases.find((item) => item.id === id);
   const guidedResearchEnabled = isGuidedResearchEnabled();
   const canWriteCases = session.kind !== "demo-guest" && hasPermission(session.role, "cases:write");

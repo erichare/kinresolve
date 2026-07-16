@@ -61,43 +61,86 @@ async function runShallowProbe(configuration, probe, fetchImplementation) {
 }
 
 async function runDisposableJourney(configuration, fetchImplementation) {
-  let cookie = null;
+  let firstCookie = null;
+  let secondCookie = null;
+  let resetCookie = null;
   let journeyError = null;
   try {
-    const started = await postJson(
-      configuration,
-      fetchImplementation,
-      "/api/demo/sessions",
-      { noticeVersion: "public-demo-2026-07-16" }
-    );
-    if (started.response.status !== 200 && started.response.status !== 201) {
-      throw new Error("The disposable demo session could not be started.");
-    }
-    requireContentType(started.response, "application/json");
-    cookie = extractDemoCookie(started.response);
-    const startDocument = parseObject(started.body);
-    if (
-      typeof startDocument.workspaceUrl !== "string"
-      || !/^\/app\/cases\/case-mercer-march-identity\?(?:guide|demoGuide)=1$/.test(
-        startDocument.workspaceUrl
-      )
-    ) {
-      throw new Error("The disposable demo session returned an unexpected workspace URL.");
+    const starts = await Promise.all([
+      startDisposableSession(configuration, fetchImplementation),
+      startDisposableSession(configuration, fetchImplementation)
+    ]);
+    firstCookie = starts[0].cookie;
+    secondCookie = starts[1].cookie;
+    if (firstCookie === secondCookie) {
+      throw new Error("The disposable demo sessions did not receive isolated credentials.");
     }
 
-    const guided = await postJson(
+    const outcomes = ["found", "inconclusive"];
+    const guided = await Promise.all([
+      postJson(
+        configuration,
+        fetchImplementation,
+        "/api/demo/cases/case-mercer-march-identity/guide",
+        { command: "record_outcome", outcome: outcomes[0] },
+        firstCookie
+      ),
+      postJson(
+        configuration,
+        fetchImplementation,
+        "/api/demo/cases/case-mercer-march-identity/guide",
+        { command: "record_outcome", outcome: outcomes[1] },
+        secondCookie
+      )
+    ]);
+    for (const result of guided) {
+      requireExactResponse(result.response, 200, "application/json");
+      parseObject(result.body);
+    }
+
+    const beforeReset = await Promise.all([
+      getJson(configuration, fetchImplementation, "/api/demo/session", firstCookie),
+      getJson(configuration, fetchImplementation, "/api/demo/session", secondCookie)
+    ]);
+    requireGuidedOutcome(beforeReset[0], outcomes[0]);
+    requireGuidedOutcome(beforeReset[1], outcomes[1]);
+
+    const reset = await postJson(
+      configuration,
+      fetchImplementation,
+      "/api/demo/session/reset",
+      {},
+      firstCookie
+    );
+    requireExactResponse(reset.response, 200, "application/json");
+    resetCookie = extractDemoCookie(reset.response);
+    if (resetCookie === firstCookie || resetCookie === secondCookie) {
+      throw new Error("The disposable demo reset did not rotate its credential.");
+    }
+
+    const stale = await postJson(
       configuration,
       fetchImplementation,
       "/api/demo/cases/case-mercer-march-identity/guide",
-      { command: "record_outcome", outcome: "inconclusive" },
-      cookie
+      { command: "record_outcome", outcome: "not_found" },
+      firstCookie
     );
-    requireExactResponse(guided.response, 200, "application/json");
-    parseObject(guided.body);
+    if (stale.response.status !== 401 && stale.response.status !== 403) {
+      throw new Error("A stale pre-reset demo credential remained authorized.");
+    }
+
+    const secondAfterReset = await getJson(
+      configuration,
+      fetchImplementation,
+      "/api/demo/session",
+      secondCookie
+    );
+    requireGuidedOutcome(secondAfterReset, outcomes[1]);
   } catch (error) {
     journeyError = error;
   } finally {
-    if (cookie) {
+    for (const cookie of [resetCookie ?? firstCookie, secondCookie]) {
+      if (!cookie) continue;
       try {
         const ended = await postJson(
           configuration,
@@ -115,6 +158,56 @@ async function runDisposableJourney(configuration, fetchImplementation) {
     }
   }
   if (journeyError) throw journeyError;
+}
+
+async function startDisposableSession(configuration, fetchImplementation) {
+  const started = await postJson(
+    configuration,
+    fetchImplementation,
+    "/api/demo/sessions",
+    { noticeVersion: "public-demo-2026-07-16" }
+  );
+  if (started.response.status !== 200 && started.response.status !== 201) {
+    throw new Error("The disposable demo session could not be started.");
+  }
+  requireContentType(started.response, "application/json");
+  const cookie = extractDemoCookie(started.response);
+  const document = parseObject(started.body);
+  if (
+    typeof document.workspaceUrl !== "string"
+    || !/^\/app\/cases\/case-mercer-march-identity\?(?:guide|demoGuide)=1$/.test(
+      document.workspaceUrl
+    )
+  ) {
+    throw new Error("The disposable demo session returned an unexpected workspace URL.");
+  }
+  return { cookie };
+}
+
+async function getJson(configuration, fetchImplementation, pathname, cookie) {
+  const response = await fetchImplementation(new URL(pathname, configuration.origin), {
+    cache: "no-store",
+    headers: requestHeaders(configuration, {
+      accept: "application/json",
+      cookie
+    }),
+    redirect: "manual",
+    signal: AbortSignal.timeout(requestTimeoutMs)
+  });
+  requireExactResponse(response, 200, "application/json");
+  return parseObject(await boundedText(response));
+}
+
+function requireGuidedOutcome(document, expectedOutcome) {
+  const progress = document.progress;
+  if (
+    typeof progress !== "object"
+    || progress === null
+    || Array.isArray(progress)
+    || progress.guidedOutcome !== expectedOutcome
+  ) {
+    throw new Error("The disposable demo sessions failed the archive isolation contract.");
+  }
 }
 
 async function postJson(configuration, fetchImplementation, pathname, body, cookie = null) {

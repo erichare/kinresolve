@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DnaTriageWorkspace } from "@/components/dna-triage-workspace";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
-import { getSessionContext } from "@/lib/auth-session";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { createDnaHypothesesForMatches, listCaseOptions, searchDnaMatchesPageFromDb } from "@/lib/store/dna-queries";
 import { readArchiveBranding } from "@/lib/store/people-queries";
 
@@ -15,7 +15,7 @@ export default async function DnaPage() {
   }
   const session = await getSessionContext(await headers());
   if (!session) notFound();
-  const archiveOptions = { archiveId: session.archiveId };
+  const archiveOptions = workspaceOptionsForSession(session);
 
   const [branding, initialResult, initialCases] = await Promise.all([
     readArchiveBranding(archiveOptions),

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { AIAnalystWorkspace } from "@/components/ai-analyst-workspace";
 import { findStructuredAnomalies } from "@/lib/ai";
-import { getSessionContext } from "@/lib/auth-session";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { createWorkspaceDnaHypotheses, readWorkspace } from "@/lib/workspace-store";
 
@@ -14,8 +14,8 @@ const initialQuestion = "Could Samuel Mercer and Samuel March be the same person
 export default async function AIPage() {
   const capabilities = resolveHostedCapabilities();
   const session = await getSessionContext(await headers());
-  if (!session) notFound();
-  const workspace = await readWorkspace({ archiveId: session.archiveId });
+  if (!session || session.kind === "demo-guest") notFound();
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const dnaHypotheses = capabilities.dna ? createWorkspaceDnaHypotheses(workspace) : [];
   const anomalies = findStructuredAnomalies(workspace.people);
 

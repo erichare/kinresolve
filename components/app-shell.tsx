@@ -56,7 +56,7 @@ function PrivateNavigation({
       {navGroups.map((group) => {
         const items = group.items
           .filter((item) => dnaEnabled || item.href !== "/app/dna")
-          .filter((item) => !demoMode || !["/app/publishing", "/app/settings"].includes(item.href));
+          .filter((item) => !demoMode || !["/app/imports", "/app/ai", "/app/publishing", "/app/settings"].includes(item.href));
         if (items.length === 0) return null;
         return <div className="sidebar-nav-group" key={group.label}>
           <span className="sidebar-nav-label">{group.label}</span>

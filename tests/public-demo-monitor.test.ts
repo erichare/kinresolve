@@ -127,14 +127,16 @@ describe("public demo monitor", () => {
 
   it("still ends the disposable session when the guided command fails", async () => {
     const paths: string[] = [];
+    let starts = 0;
     const fetchImplementation = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const pathname = new URL(String(input)).pathname;
       paths.push(pathname);
       if (init?.method !== "POST") return shallowResponse(input);
       if (pathname === "/api/demo/sessions") {
+        starts += 1;
         return jsonResponse(
           { workspaceUrl: "/app/cases/case-mercer-march-identity?guide=1" },
-          { "set-cookie": `__Host-kinresolve-demo=${"b".repeat(43)}; Path=/; Secure; HttpOnly` },
+          { "set-cookie": `__Host-kinresolve-demo=${(starts === 1 ? "b" : "d").repeat(43)}; Path=/; Secure; HttpOnly` },
           201
         );
       }

@@ -8,7 +8,7 @@ import { Metric, Status } from "@/components/ui";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger, type SearchParamValue } from "@/lib/pagination";
 import { buildPublicationReview, type PublicationStatus } from "@/lib/publishing";
-import { getSessionContext } from "@/lib/auth-session";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +21,8 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
   const capabilities = resolveHostedCapabilities();
   const params = await searchParams;
   const session = await getSessionContext(await headers());
-  if (!session) notFound();
-  const workspace = await readWorkspace({ archiveId: session.archiveId });
+  if (!session || session.kind === "demo-guest") notFound();
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const publicationEnabled = capabilities.publicArchive && capabilities.publicPublishing;
   const review = buildPublicationReview(workspace.people, {
     profilePage: parsePositiveInteger(params.profilesPage, 1),
