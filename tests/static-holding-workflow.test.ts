@@ -157,7 +157,11 @@ describe("protected static holding deployment workflow", () => {
     expect(probeStep).toContain(
       "HOLDING_DEPLOYMENT_URL: ${{ steps.holding-candidate.outputs.deployment_url }}"
     );
-    expect(probeStep).toContain("401|403) ;;");
+    expect(probeStep).toContain(
+      '--dump-header "$RUNNER_TEMP/static-holding-unauthenticated.headers"'
+    );
+    expect(probeStep).toContain("scripts/validate-vercel-protection-response.mjs");
+    expect(probeStep).toContain('"$HOLDING_DEPLOYMENT_URL/"');
     expect(probeStep).toContain('grep -Fq "Kin Resolve"');
     expect(probeStep).toContain("static-holding-unauthenticated.html");
     expect(probeStep).not.toContain("x-vercel-protection-bypass");
