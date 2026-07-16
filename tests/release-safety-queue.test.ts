@@ -91,6 +91,7 @@ function input(overrides: Partial<Parameters<typeof assessReleaseSafetyQueue>[0]
     recoveryRuns: list(),
     holdingRuns: list(),
     demoRuns: list(),
+    publicDemoRuns: list(),
     containmentRuns: list(),
     cleanupRuns: list(),
     holdingSafetyRuns: list(),
@@ -298,6 +299,46 @@ describe("release safety queue", () => {
         run: currentApiRun
       }
     }))).toEqual({ safe: true, issues: [] });
+  });
+
+  it("authenticates the public demo release as its own exact workflow source", () => {
+    const id = 850;
+    const attempt = 1;
+    const binding = {
+      source: "public-demo",
+      expectedRepository: "kinresolve/kinresolve",
+      expectedRunId: String(id),
+      expectedRunAttempt: String(attempt),
+      run: run({
+        id,
+        run_attempt: attempt,
+        status: "in_progress",
+        conclusion: null,
+        name: "Release Kin Resolve public demo",
+        path: ".github/workflows/public-demo-release.yml",
+        head_sha: "a".repeat(40),
+        repository: { full_name: "kinresolve/kinresolve" },
+        head_repository: { full_name: "kinresolve/kinresolve" },
+        display_title: `Public demo release ${"a".repeat(40)} run ${id} attempt ${attempt}`
+      })
+    };
+
+    expect(assessReleaseSafetyQueue(input({
+      currentSourceRun: binding as unknown as NonNullable<
+        Parameters<typeof assessReleaseSafetyQueue>[0]["currentSourceRun"]
+      >
+    }))).toEqual({ safe: true, issues: [] });
+  });
+
+  it("declares a distinct public-demo source in the release workflow and safety CLI", async () => {
+    const [workflow, script] = await Promise.all([
+      readFile(path.join(process.cwd(), ".github", "workflows", "public-demo-release.yml"), "utf8"),
+      readFile(path.join(process.cwd(), "scripts", "validate-release-safety-queue.mjs"), "utf8")
+    ]);
+
+    expect(workflow).toContain("RELEASE_SAFETY_CURRENT_WORKFLOW: public-demo");
+    expect(script).toContain('"public-demo-release.yml"');
+    expect(script).toContain('"public-demo"');
   });
 
   it("blocks pending and hard-failed safety automation", () => {
