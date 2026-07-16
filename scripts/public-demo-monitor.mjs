@@ -68,7 +68,7 @@ async function runDisposableJourney(configuration, fetchImplementation) {
       configuration,
       fetchImplementation,
       "/api/demo/sessions",
-      { noticeVersion: "public-demo-v1" }
+      { noticeVersion: "public-demo-2026-07-16" }
     );
     if (started.response.status !== 200 && started.response.status !== 201) {
       throw new Error("The disposable demo session could not be started.");
@@ -89,7 +89,7 @@ async function runDisposableJourney(configuration, fetchImplementation) {
       configuration,
       fetchImplementation,
       "/api/demo/cases/case-mercer-march-identity/guide",
-      { command: "record-signature-comparison", outcome: "inconclusive" },
+      { command: "record_outcome", outcome: "inconclusive" },
       cookie
     );
     requireExactResponse(guided.response, 200, "application/json");
