@@ -201,6 +201,8 @@ describe("protected production recovery evidence workflow", () => {
     expect(grantStep).toContain("secrets.RECOVERY_TARGET_RUNTIME_DATABASE_URL");
     expect(grantStep).toContain("db:runtime-role:grant-beta-operations");
     expect(grantStep).toContain("--recovery-target");
+    expect(grantStep).not.toContain("PUBLIC_DEMO_RUNTIME_DATABASE_URL");
+    expect(grantStep).not.toContain("--public-demo");
     expect(grantStep).toContain('grantContract == "beta-operations-v1"');
     expect(grantStep).toContain("beta_data_operations");
     expect(grantStep).toContain("beta_worker_heartbeats");

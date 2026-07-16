@@ -150,6 +150,7 @@ const structuredDatabaseCredentialEnvironmentNames = [
   "RECOVERY_SOURCE_DATABASE_URL",
   "RECOVERY_TARGET_DATABASE_URL",
   "RECOVERY_TARGET_RUNTIME_DATABASE_URL",
+  "PUBLIC_DEMO_RUNTIME_DATABASE_URL",
   "RELEASE_FENCE_DATABASE_URL"
 ] as const;
 const dummyTokenDigest = createHash("sha256")

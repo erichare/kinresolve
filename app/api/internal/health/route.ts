@@ -5,6 +5,7 @@ import { deploymentReleaseCommitSha } from "@/lib/observability";
 import { authenticateObservabilityProbe } from "@/lib/observability-probe";
 import { publicDemoEnabled } from "@/lib/public-demo-config";
 import { readPublicDemoDiagnostics } from "@/lib/public-demo-session-store";
+import { readRuntimeDatabaseRoleIdentitySha256 } from "@/lib/runtime-database-role-identity";
 import { getRuntimeStatus, isRuntimeReady } from "@/lib/runtime-status";
 import { getArchiveId } from "@/lib/workspace-store";
 
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
   let workers: Awaited<ReturnType<typeof readWorkerFreshness>> | null = null;
   let jobLag: Awaited<ReturnType<typeof readJobLagHealth>> | null = null;
   let publicDemo: ReturnType<typeof projectPublicDemoDiagnostics> | null = null;
+  let runtimeRoleIdentitySha256: string | null = null;
   let demoEnabled = false;
   let demoConfigurationValid = true;
   try {
@@ -32,20 +34,23 @@ export async function GET(request: Request) {
     demoConfigurationValid = false;
   }
   try {
-    const [workerState, lagState, demoState] = await Promise.all([
+    const [workerState, lagState, demoState, roleIdentity] = await Promise.all([
       readWorkerFreshness({ archiveId: getArchiveId() }),
       readJobLagHealth({ archiveId: getArchiveId() }),
-      demoEnabled ? readPublicDemoDiagnostics() : Promise.resolve(null)
+      demoEnabled ? readPublicDemoDiagnostics() : Promise.resolve(null),
+      readRuntimeDatabaseRoleIdentitySha256()
     ]);
     workers = workerState;
     jobLag = lagState;
     publicDemo = demoState ? projectPublicDemoDiagnostics(demoState) : null;
+    runtimeRoleIdentitySha256 = roleIdentity;
   } catch {
     // Database readiness already fails closed above. Do not surface connection
     // details or an exception through the protected probe either.
   }
 
   const operationallyReady = ready
+    && runtimeRoleIdentitySha256 !== null
     && demoConfigurationValid
     && (!demoEnabled || publicDemoDiagnosticsReady(publicDemo));
 
@@ -66,7 +71,8 @@ export async function GET(request: Request) {
         datasetMode: status.database.datasetMode,
         expectedDatasetMode: status.database.expectedDatasetMode,
         datasetModeMatches: status.database.datasetModeMatches,
-        demoFixtureVersion: status.database.demoFixtureVersion
+        demoFixtureVersion: status.database.demoFixtureVersion,
+        runtimeRoleIdentitySha256
       },
       ai: {
         enabled: status.ai.enabled,

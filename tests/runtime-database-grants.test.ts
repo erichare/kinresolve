@@ -68,15 +68,62 @@ function validPrivilegeRows() {
 }
 
 describe("beta operations runtime database grants", () => {
-  it("takes the runtime credential only from the parsed pulled Vercel environment", () => {
+  it("keeps the default pulled credential path while requiring an explicit protected demo credential", () => {
     const script = readFileSync(
       path.join(process.cwd(), "scripts", "grant-beta-operations-runtime-role.mjs"),
       "utf8"
     );
     expect(script).toContain("files.productionEnvironment.DATABASE_URL");
+    expect(script).toContain("process.env.PUBLIC_DEMO_RUNTIME_DATABASE_URL");
     expect(script).toContain("process.env.MIGRATION_DATABASE_URL");
     expect(script).not.toContain("process.env.DATABASE_URL");
     expect(script).not.toMatch(/\bsource\b.*\.env\.production\.local/);
+  });
+
+  it("reports a fixed safe code when the protected public demo credential is missing", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kinresolve-public-demo-runtime-grants-"));
+    scratchDirectories.push(root);
+    mkdirSync(path.join(root, ".vercel"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".vercel", ".env.production.local"),
+      [
+        "KINRESOLVE_PUBLIC_DEMO_ENABLED=true",
+        "KINRESOLVE_DATASET_MODE=demo",
+        `KINRESOLVE_DATABASE_IDENTITY=${"a".repeat(64)}`,
+        "KINSLEUTH_ARCHIVE_ID=kinresolve-demo-public",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    writeFileSync(path.join(root, ".vercel", "project.json"), "{}\n", "utf8");
+    writeFileSync(path.join(root, "package.json"), '{"version":"0.0.0"}\n', "utf8");
+    const sentinel = "do-not-print-this-migration-secret";
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--no-warnings",
+        "--experimental-strip-types",
+        path.join(process.cwd(), "scripts", "grant-beta-operations-runtime-role.mjs"),
+        path.join(root, "attestation.json"),
+        "--public-demo"
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PUBLIC_DEMO_RUNTIME_DATABASE_URL: "",
+          MIGRATION_DATABASE_URL: `postgres://migrator:${sentinel}@localhost/postgres`
+        }
+      }
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "Beta operations runtime grant attestation failed (missing-protected-runtime-credential).\n"
+    );
+    expect(`${result.stdout}${result.stderr}`).not.toContain(sentinel);
   });
 
   it("pins the runtime backend while its live session identity is observed", () => {

@@ -56,6 +56,15 @@ configured physical database identity, distinct direct runtime and migration rol
 live runtime session visible to the migration connection, and the complete safe-role
 posture above.
 
+The public-demo release uses the command's explicit `--public-demo` mode because Vercel
+Sensitive values are non-readable after creation and are not available to a GitHub runner
+through `vercel pull`. In that mode, the bounded runtime URL comes from the step-scoped
+`PUBLIC_DEMO_RUNTIME_DATABASE_URL` secret in the protected `demo-production` GitHub
+environment; database identity, dataset mode, public-demo enablement, and archive ID still
+come from the validated readable Vercel file. This workflow-only credential is forbidden
+from Vercel under its duplicate name. It must contain the same URL as Vercel's Sensitive
+`DATABASE_URL`, and operators must rotate both copies together.
+
 Within one transaction, the command revokes direct privileges only on those seven named
 tables and restores their exact least-privilege contract. The two operations tables and
 `api_tokens` receive `SELECT`, `INSERT`, and `UPDATE`; the expiring

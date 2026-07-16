@@ -73,6 +73,7 @@ describe("beta application configuration and normalization", () => {
     "RECOVERY_SOURCE_DATABASE_URL",
     "RECOVERY_TARGET_DATABASE_URL",
     "RECOVERY_TARGET_RUNTIME_DATABASE_URL",
+    "PUBLIC_DEMO_RUNTIME_DATABASE_URL",
     "RELEASE_FENCE_DATABASE_URL"
   ])("rejects an application HMAC secret reused as a credential inside %s", (name) => {
     const encodedSecret = encodeURIComponent(secret);

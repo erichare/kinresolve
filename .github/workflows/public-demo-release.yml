@@ -339,14 +339,16 @@ jobs:
         run: npm run db:migrations:verify-production
 
       - name: Grant and re-attest public demo runtime access
+        id: runtime_grants
         env:
           EXPECTED_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
           MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          PUBLIC_DEMO_RUNTIME_DATABASE_URL: ${{ secrets.PUBLIC_DEMO_RUNTIME_DATABASE_URL }}
         run: |
           set -euo pipefail
           umask 077
           output="$RUNNER_TEMP/public-demo-runtime-grants.json"
-          npm run db:runtime-role:grant-beta-operations -- "$output"
+          npm run db:runtime-role:grant-beta-operations -- "$output" --public-demo
           jq -e --arg database_identity "$EXPECTED_DATABASE_IDENTITY" '
             (. | keys | sort) == ([
               "credentialsDistinct", "databaseCreate", "databaseIdentity", "exactPrivilegesAttested",
@@ -395,6 +397,10 @@ jobs:
               .delete == false and .truncate == false and .references == false and
               .trigger == false and .maintain == false and .grantOptions == false)
           ' "$output" > /dev/null
+          runtime_role_identity_sha256="$(
+            jq -er '.runtimeRoleIdentitySha256 | select(test("^[a-f0-9]{64}$"))' "$output"
+          )"
+          printf 'runtime_role_identity_sha256=%s\n' "$runtime_role_identity_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Capture the current healthy canonical deployment for rollback
         id: previous
@@ -418,6 +424,7 @@ jobs:
       - name: Prove the captured rollback target is healthy before candidate deployment
         env:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: ${{ steps.runtime_grants.outputs.runtime_role_identity_sha256 }}
           KINRESOLVE_DEMO_CANARY_SECRET: ${{ secrets.KINRESOLVE_DEMO_CANARY_SECRET }}
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ vars.APP_BASE_URL }}
@@ -534,6 +541,7 @@ jobs:
 
       - name: Prove protected public demo operational health on the candidate
         env:
+          EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: ${{ steps.runtime_grants.outputs.runtime_role_identity_sha256 }}
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ steps.candidate.outputs.deployment_url }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
@@ -582,6 +590,7 @@ jobs:
         env:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           CANDIDATE_DEPLOYMENT_ID: ${{ steps.candidate.outputs.deployment_id }}
+          EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: ${{ steps.runtime_grants.outputs.runtime_role_identity_sha256 }}
           KINRESOLVE_DEMO_CANARY_SECRET: ${{ secrets.KINRESOLVE_DEMO_CANARY_SECRET }}
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ vars.APP_BASE_URL }}
@@ -636,6 +645,7 @@ jobs:
         env:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           CANDIDATE_DEPLOYMENT_ID: ${{ steps.previous.outputs.deployment_id }}
+          EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: ${{ steps.runtime_grants.outputs.runtime_role_identity_sha256 }}
           KINRESOLVE_DEMO_CANARY_SECRET: ${{ secrets.KINRESOLVE_DEMO_CANARY_SECRET }}
           KINRESOLVE_OBSERVABILITY_PROBE_SECRET: ${{ secrets.KINRESOLVE_OBSERVABILITY_PROBE_SECRET }}
           PUBLIC_DEMO_ORIGIN: ${{ vars.APP_BASE_URL }}

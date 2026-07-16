@@ -137,6 +137,10 @@ describe("beta API token configuration and input boundary", () => {
       [
         "RECOVERY_TARGET_RUNTIME_DATABASE_URL",
         `postgresql://recovery:${encodeURIComponent(structuredSecret)}@db.example.test/kinresolve`
+      ],
+      [
+        "PUBLIC_DEMO_RUNTIME_DATABASE_URL",
+        `postgresql://demo:${encodeURIComponent(structuredSecret)}@db.example.test/kinresolve`
       ]
     ] as const) {
       expect(apiV1ConfigurationStatus({

@@ -531,6 +531,8 @@ describe("stable release workflow contract", () => {
       "EXPECTED_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}"
     );
     expect(runtimeGrantStep).not.toMatch(/^\s*DATABASE_URL:/m);
+    expect(runtimeGrantStep).not.toContain("PUBLIC_DEMO_RUNTIME_DATABASE_URL");
+    expect(runtimeGrantStep).not.toContain("--public-demo");
     expect(runtimeGrantStep).toContain('grantContract == "beta-operations-v1"');
     expect(staging).toContain('vercel promote "$CANDIDATE_DEPLOYMENT_URL"');
     expect(staging).toContain('vercel promote "$HOLDING_DEPLOYMENT_URL"');
@@ -688,6 +690,8 @@ describe("stable release workflow contract", () => {
       "EXPECTED_DATABASE_IDENTITY: ${{ steps.production-release-contract.outputs.database_identity }}"
     );
     expect(runtimeGrantStep).not.toMatch(/^\s*DATABASE_URL:/m);
+    expect(runtimeGrantStep).not.toContain("PUBLIC_DEMO_RUNTIME_DATABASE_URL");
+    expect(runtimeGrantStep).not.toContain("--public-demo");
     expect(runtimeGrantStep).toContain('grantContract == "beta-operations-v1"');
   });
 

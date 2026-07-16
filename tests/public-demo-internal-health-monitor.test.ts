@@ -10,7 +10,8 @@ type Monitor = (
 
 const canonicalEnvironment = {
   PUBLIC_DEMO_ORIGIN: "https://demo.kinresolve.com",
-  KINRESOLVE_OBSERVABILITY_PROBE_SECRET: "o".repeat(43)
+  KINRESOLVE_OBSERVABILITY_PROBE_SECRET: "o".repeat(43),
+  EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: "a".repeat(64)
 };
 
 describe("public demo protected internal-health monitor", () => {
@@ -90,6 +91,21 @@ describe("public demo protected internal-health monitor", () => {
       aiBudget: { concurrentLimit: 5, running: 6, dailyLimit: 150, dailyUsed: 151 }
     })))).rejects.toThrow(/operational health/i);
   });
+
+  it("binds the deployed runtime role to the pre-deploy grant attestation", async () => {
+    const runMonitor = await loadMonitor();
+
+    await expect(runMonitor(canonicalEnvironment, vi.fn(successfulMonitorFetch)))
+      .resolves.toMatchObject({ active: 2 });
+    await expect(runMonitor({
+      ...canonicalEnvironment,
+      EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: "b".repeat(64)
+    }, vi.fn(successfulMonitorFetch))).rejects.toThrow(/operational health/i);
+    await expect(runMonitor({
+      ...canonicalEnvironment,
+      EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: "invalid"
+    }, vi.fn())).rejects.toThrow(/runtime role identity/i);
+  });
 });
 
 async function loadMonitor(): Promise<Monitor> {
@@ -110,6 +126,7 @@ function healthyResponse(overrides: {
 } = {}): Response {
   return new Response(JSON.stringify({
     status: "ok",
+    database: { runtimeRoleIdentitySha256: "a".repeat(64) },
     publicDemo: {
       capacity: { maximum: 25, active: 2, provisioning: 1, occupied: 3 },
       cleanup: overrides.cleanup ?? {

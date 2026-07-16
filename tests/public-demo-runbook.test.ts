@@ -27,6 +27,7 @@ describe("public demo operating runbook", () => {
       "DEMO_HOLDING_DEPLOYMENT_ID",
       "PRODUCT_CI_WORKFLOW_ID",
       "KINRESOLVE_STAGING_DEMO_WORKFLOW_ID",
+      "PUBLIC_DEMO_RUNTIME_DATABASE_URL",
       "PROMOTE KIN RESOLVE STATIC HOLDING TO DEMO.KINRESOLVE.COM",
       "demo-production",
       "demo-containment",

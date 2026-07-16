@@ -72,4 +72,24 @@ describe("public demo database release contract", () => {
     expect(verification.contents).toContain("npm run db:migrations:verify-production");
     expect(verification.contents).not.toMatch(/^\s*DATABASE_URL:/m);
   });
+
+  it("uses the protected public-demo runtime credential and binds it to candidate health", () => {
+    const runtimeGrant = workflowStep("Grant and re-attest public demo runtime access");
+    const candidateHealth = workflowStep(
+      "Prove protected public demo operational health on the candidate"
+    );
+
+    expect(runtimeGrant.contents).toContain("id: runtime_grants");
+    expect(runtimeGrant.contents).toContain(
+      "PUBLIC_DEMO_RUNTIME_DATABASE_URL: ${{ secrets.PUBLIC_DEMO_RUNTIME_DATABASE_URL }}"
+    );
+    expect(runtimeGrant.contents).toContain(
+      'db:runtime-role:grant-beta-operations -- "$output" --public-demo'
+    );
+    expect(runtimeGrant.contents).not.toMatch(/^\s*DATABASE_URL:/m);
+    expect(runtimeGrant.contents).toContain("runtime_role_identity_sha256=");
+    expect(candidateHealth.contents).toContain(
+      "EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: ${{ steps.runtime_grants.outputs.runtime_role_identity_sha256 }}"
+    );
+  });
 });
