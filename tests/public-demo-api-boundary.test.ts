@@ -23,14 +23,15 @@ describe("public demo API boundary", () => {
       "archive:read-private",
       "cases:read",
       "dna:read",
-      "archive:export",
       "demo:guide",
       "demo:sample-import",
       "demo:ai",
+      "demo:export",
       "demo:feedback",
       "demo:session-control"
     ];
     const denied = [
+      "archive:export",
       "cases:write",
       "evidence:write",
       "sources:write",
@@ -57,6 +58,8 @@ describe("public demo API boundary", () => {
       ["/api/demo/cases/case-mercer-march-identity/guide", "POST", "demo:guide", "same-origin-cookie"],
       ["/api/demo/sample-import", "POST", "demo:sample-import", "same-origin-cookie"],
       ["/api/demo/ai", "POST", "demo:ai", "same-origin-cookie"],
+      ["/api/demo/exports/gedcom", "GET", "demo:export", "read-only"],
+      ["/api/demo/exports/research-archive", "GET", "demo:export", "read-only"],
       ["/api/demo/feedback", "POST", "demo:feedback", "same-origin-cookie"]
     ] as const) {
       expect(resolveApiAccess(pathname, method), `${method} ${pathname}`).toEqual({

@@ -125,6 +125,14 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
     methods: { POST: register(demoSession("demo:feedback"), "same-origin-cookie") }
   },
   {
+    path: "/api/demo/exports/gedcom",
+    methods: { GET: register(demoSession("demo:export"), "read-only") }
+  },
+  {
+    path: "/api/demo/exports/research-archive",
+    methods: { GET: register(demoSession("demo:export"), "read-only") }
+  },
+  {
     path: "/api/cases",
     methods: {
       GET: register(permission("cases:read"), "read-only"),

@@ -4,6 +4,7 @@ export const demoGuestCommandCapabilities = [
   "demo:guide",
   "demo:sample-import",
   "demo:ai",
+  "demo:export",
   "demo:feedback",
   "demo:session-control"
 ] as const;
@@ -13,7 +14,6 @@ export type DemoGuestCapability = Permission | DemoGuestCommandCapability;
 
 const allowedDemoGuestCapabilities = new Set<DemoGuestCapability>([
   "archive:read-private",
-  "archive:export",
   "cases:read",
   "dna:read",
   ...demoGuestCommandCapabilities

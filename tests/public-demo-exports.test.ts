@@ -58,7 +58,7 @@ describe("public demo synthetic exports", () => {
         capability: "demo:export"
       });
       expect(resolveApiMethodPolicy(pathname, "GET"), pathname).toBe("read-only");
-      expect(resolveApiAccess(pathname, "POST"), pathname).toBeUndefined();
+      expect(resolveApiAccess(pathname, "POST"), pathname).toBeNull();
     }
   });
 

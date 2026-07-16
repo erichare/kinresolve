@@ -95,8 +95,8 @@ describe("API access registry", () => {
     }
 
     expect(counts).toEqual({
-      "read-only": 19,
-      "same-origin-cookie": 43,
+      "read-only": 22,
+      "same-origin-cookie": 50,
       "better-auth-managed": 2,
       "internal-probe": 1,
       "service-bearer": 2,

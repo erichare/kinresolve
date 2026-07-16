@@ -112,11 +112,12 @@ describe("public demo proxy boundary", () => {
   });
 
   it.each([
+    ["GET", "/api/exports/gedcom"],
     ["POST", "/api/cases"],
     ["POST", "/api/imports"],
     ["PATCH", "/api/settings/archive"],
     ["POST", "/api/exports/research-archive"]
-  ])("denies demo guests the generic %s %s mutation surface", async (method, pathname) => {
+  ])("denies demo guests the generic %s %s surface", async (method, pathname) => {
     stubDemoEnvironment();
     authMocks.getSessionContext.mockResolvedValue(demoGuestContext);
 
@@ -130,7 +131,13 @@ describe("public demo proxy boundary", () => {
     stubDemoEnvironment();
     authMocks.getSessionContext.mockResolvedValue(demoGuestContext);
 
-    for (const pathname of ["/api/people", "/api/cases", "/api/dna/matches", "/api/exports/gedcom"]) {
+    for (const pathname of [
+      "/api/people",
+      "/api/cases",
+      "/api/dna/matches",
+      "/api/demo/exports/gedcom",
+      "/api/demo/exports/research-archive"
+    ]) {
       const response = await proxy(demoRequest(pathname));
       expect(response.status, pathname).toBe(200);
       expectPrivateNoIndex(response);

@@ -163,7 +163,6 @@ function deniedResponse(
 const genericDemoReadRoutes = new Set([
   "/api/cases",
   "/api/dna/matches",
-  "/api/exports/gedcom",
   "/api/people",
   "/api/publishing/readiness",
   "/api/reports/quality",
