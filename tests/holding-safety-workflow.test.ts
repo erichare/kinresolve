@@ -50,8 +50,12 @@ describe("failed holding auto-assignment safety workflow", () => {
     expect(authorize).toContain(
       '"Kin Resolve static holding production run $SOURCE_RUN_ID attempt $SOURCE_RUN_ATTEMPT"'
     );
+    expect(authorize).toContain(
+      '"Kin Resolve static holding public-demo run $SOURCE_RUN_ID attempt $SOURCE_RUN_ATTEMPT"'
+    );
     expect(authorize).toContain('safety_environment="beta-staging-containment"');
     expect(authorize).toContain('safety_environment="production-containment"');
+    expect(authorize).toContain('safety_environment="demo-containment"');
     expect(authorize).toContain("authorized=true");
     expect(authorize).not.toContain("secrets.");
     expect(authorize).not.toMatch(/^    environment:/m);
@@ -83,7 +87,7 @@ describe("failed holding auto-assignment safety workflow", () => {
     );
     expect(repair).toContain("environment: ${{ needs.authorize.outputs.safety_environment }}");
     expect(repair).toContain(
-      "group: kinresolve-beta-holding-safety-${{ needs.authorize.outputs.target }}"
+      "group: ${{ needs.authorize.outputs.target == 'public-demo' && 'kinresolve-public-demo-release' || format('kinresolve-beta-holding-safety-{0}', needs.authorize.outputs.target) }}"
     );
     expect(repair).toContain("queue: max");
     expect(repair).toContain("cancel-in-progress: false");
@@ -127,6 +131,11 @@ describe("failed holding auto-assignment safety workflow", () => {
     expect(normal).toContain(
       'test "$EXPECTED_VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"'
     );
+    expect(normal).toContain("public-demo)");
+    expect(normal).toContain("MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}");
+    expect(normal).toContain('test "$EXPECTED_VERCEL_PROJECT_ID" != "$MARKETING_VERCEL_PROJECT_ID"');
+    expect(normal).toContain("EXPECTED_VERCEL_PROJECT_NAME");
+    expect(normal).toContain("kinresolve-demo");
 
     expect(fallback).toContain("steps.repair-auto-assignment.outcome == 'failure'");
     expect(fallback).toContain("needs.authorize.outputs.promotion_exposure == 'true'");
@@ -140,6 +149,29 @@ describe("failed holding auto-assignment safety workflow", () => {
     expect(repair.slice(requireStart)).toContain('if [[ "$REPAIR_OUTCOME" == "success" ]]');
     expect(repair.slice(requireStart)).toContain('test "$PROMOTION_EXPOSURE" = "true"');
     expect(repair.slice(requireStart)).toContain('test "$PAUSE_OUTCOME" = "success"');
+  });
+
+  it("repairs and proves the dedicated demo hostname or pauses closed", () => {
+    const repair = job("repair");
+    const proofStart = repair.indexOf("Prove public demo hostname and exact holding bytes");
+    const pauseStart = repair.indexOf(
+      "Fail closed by pausing the target when repair cannot be proved"
+    );
+    const proof = repair.slice(proofStart, pauseStart);
+
+    expect(proofStart).toBeGreaterThan(0);
+    expect(proof).toContain("needs.authorize.outputs.target == 'public-demo'");
+    expect(proof).toContain("needs.authorize.outputs.promotion_exposure == 'true'");
+    expect(proof).toContain(
+      "https://api.vercel.com/v1/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN/move"
+    );
+    expect(proof).toContain('"projectId": process.env.VERCEL_PROJECT_ID');
+    expect(proof).toContain("scripts/validate-vercel-project-domain.mjs");
+    expect(proof).toContain(
+      'cmp "$RUNNER_TEMP/holding-safety-demo-canonical.html" holding/login.html'
+    );
+    expect(proof).toContain('test "$health_status" = "404"');
+    expect(repair.slice(pauseStart)).toContain("steps.demo-holding-proof.outcome != 'success'");
   });
 
   it("documents non-interactive Vercel-only target safety environments", () => {

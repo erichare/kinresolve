@@ -65,6 +65,7 @@ describe("Vercel public demo project-domain ownership", () => {
     await writeFile(fixture, JSON.stringify(domain()), "utf8");
 
     const result = spawnSync(process.execPath, [
+      "--no-warnings",
       "--experimental-strip-types",
       "scripts/validate-vercel-project-domain.mjs",
       fixture

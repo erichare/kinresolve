@@ -25,6 +25,7 @@ on:
 permissions:
   actions: read
   contents: read
+  security-events: read
 
 concurrency:
   group: kinresolve-public-demo-release
@@ -85,6 +86,23 @@ jobs:
           RELEASE_SAFETY_CURRENT_WORKFLOW: public-demo
         run: node --experimental-strip-types scripts/validate-release-safety-queue.mjs
 
+      - name: Require the legacy staging demo controller to be disabled and idle
+        if: inputs.action == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          KINRESOLVE_STAGING_DEMO_WORKFLOW_ID: ${{ vars.KINRESOLVE_STAGING_DEMO_WORKFLOW_ID }}
+        run: node --experimental-strip-types scripts/validate-legacy-demo-retirement.mjs
+
+      - name: Require successful current-main CI and zero open high-severity code alerts
+        if: inputs.action == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          PRODUCT_CI_WORKFLOW_ID: ${{ vars.PRODUCT_CI_WORKFLOW_ID }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: node scripts/public-demo-github-readiness.mjs
+
   release:
     name: Build, prove, and promote the public demo candidate
     needs: authorize
@@ -127,11 +145,13 @@ jobs:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           EXPECTED_ARCHIVE_ID: kinresolve-demo-public
           EXPECTED_DATASET_MODE: demo
+          EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ vars.KINRESOLVE_DATABASE_IDENTITY }}
           KINRESOLVE_DEPLOYMENT_MODE: hosted
           KINRESOLVE_PUBLIC_DEMO_ENABLED: "true"
           KINRESOLVE_RELEASE_ROLE: public-demo
+          MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
           PRODUCTION_DATABASE_IDENTITY: ${{ vars.PRODUCTION_DATABASE_IDENTITY }}
           PRODUCTION_VERCEL_PROJECT_ID: ${{ vars.PRODUCTION_VERCEL_PROJECT_ID }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -145,9 +165,13 @@ jobs:
           test "$KINRESOLVE_PUBLIC_DEMO_ENABLED" = "true"
           test "$KINRESOLVE_RELEASE_ROLE" = "public-demo"
           [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
           [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$MARKETING_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"
           test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
           test "$VERCEL_PROJECT_ID" != "$PRODUCTION_VERCEL_PROJECT_ID"
+          test "$VERCEL_PROJECT_ID" != "$MARKETING_VERCEL_PROJECT_ID"
           [[ "$KINRESOLVE_DATABASE_IDENTITY" =~ ^[a-f0-9]{64}$ ]]
           [[ "$PRODUCTION_DATABASE_IDENTITY" =~ ^[a-f0-9]{64}$ ]]
           test "$KINRESOLVE_DATABASE_IDENTITY" != "$PRODUCTION_DATABASE_IDENTITY"
@@ -162,6 +186,7 @@ jobs:
 
       - name: Prove automatic custom-domain assignment remains disabled
         env:
+          EXPECTED_VERCEL_PROJECT_NAME: kinresolve-demo
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -183,6 +208,30 @@ jobs:
           EXPECTED_VERCEL_PROJECT_PAUSED="false" \
             node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
               "$RUNNER_TEMP/public-demo-project.json"
+
+      - name: Prove the public demo hostname belongs only to the dedicated project
+        env:
+          EXPECTED_VERCEL_DOMAIN: demo.kinresolve.com
+          MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/domains/demo.kinresolve.com$scope_query" \
+            --output "$RUNNER_TEMP/public-demo-domain.json"
+          node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+            "$RUNNER_TEMP/public-demo-domain.json"
+          marketing_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$RUNNER_TEMP/public-demo-marketing-domain.json" \
+            --write-out '%{http_code}' \
+            "https://api.vercel.com/v9/projects/$MARKETING_VERCEL_PROJECT_ID/domains/demo.kinresolve.com$scope_query")"
+          test "$marketing_status" = "404"
 
       - name: Pull and validate the exact public demo runtime contract
         env:

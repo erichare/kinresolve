@@ -8,6 +8,8 @@ const exactProductionPromotionAcknowledgement =
   "PROMOTE KIN RESOLVE STATIC HOLDING TO APP.KINRESOLVE.COM";
 const exactStagingPromotionAcknowledgement =
   "PROMOTE KIN RESOLVE STATIC HOLDING TO BETA-STAGING";
+const exactDemoPromotionAcknowledgement =
+  "PROMOTE KIN RESOLVE STATIC HOLDING TO DEMO.KINRESOLVE.COM";
 const exactAutoAssignmentAcknowledgement =
   "I acknowledge Vercel production deployment auto-assignment is disabled in the protected project dashboard.";
 const exactAutoAssignmentComparison =
@@ -33,14 +35,20 @@ describe("protected static holding deployment workflow", () => {
       "run-name: Kin Resolve static holding ${{ inputs.target }} run ${{ github.run_id }} attempt ${{ github.run_attempt }}"
     );
     expect(contents).toMatch(/^      target:\s*$/m);
-    expect(contents).toMatch(/target:[\s\S]*?type: choice[\s\S]*?options:[\s\S]*?- beta-staging[\s\S]*?- production/);
+    expect(contents).toMatch(
+      /target:[\s\S]*?type: choice[\s\S]*?options:[\s\S]*?- beta-staging[\s\S]*?- public-demo[\s\S]*?- production/
+    );
     expect(contents).toMatch(/^      holding_commit:/m);
     expect(contents).toMatch(/^      promotion_acknowledgement:/m);
     expect(contents).toMatch(/^      auto_assignment_acknowledgement:/m);
     expect(contents).toMatch(/^      deployment_protection_acknowledgement:/m);
     expect(contents).toContain(`default: ""`);
-    expect(contents).toContain("environment: ${{ inputs.target }}");
-    expect(contents).toContain("group: kinresolve-beta-release");
+    expect(contents).toContain(
+      "environment: ${{ inputs.target == 'public-demo' && 'demo-production' || inputs.target }}"
+    );
+    expect(contents).toContain(
+      "group: ${{ inputs.target == 'public-demo' && 'kinresolve-public-demo-release' || 'kinresolve-beta-release' }}"
+    );
     expect(contents).toContain("queue: max");
     expect(contents).toContain("cancel-in-progress: false");
     expect(contents).toContain("timeout-minutes:");
@@ -59,6 +67,7 @@ describe("protected static holding deployment workflow", () => {
     expect(contents).toContain("TARGET_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}");
     expect(contents).toContain(exactProductionPromotionAcknowledgement);
     expect(contents).toContain(exactStagingPromotionAcknowledgement);
+    expect(contents).toContain(exactDemoPromotionAcknowledgement);
     expect(contents).toContain(exactAutoAssignmentComparison);
     expect(contents).toContain(exactDeploymentProtectionComparison);
     expect(dispatchValidation).toBeGreaterThan(0);
@@ -71,6 +80,8 @@ describe("protected static holding deployment workflow", () => {
     expect(contents).toContain('test "$TARGET_APP_BASE_URL" != "$production_app_base_url"');
     expect(contents).toContain('test "$TARGET_VERCEL_PROJECT_ID" = "$production_vercel_project_id"');
     expect(contents).toContain('test "$TARGET_VERCEL_PROJECT_ID" != "$production_vercel_project_id"');
+    expect(contents).toContain('test "$TARGET_VERCEL_PROJECT_ID" != "$MARKETING_VERCEL_PROJECT_ID"');
+    expect(contents).toContain("scripts/validate-legacy-demo-retirement.mjs");
     expect(contents).toMatch(/ref:\s*\$\{\{ inputs\.holding_commit \}\}/);
     expect(contents).toContain("persist-credentials: false");
     expect(contents).toContain("git merge-base --is-ancestor");

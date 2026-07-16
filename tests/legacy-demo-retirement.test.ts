@@ -18,7 +18,7 @@ const environment = {
 describe("legacy staging demo retirement preflight", () => {
   it("requires the exact workflow to be manually disabled with no active runs", async () => {
     const check = await loadCheck();
-    const fetchImplementation = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchImplementation = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/actions/workflows/12345678")) {
         return json({

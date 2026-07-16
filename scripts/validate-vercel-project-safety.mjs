@@ -17,6 +17,9 @@ try {
     {
       expectedProjectId: required("VERCEL_PROJECT_ID"),
       expectedOrgId: required("VERCEL_ORG_ID"),
+      ...(process.env.EXPECTED_VERCEL_PROJECT_NAME?.trim()
+        ? { expectedProjectName: process.env.EXPECTED_VERCEL_PROJECT_NAME.trim() }
+        : {}),
       ...(expectedPaused === undefined ? {} : { expectedPaused })
     }
   );

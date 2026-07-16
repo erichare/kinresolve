@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: kinresolve-public-demo-safety
+  group: kinresolve-public-demo-release
   queue: max
   cancel-in-progress: false
 
@@ -135,6 +135,7 @@ jobs:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
           PRODUCTION_VERCEL_PROJECT_ID: ${{ vars.PRODUCTION_VERCEL_PROJECT_ID }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -143,12 +144,14 @@ jobs:
           test "$APP_BASE_URL" = "https://demo.kinresolve.com"
           [[ "$EXPECTED_VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
           [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$MARKETING_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
           [[ "$PRODUCTION_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
           [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
           [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
           test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"
           test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
           test "$VERCEL_PROJECT_ID" != "$PRODUCTION_VERCEL_PROJECT_ID"
+          test "$VERCEL_PROJECT_ID" != "$MARKETING_VERCEL_PROJECT_ID"
           mkdir -p .vercel
           node -e '
             const { writeFileSync } = require("node:fs");
@@ -198,6 +201,7 @@ jobs:
         if: always() && steps.restore.outcome == 'success'
         continue-on-error: true
         env:
+          EXPECTED_VERCEL_PROJECT_NAME: kinresolve-demo
           EXPECTED_VERCEL_PROJECT_PAUSED: "false"
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -220,13 +224,78 @@ jobs:
           node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
             "$RUNNER_TEMP/public-demo-safety-project.json"
 
+      - name: Restore and prove dedicated demo hostname ownership
+        id: domain-ownership
+        if: always() && steps.project-safety.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          DEMO_DOMAIN: demo.kinresolve.com
+          EXPECTED_VERCEL_DOMAIN: demo.kinresolve.com
+          MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$MARKETING_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$MARKETING_VERCEL_PROJECT_ID" != "$VERCEL_PROJECT_ID"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          destination_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query"
+          destination_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$RUNNER_TEMP/public-demo-safety-domain-before.json" \
+            --write-out '%{http_code}' "$destination_api")"
+          if test "$destination_status" = "200"; then
+            node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+              "$RUNNER_TEMP/public-demo-safety-domain-before.json"
+          else
+            test "$destination_status" = "404"
+            curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+              --fail --silent --show-error --header "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v9/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query" \
+              --output "$RUNNER_TEMP/public-demo-safety-marketing-domain-before.json"
+            VERCEL_PROJECT_ID="$MARKETING_VERCEL_PROJECT_ID" \
+              node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+                "$RUNNER_TEMP/public-demo-safety-marketing-domain-before.json"
+            node -e '
+              const { writeFileSync } = require("node:fs");
+              writeFileSync(process.env.RUNNER_TEMP + "/public-demo-safety-domain-move.json", JSON.stringify({
+                "projectId": process.env.VERCEL_PROJECT_ID
+              }) + "\n", { mode: 0o600 });
+            '
+            curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+              --fail --silent --show-error --request POST \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data-binary "@$RUNNER_TEMP/public-demo-safety-domain-move.json" \
+              "https://api.vercel.com/v1/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN/move$scope_query" \
+              --output "$RUNNER_TEMP/public-demo-safety-domain-moved.json"
+            node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+              "$RUNNER_TEMP/public-demo-safety-domain-moved.json"
+          fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$destination_api" --output "$RUNNER_TEMP/public-demo-safety-domain-after.json"
+          node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+            "$RUNNER_TEMP/public-demo-safety-domain-after.json"
+          marketing_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$RUNNER_TEMP/public-demo-safety-marketing-domain-after.json" \
+            --write-out '%{http_code}' \
+            "https://api.vercel.com/v9/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query")"
+          test "$marketing_status" = "404"
+
       - name: Prove the canonical demo holding restoration
         id: holding-proof
         if: >-
           always() &&
           steps.holding-record.outcome == 'success' &&
           steps.restore.outcome == 'success' &&
-          steps.project-safety.outcome == 'success'
+          steps.project-safety.outcome == 'success' &&
+          steps.domain-ownership.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 10
         env:
@@ -240,6 +309,7 @@ jobs:
           deployment_host="${APP_BASE_URL#https://}"
           scope_query=""
           if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          canonical_ready="false"
           for attempt in $(seq 1 20); do
             rm -f "$RUNNER_TEMP/public-demo-safety-canonical.json"
             if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
@@ -247,9 +317,25 @@ jobs:
                 "https://api.vercel.com/v13/deployments/$deployment_host$scope_query" \
                 --output "$RUNNER_TEMP/public-demo-safety-canonical.json" \
               && env -u GITHUB_OUTPUT node --experimental-strip-types \
-                scripts/validate-vercel-deployment.mjs holding \
-                "$RUNNER_TEMP/public-demo-safety-canonical.json" \
-                "${APP_BASE_URL#https://}" >/dev/null 2>&1; then
+                 scripts/validate-vercel-deployment.mjs holding \
+                 "$RUNNER_TEMP/public-demo-safety-canonical.json" \
+                 "${APP_BASE_URL#https://}" >/dev/null 2>&1; then
+              canonical_ready="true"
+              break
+            fi
+            if [[ "$attempt" = 20 ]]; then exit 1; fi
+            sleep 3
+          done
+          test "$canonical_ready" = "true"
+          for attempt in $(seq 1 20); do
+            status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+              --max-filesize 1048576 \
+              --output "$RUNNER_TEMP/public-demo-safety-canonical.html" \
+              --write-out '%{http_code}' "$APP_BASE_URL/")"
+            health_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+              --output /dev/null --write-out '%{http_code}' "$APP_BASE_URL/api/health")"
+            if test "$status" = "200" && test "$health_status" = "404" && \
+                cmp "$RUNNER_TEMP/public-demo-safety-canonical.html" holding/login.html; then
               exit 0
             fi
             if [[ "$attempt" = 20 ]]; then exit 1; fi
@@ -263,6 +349,7 @@ jobs:
           (steps.holding-record.outcome != 'success' ||
            steps.restore.outcome != 'success' ||
            steps.project-safety.outcome != 'success' ||
+           steps.domain-ownership.outcome != 'success' ||
            steps.holding-proof.outcome != 'success')
         env:
           EXPECTED_VERCEL_PROJECT_PAUSED: "true"
@@ -297,6 +384,7 @@ jobs:
         env:
           HOLDING_RECORD_OUTCOME: ${{ steps.holding-record.outcome }}
           HOLDING_PROOF_OUTCOME: ${{ steps.holding-proof.outcome }}
+          DOMAIN_OWNERSHIP_OUTCOME: ${{ steps.domain-ownership.outcome }}
           PAUSE_OUTCOME: ${{ steps.pause-fallback.outcome }}
           PROJECT_SAFETY_OUTCOME: ${{ steps.project-safety.outcome }}
           RESTORE_OUTCOME: ${{ steps.restore.outcome }}
@@ -305,6 +393,7 @@ jobs:
           if [[ "$HOLDING_RECORD_OUTCOME" = "success" &&
                 "$RESTORE_OUTCOME" = "success" &&
                 "$PROJECT_SAFETY_OUTCOME" = "success" &&
+                "$DOMAIN_OWNERSHIP_OUTCOME" = "success" &&
                 "$HOLDING_PROOF_OUTCOME" = "success" ]]; then
             exit 0
           fi

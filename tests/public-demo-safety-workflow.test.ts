@@ -33,7 +33,7 @@ describe("failed public demo release safety workflow", () => {
     );
     expect(contents).toContain("workflow_run:");
     expect(contents).toContain("- Release Kin Resolve public demo");
-    expect(contents).toContain("group: kinresolve-public-demo-safety");
+    expect(contents).toContain("group: kinresolve-public-demo-release");
     expect(contents).toContain("queue: max");
     expect(contents).toContain("cancel-in-progress: false");
     expect(contents).toContain("actions: read");
@@ -75,6 +75,7 @@ describe("failed public demo release safety workflow", () => {
     const projectSafety = contain.indexOf(
       "Repair and independently attest demo domain auto-assignment"
     );
+    const domainOwnership = contain.indexOf("Restore and prove dedicated demo hostname ownership");
     const holdingProof = contain.indexOf("Prove the canonical demo holding restoration");
     const pause = contain.indexOf(
       "Fail closed by pausing the demo project when holding restoration cannot be proved"
@@ -90,16 +91,19 @@ describe("failed public demo release safety workflow", () => {
     expect(holdingRecord).toBeGreaterThan(targetBinding);
     expect(restore).toBeGreaterThan(holdingRecord);
     expect(projectSafety).toBeGreaterThan(restore);
-    expect(holdingProof).toBeGreaterThan(projectSafety);
+    expect(domainOwnership).toBeGreaterThan(projectSafety);
+    expect(holdingProof).toBeGreaterThan(domainOwnership);
     expect(pause).toBeGreaterThan(holdingProof);
     expect(finalGate).toBeGreaterThan(pause);
     expect(contain).toContain('test "$APP_BASE_URL" = "https://demo.kinresolve.com"');
     expect(contain).toContain("EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}");
     expect(contain).toContain("EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}");
     expect(contain).toContain("PRODUCTION_VERCEL_PROJECT_ID: ${{ vars.PRODUCTION_VERCEL_PROJECT_ID }}");
+    expect(contain).toContain("MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}");
     expect(contain).toContain('test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"');
     expect(contain).toContain('test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"');
     expect(contain).toContain('test "$VERCEL_PROJECT_ID" != "$PRODUCTION_VERCEL_PROJECT_ID"');
+    expect(contain).toContain('test "$VERCEL_PROJECT_ID" != "$MARKETING_VERCEL_PROJECT_ID"');
     expect(contain).toContain(
       "APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.DEMO_HOLDING_DEPLOYMENT_ID }}"
     );
@@ -107,7 +111,16 @@ describe("failed public demo release safety workflow", () => {
     expect(contain).toContain('vercel promote "$HOLDING_DEPLOYMENT_URL" --yes --timeout=5m');
     expect(contain).toContain(`--data '{"autoAssignCustomDomains":false}'`);
     expect(contain).toContain("scripts/validate-vercel-project-safety.mjs");
+    expect(contain).toContain("EXPECTED_VERCEL_PROJECT_NAME: kinresolve-demo");
+    expect(contain).toContain("scripts/validate-vercel-project-domain.mjs");
+    expect(contain).toContain(
+      "https://api.vercel.com/v1/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN/move"
+    );
     expect(contain).toContain("scripts/validate-vercel-deployment.mjs holding");
+    expect(contain).toContain(
+      'cmp "$RUNNER_TEMP/public-demo-safety-canonical.html" holding/login.html'
+    );
+    expect(contain).toContain('test "$health_status" = "404"');
     expect(contain).toContain(
       '"https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query"'
     );
@@ -118,6 +131,7 @@ describe("failed public demo release safety workflow", () => {
     expect(gate).toContain('"$HOLDING_RECORD_OUTCOME" = "success"');
     expect(gate).toContain('"$RESTORE_OUTCOME" = "success"');
     expect(gate).toContain('"$PROJECT_SAFETY_OUTCOME" = "success"');
+    expect(gate).toContain('"$DOMAIN_OWNERSHIP_OUTCOME" = "success"');
     expect(gate).toContain('"$HOLDING_PROOF_OUTCOME" = "success"');
   });
 

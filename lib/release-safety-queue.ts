@@ -298,7 +298,8 @@ function isMarkedSourceRun(source: ReleaseSafetySource, run: NormalizedRun): boo
   }
   if (source === "holding") {
     return run.displayTitle === `Kin Resolve static holding beta-staging run ${run.id} attempt ${run.attempt}`
-      || run.displayTitle === `Kin Resolve static holding production run ${run.id} attempt ${run.attempt}`;
+      || run.displayTitle === `Kin Resolve static holding production run ${run.id} attempt ${run.attempt}`
+      || run.displayTitle === `Kin Resolve static holding public-demo run ${run.id} attempt ${run.attempt}`;
   }
   if (source === "demo") {
     return run.displayTitle === `Kin Resolve staging demo open run ${run.id} attempt ${run.attempt}`
