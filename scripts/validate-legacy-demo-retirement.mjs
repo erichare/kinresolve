@@ -48,6 +48,7 @@ function resolveConfiguration(environment) {
   if (environment.GITHUB_API_URL !== "https://api.github.com") throw retirementError();
   const repository = environment.GITHUB_REPOSITORY;
   const workflowId = environment.KINRESOLVE_STAGING_DEMO_WORKFLOW_ID;
+  // GitHub App installation tokens are opaque and may use the stateless JWT format.
   const token = environment.GH_TOKEN;
   if (
     typeof repository !== "string"
@@ -55,10 +56,9 @@ function resolveConfiguration(environment) {
     || typeof workflowId !== "string"
     || !/^[1-9][0-9]{0,19}$/.test(workflowId)
     || typeof token !== "string"
+    || token.length === 0
     || token.trim() !== token
     || /[\s\u0000-\u001f\u007f]/u.test(token)
-    || token.length < 20
-    || token.length > 256
   ) {
     throw retirementError();
   }
