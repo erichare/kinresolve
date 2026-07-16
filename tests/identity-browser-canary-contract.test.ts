@@ -141,6 +141,16 @@ describe("identity canary artifact boundary", () => {
     expect(state).not.toMatch(/row\.demo_fixture_version\s*!==\s*\d+/);
   });
 
+  it("probes disabled publishing without requiring an unpublished demo profile", () => {
+    const runner = readFileSync(path.join(process.cwd(), "scripts/identity-browser-canary.ts"), "utf8");
+    const state = readFileSync(path.join(process.cwd(), "scripts/identity-browser-canary-state.ts"), "utf8");
+    expect(state).toContain("published = true");
+    expect(state).toContain("invariant.rows[0]?.published !== true");
+    expect(state).not.toContain("unpublishedPersonId");
+    expect(runner).toContain("data: { published: false }");
+    expect(runner).not.toContain("unpublishedPersonId");
+  });
+
   it("keeps browser credentials out of environment configuration and forbids provider access", () => {
     const contract = readFileSync(path.join(process.cwd(), "scripts/identity-browser-canary-contract.ts"), "utf8");
     expect(contract).not.toMatch(/CANARY_(?:EMAIL|PASSWORD|TOKEN)/);

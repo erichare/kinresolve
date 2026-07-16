@@ -197,7 +197,7 @@ async function main(): Promise<void> {
     currentStage = "API token browser journey";
     await validateApiTokenJourney(page, context, configuration);
     currentStage = "disabled capability browser and route boundary";
-    await validateDisabledCapabilities(page, context, configuration, preflight.unpublishedPersonId);
+    await validateDisabledCapabilities(page, context, configuration, preflight.publicationTargetPersonId);
     currentStage = "deterministic local analysis";
     await validateLocalAnalysis(page, context, configuration);
     currentStage = "logout denial";
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
   await assertFinalProductMutationBoundary(pool, {
     archiveId: configuration.archiveId,
     baseline: preflight.baseline,
-    unpublishedPersonId: preflight.unpublishedPersonId
+    publicationTargetPersonId: preflight.publicationTargetPersonId
   });
 
   console.log("Disposable identity, negative-capability, and API browser canary passed.");
@@ -672,7 +672,7 @@ async function validateDisabledCapabilities(
   page: Page,
   context: BrowserContext,
   configuration: IdentityBrowserCanaryConfiguration,
-  unpublishedPersonId: string
+  publicationTargetPersonId: string
 ): Promise<void> {
   currentStage = "disabled capability manifest";
   await exactGoto(page, configuration, "/app/settings");
@@ -736,7 +736,7 @@ async function validateDisabledCapabilities(
   if (await page.locator('a[href^="/people"]').count() !== 0) throw new Error();
 
   currentStage = "disabled person publishing UI";
-  await exactGoto(page, configuration, `/app/people/${encodeURIComponent(unpublishedPersonId)}`);
+  await exactGoto(page, configuration, `/app/people/${encodeURIComponent(publicationTargetPersonId)}`);
   await expectVisible(page.getByText("Privacy curation", { exact: true }));
   await expectVisible(page.getByText("Publishing is disabled", { exact: true }));
   if (await page.getByLabel("Published", { exact: true }).count() !== 0) throw new Error();
@@ -746,8 +746,8 @@ async function validateDisabledCapabilities(
       context,
       configuration,
       "PATCH",
-      `/api/people/${encodeURIComponent(unpublishedPersonId)}/curation`,
-      { data: { published: true } }
+      `/api/people/${encodeURIComponent(publicationTargetPersonId)}/curation`,
+      { data: { published: false } }
     ),
     "Person not found"
   );
