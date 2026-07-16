@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   publicDemoEnabled: vi.fn(),
   readPublicDemoDiagnostics: vi.fn(),
   readJobLagHealth: vi.fn(),
+  readRuntimeDatabaseRoleIdentitySha256: vi.fn(),
   readWorkerFreshness: vi.fn()
 }));
 
@@ -27,6 +28,9 @@ vi.mock("@/lib/public-demo-config", () => ({
 }));
 vi.mock("@/lib/public-demo-session-store", () => ({
   readPublicDemoDiagnostics: mocks.readPublicDemoDiagnostics
+}));
+vi.mock("@/lib/runtime-database-role-identity", () => ({
+  readRuntimeDatabaseRoleIdentitySha256: mocks.readRuntimeDatabaseRoleIdentitySha256
 }));
 vi.mock("@/lib/workspace-store", () => ({
   getArchiveId: mocks.getArchiveId
@@ -84,6 +88,7 @@ beforeEach(() => {
     recentFailedCountCapped: false,
     freshness: "healthy"
   });
+  mocks.readRuntimeDatabaseRoleIdentitySha256.mockResolvedValue("a".repeat(64));
 });
 
 afterEach(() => {
@@ -127,7 +132,8 @@ describe("GET /api/internal/health", () => {
         provisioned: true,
         datasetMode: "pilot",
         expectedDatasetMode: "pilot",
-        datasetModeMatches: true
+        datasetModeMatches: true,
+        runtimeRoleIdentitySha256: "a".repeat(64)
       },
       storage: {
         configured: true,
@@ -200,6 +206,23 @@ describe("GET /api/internal/health", () => {
     expect(body.workers).toBeNull();
     expect(body.jobLag).toBeNull();
     expect(JSON.stringify(body)).not.toMatch(/database-private-marker|private-password|db\.internal/);
+  });
+
+  it("degrades without exposing a runtime role identity query failure", async () => {
+    mocks.authenticate.mockReturnValue(true);
+    mocks.readRuntimeDatabaseRoleIdentitySha256.mockRejectedValue(
+      new Error("postgres://runtime-user:private-password@db.internal/pilot")
+    );
+
+    const response = await GET(probeRequest);
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      status: "degraded",
+      database: { runtimeRoleIdentitySha256: null }
+    });
+    expect(JSON.stringify(body)).not.toMatch(/runtime-user|private-password|db\.internal/);
   });
 
   it.each([

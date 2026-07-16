@@ -402,8 +402,9 @@ inventory as follows; do not promote a repository-level secret as a shortcut:
 - `demo-production` is the protected public-demo release environment. Secrets:
   `DEMO_HOLDING_DEPLOYMENT_ID`, `KINRESOLVE_DEMO_CANARY_SECRET`,
   `KINRESOLVE_OBSERVABILITY_PROBE_SECRET`, `MIGRATION_DATABASE_URL`,
-  `VERCEL_AUTOMATION_BYPASS_SECRET`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and
-  `VERCEL_TOKEN`. Variables: `APP_BASE_URL`, `KINRESOLVE_DATABASE_IDENTITY`,
+  `PUBLIC_DEMO_RUNTIME_DATABASE_URL`, `VERCEL_AUTOMATION_BYPASS_SECRET`,
+  `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables:
+  `APP_BASE_URL`, `KINRESOLVE_DATABASE_IDENTITY`,
   `MARKETING_VERCEL_PROJECT_ID`, `PRODUCTION_DATABASE_IDENTITY`,
   `PRODUCTION_VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. The exact
   setup and runtime contract are in [the public demo runbook](docs/public-demo-runbook.md).

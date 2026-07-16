@@ -43,6 +43,7 @@ Require reviewers and no deployment wait timer. Configure these secrets:
 - `KINRESOLVE_DEMO_CANARY_SECRET`
 - `KINRESOLVE_OBSERVABILITY_PROBE_SECRET`
 - `MIGRATION_DATABASE_URL`
+- `PUBLIC_DEMO_RUNTIME_DATABASE_URL`
 - `VERCEL_AUTOMATION_BYPASS_SECRET`
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
@@ -61,7 +62,9 @@ Configure these readable variables:
 - `VERCEL_PROJECT_ID`
 
 The secret and readable Vercel identities must match. Demo project and database identities
-must differ from the marketing/private-beta exclusions.
+must differ from the marketing/private-beta exclusions. The protected runtime URL must be
+the same bounded `krdemo_runtime` connection configured as Vercel's Sensitive
+`DATABASE_URL`; rotate and update both copies together.
 
 ### `demo-containment`
 

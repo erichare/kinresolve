@@ -193,6 +193,14 @@ describe("public demo operational boundary", () => {
     expect(grantStep).toContain(
       "MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}"
     );
+    expect(grantStep).toContain(
+      "PUBLIC_DEMO_RUNTIME_DATABASE_URL: ${{ secrets.PUBLIC_DEMO_RUNTIME_DATABASE_URL }}"
+    );
+    expect(grantStep).toContain('db:runtime-role:grant-beta-operations -- "$output" --public-demo');
+    expect(grantStep).toContain("runtime_role_identity_sha256=");
+    expect(publicDemoRelease).toContain(
+      "EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: ${{ steps.runtime_grants.outputs.runtime_role_identity_sha256 }}"
+    );
     expect(grantStep).toContain('grantContract == "beta-operations-v1"');
     expect(grantStep).toContain(".sameDatabaseSessionVerified == true");
     expect(grantStep).toContain(".safeRuntimeRoleReattested == true");

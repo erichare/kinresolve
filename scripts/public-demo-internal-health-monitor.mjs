@@ -42,7 +42,10 @@ export async function runPublicDemoInternalHealthMonitor(
   }
 
   const document = await boundedJson(response);
-  const diagnostics = validateDiagnostics(document);
+  const diagnostics = validateDiagnostics(
+    document,
+    configuration.expectedRuntimeRoleIdentitySha256
+  );
   await proveCronSecretConfigured(configuration, fetchImplementation);
   return Object.freeze({
     active: diagnostics.capacity.active,
@@ -86,7 +89,8 @@ async function proveCronSecretConfigured(configuration, fetchImplementation) {
   }
 }
 
-function validateDiagnostics(document) {
+function validateDiagnostics(document, expectedRuntimeRoleIdentitySha256) {
+  const database = objectValue(document?.database);
   const diagnostics = objectValue(document?.publicDemo);
   const capacity = objectValue(diagnostics?.capacity);
   const cleanup = objectValue(diagnostics?.cleanup);
@@ -98,6 +102,11 @@ function validateDiagnostics(document) {
 
   if (
     document?.status !== "ok"
+    || !database
+    || typeof database.runtimeRoleIdentitySha256 !== "string"
+    || !/^[a-f0-9]{64}$/.test(database.runtimeRoleIdentitySha256)
+    || (expectedRuntimeRoleIdentitySha256 !== null
+      && database.runtimeRoleIdentitySha256 !== expectedRuntimeRoleIdentitySha256)
     || !capacity
     || !cleanup
     || !aiBudget
@@ -135,11 +144,22 @@ function resolveConfiguration(environment) {
   return Object.freeze({
     origin,
     bypassSecret,
+    expectedRuntimeRoleIdentitySha256: optionalDigest(
+      environment.EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256
+    ),
     probeSecret: requiredSecret(
       environment.KINRESOLVE_OBSERVABILITY_PROBE_SECRET,
       "KINRESOLVE_OBSERVABILITY_PROBE_SECRET"
     )
   });
+}
+
+function optionalDigest(value) {
+  if (value === undefined || value === "") return null;
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error("The expected runtime role identity is malformed.");
+  }
+  return value;
 }
 
 function exactOrigin(value) {
