@@ -51,18 +51,19 @@ beforeEach(() => {
     capacity: {
       active: 3,
       maximum: 25,
-      occupied: 4,
-      provisioning: 1
+      provisioning: 1,
+      available: 21
     },
     cleanup: {
-      freshness: "healthy",
-      lastCompletedAt: "2026-07-16T15:55:00.000Z"
+      leaseHeld: false,
+      lastStartedAt: new Date().toISOString(),
+      lastCompletedAt: new Date().toISOString(),
+      staleProvisioning: 0
     },
-    staleProvisioning: 0,
-    aiBudget: {
-      concurrentLimit: 5,
-      dailyLimit: 150,
-      dailyUsed: 12,
+    ai: {
+      maximumConcurrent: 5,
+      maximumDaily: 150,
+      usedToday: 12,
       running: 1
     }
   });
@@ -158,7 +159,7 @@ describe("GET /api/internal/health", () => {
         },
         cleanup: {
           freshness: "healthy",
-          lastCompletedAt: "2026-07-16T15:55:00.000Z"
+          lastCompletedAt: expect.any(String)
         },
         staleProvisioning: 0,
         aiBudget: {
