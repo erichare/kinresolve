@@ -1,12 +1,16 @@
 import Link from "next/link";
 import Image from "next/image";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { DemoStartForm } from "@/components/demo-start-form";
 import { Icons } from "@/components/icons";
 import { PublicShell } from "@/components/public-shell";
 import { Status, TableScroll } from "@/components/ui";
-import { canPublishPerson, publicFactFilter } from "@/lib/privacy";
-import { privateWorkspaceLoginPath, publicArchiveEnabled } from "@/lib/public-surface";
-import { readWorkspace } from "@/lib/workspace-store";
+import { publicDemoGuidedCaseTitle } from "@/lib/public-demo-contract";
+import { publicDemoEnabled } from "@/lib/public-demo-config";
+import { recordPublicDemoEvent } from "@/lib/public-demo-session-store";
+import { privateWorkspaceLoginPath, publicArchiveEnabled, resolvePublicArchiveId } from "@/lib/public-surface";
+import { listPublicPeople, readArchiveBranding } from "@/lib/store/people-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -14,26 +18,40 @@ export default async function HomePage() {
   if (!publicArchiveEnabled()) {
     redirect(privateWorkspaceLoginPath);
   }
-  const workspace = await readWorkspace();
-  const publishedPeople = workspace.people
-    .filter((person) => person.published && canPublishPerson(person))
+  if (publicDemoEnabled()) {
+    const requestHeaders = await headers();
+    if (!requestHeaders.has("x-kinresolve-demo-canary")) {
+      try {
+        await recordPublicDemoEvent({ eventName: "landing_viewed" });
+      } catch {
+        // Aggregate telemetry must never prevent the public landing page.
+      }
+    }
+    return <PublicDemoLanding />;
+  }
+  const publicArchiveId = resolvePublicArchiveId();
+  const archiveOptions = { archiveId: publicArchiveId };
+  const [branding, publicPeople] = await Promise.all([
+    readArchiveBranding(archiveOptions),
+    listPublicPeople(archiveOptions)
+  ]);
+  const publishedPeople = publicPeople
     .map((person) => {
-      const publicFacts = person.facts.filter(publicFactFilter);
       return {
         person,
-        publicFacts,
-        publicBirth: publicFacts.find((fact) => fact.type.toUpperCase() === "BIRT" || fact.type.toLowerCase() === "birth")
+        publicFacts: person.facts,
+        publicBirth: person.facts.find((fact) => fact.type.toUpperCase() === "BIRT" || fact.type.toLowerCase() === "birth")
       };
     });
   const publishedFactCount = publishedPeople.reduce((total, { publicFacts }) => total + publicFacts.length, 0);
 
   return (
-    <PublicShell active="/" tagline={workspace.archiveTagline}>
+    <PublicShell active="/" tagline={branding.tagline}>
       <div className="page-wrap">
         <section className="hero">
           <div>
             <span className="eyebrow">Public family archive</span>
-            <h1>{workspace.archiveName}</h1>
+            <h1>{branding.name}</h1>
             <p>A family-history archive for profiles explicitly published after person-level privacy checks. Private research, DNA triage, and living-person details stay in the signed-in workspace.</p>
             <p className="fiction-disclosure" role="note">
               <strong>Fictional demo universe.</strong> Every demo name, date, place, record, photograph, story, and DNA match is invented. No real family data is used in the Hartwell–Mercer examples.
@@ -130,6 +148,69 @@ export default async function HomePage() {
               </div>
             </div>
           </aside>
+        </section>
+      </div>
+    </PublicShell>
+  );
+}
+
+function PublicDemoLanding() {
+  return (
+    <PublicShell active="/" tagline="A fictional family. A real research workflow.">
+      <div className="page-wrap public-demo-landing" data-public-demo-landing>
+        <section className="public-demo-hero">
+          <div className="public-demo-hero-copy">
+            <span className="eyebrow">Public interactive demo</span>
+            <h1>Try Kin Resolve with a fictional family.</h1>
+            <p>
+              Follow a real evidence-led research workflow through the invented Hartwell–Mercer archive. No account,
+              email address, or family records are required.
+            </p>
+          </div>
+
+          <div className="public-demo-notice" id="public-demo-notice" role="note">
+            <Icons.Shield aria-hidden size={22} />
+            <div>
+              <strong>Safe, synthetic, and temporary.</strong>
+              <p>
+                Every person and record is fictional. Your private demo workspace expires after 24 hours. Do not enter real family data.
+                Only curated synthetic context may be sent to the configured AI provider. Coarse usage events are retained for 30 days.
+              </p>
+            </div>
+          </div>
+
+          <div aria-label="Choose a demo path" className="public-demo-paths">
+            <article className="public-demo-path public-demo-path-primary">
+              <Icons.FileSearch aria-hidden size={24} />
+              <span className="card-kicker">About two minutes</span>
+              <h2>Work the passenger mystery</h2>
+              <p>
+                Compare two signatures, record a bounded outcome, and reveal the next assignment in
+                {` ${publicDemoGuidedCaseTitle}`}.
+              </p>
+              <DemoStartForm />
+            </article>
+
+            <article className="public-demo-path">
+              <Icons.Users aria-hidden size={24} />
+              <span className="card-kicker">Read-only archive</span>
+              <h2>Meet the family first</h2>
+              <p>Browse eight curated deceased profiles and seven safe source citations without starting a session.</p>
+              <Link className="button-secondary" href="/family">
+                Explore the fictional family
+              </Link>
+            </article>
+
+            <article className="public-demo-path">
+              <Icons.BookOpen aria-hidden size={24} />
+              <span className="card-kicker">Browser-local challenge</span>
+              <h2>Test your research instincts</h2>
+              <p>Investigate five cases and thirty synthetic records. Progress stays only in this browser.</p>
+              <Link className="button-secondary" href="/challenge">
+                Try the research challenge
+              </Link>
+            </article>
+          </div>
         </section>
       </div>
     </PublicShell>

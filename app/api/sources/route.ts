@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { workspaceOptionsForSession } from "@/lib/auth-session";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger } from "@/lib/pagination";
 import { type SourceLinkFilter, type SourcePrivacyFilter, type SourceSortKey } from "@/lib/source-search";
@@ -29,7 +30,7 @@ export const GET = withPermission("archive:read-private", async (request, author
         pageSize: parsePositiveInteger(url.searchParams.get("pageSize"), 50)
       },
       {
-        archiveId: authorization.archiveId,
+        ...workspaceOptionsForSession(authorization),
         includeBinaryMetadata: capabilities.evidenceBinaryUploads
       }
     )

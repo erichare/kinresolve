@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { AccountSecurityControl } from "@/components/account-security-control";
@@ -14,10 +15,9 @@ import { getRuntimeStatus } from "@/lib/runtime-status";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [runtime, session] = await Promise.all([
-    getRuntimeStatus(),
-    getSessionContext(await headers())
-  ]);
+  const session = await getSessionContext(await headers());
+  if (!session || session.kind === "demo-guest") notFound();
+  const runtime = await getRuntimeStatus();
   const archiveName = runtime.database.archiveName || "Private archive";
   const hosted = runtime.capabilities.deploymentMode === "hosted";
   const capabilityRows = [
@@ -122,11 +122,11 @@ export default async function SettingsPage() {
 
       <AccountSecurityControl />
 
-      {session && hasPermission(session.role, "api-tokens:manage") && apiV1Enabled()
+      {hasPermission(session.role, "api-tokens:manage") && apiV1Enabled()
         ? <ApiTokenControl />
         : null}
 
-      {session && hasPermission(session.role, "archive:data-portability")
+      {hasPermission(session.role, "archive:data-portability")
         ? <DataPortabilityControl />
         : null}
 

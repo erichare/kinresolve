@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import packageJson from "../package.json";
 import { APP_VERSION } from "@/lib/app-version";
 import { hostedGedcomFileLimitBytes, hostedGedcomPersonLimit } from "@/lib/hosted-capabilities";
-import { getAIStatus, getRuntimeStatus, getStorageStatus, isRuntimeReady } from "@/lib/runtime-status";
+import {
+  getAIStatus,
+  getRuntimeStatus,
+  getStorageStatus,
+  isRuntimeReady,
+  type RuntimeStatus
+} from "@/lib/runtime-status";
 
 const originalEnv = { ...process.env };
 
@@ -84,6 +90,65 @@ describe("runtime status", () => {
 
     expect(status.api).toEqual({ enabled: true, configured: false });
     expect(isRuntimeReady(status)).toBe(false);
+  });
+
+  it("treats the storage-free hosted public demo capability profile as ready", () => {
+    setPublicDemoEnvironment();
+    const status: RuntimeStatus = {
+      product: "KinSleuth",
+      version: APP_VERSION,
+      database: {
+        configured: true,
+        connected: true,
+        identityConfigured: true,
+        identity: "a".repeat(64),
+        identityMatchesConfigured: true,
+        transportVerified: true,
+        archiveId: "kinresolve-demo-public",
+        archiveName: "Hartwell–Mercer Family Archive",
+        archiveTagline: "Fictional public demo",
+        archiveCount: 1,
+        peopleCount: 8,
+        caseCount: 5,
+        aiRunCount: 0,
+        provisioned: true,
+        datasetMode: "demo",
+        expectedDatasetMode: "demo",
+        datasetModeMatches: true,
+        demoFixtureVersion: 3
+      },
+      ai: {
+        enabled: true,
+        configured: true,
+        baseUrl: "https://api.openai.com/v1",
+        chatModel: "gpt-5-mini",
+        embeddingModel: "text-embedding-3-small",
+        mode: "responses"
+      },
+      api: { enabled: false, configured: true },
+      storage: {
+        configured: false,
+        identityConfigured: false,
+        identityVerified: false
+      },
+      scheduledWrites: { valid: true, configured: true, enabled: true },
+      capabilities: {
+        valid: true,
+        deploymentMode: "hosted",
+        datasetMode: "demo",
+        dna: true,
+        externalAi: true,
+        publicArchive: true,
+        publicPublishing: false,
+        evidenceBinaryUploads: false,
+        packageMedia: false,
+        plainGedcom: false,
+        gedcomFileLimitBytes: null,
+        gedcomPersonLimit: null
+      }
+    };
+
+    expect(isRuntimeReady(status)).toBe(true);
   });
 
   it("exposes an explicit disabled staging value without treating it as invalid", async () => {
@@ -216,4 +281,28 @@ function setPrivateBetaEnvironment() {
     KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true",
     KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
   });
+}
+
+function setPublicDemoEnvironment() {
+  Object.assign(process.env, {
+    APP_BASE_URL: "https://demo.kinresolve.com",
+    KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+    KINRESOLVE_DATASET_MODE: "demo",
+    KINRESOLVE_DNA_ENABLED: "true",
+    KINRESOLVE_EXTERNAL_AI_ENABLED: "true",
+    KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "true",
+    KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+    KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+    KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+    KINRESOLVE_PLAIN_GEDCOM_ENABLED: "false",
+    KINRESOLVE_PUBLIC_DEMO_ENABLED: "true",
+    KINRESOLVE_PUBLIC_DEMO_ORIGIN: "https://demo.kinresolve.com",
+    KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
+  });
+  delete process.env.KINRESOLVE_OBJECT_STORAGE_BACKEND;
+  delete process.env.KINRESOLVE_OBJECT_STORAGE_IDENTITY;
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  delete process.env.S3_BUCKET;
+  delete process.env.S3_ACCESS_KEY_ID;
+  delete process.env.S3_SECRET_ACCESS_KEY;
 }

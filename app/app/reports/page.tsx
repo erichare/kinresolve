@@ -1,9 +1,12 @@
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { PaginationLinks } from "@/components/pagination-links";
 import { Metric, Status } from "@/components/ui";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger, type SearchParamValue } from "@/lib/pagination";
 import { buildQualityReportPage } from "@/lib/quality";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +18,9 @@ type ReportsSearchParams = Record<string, SearchParamValue>;
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<ReportsSearchParams> }) {
   const capabilities = resolveHostedCapabilities();
   const params = await searchParams;
-  const workspace = await readWorkspace();
+  const session = await getSessionContext(await headers());
+  if (!session) notFound();
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const report = buildQualityReportPage(workspace.people, capabilities.dna ? workspace.dnaMatches : [], workspace.cases, {
     page: parsePositiveInteger(params.issuesPage, 1),
     pageSize: reportPageSize

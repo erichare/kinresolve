@@ -1,6 +1,6 @@
 # Kin Resolve brand and domain contract
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 This document keeps the public name, URLs, claims, and legacy technical identifiers consistent while the product moves from KinSleuth to Kin Resolve.
 
@@ -12,8 +12,8 @@ This document keeps the public name, URLs, claims, and legacy technical identifi
 - **Repository:** `https://github.com/erichare/kinresolve`
 - **Tagline:** Evidence-led genealogy research.
 - **Primary message:** Resolve the questions your family tree cannot answer.
-- **Primary call to action:** Apply for the private beta
-- **Secondary call to action:** View on GitHub
+- **Primary call to action:** Try Kin Resolve
+- **Secondary call to action:** Apply for the private beta
 
 The working visual direction pairs archival warmth with research rigor: warm paper, forest green, restrained rust and brass accents, editorial typography, and evidence-led rather than nostalgic imagery.
 
@@ -27,11 +27,16 @@ Current public routing is:
 | --- | --- | --- |
 | `kinresolve.com` | Public marketing site | Live on Vercel and verified |
 | `www.kinresolve.com` | Redirect to the apex domain | Live; redirects to the apex |
-| `app.kinresolve.com` | Hosted product | Not configured; no product DNS yet |
-| `demo.kinresolve.com` | Proposed isolated synthetic demo | Not configured; pending the hosted-beta contract |
+| `app.kinresolve.com` | Hosted private beta | Holding only; real-family launch remains separate |
+| `demo.kinresolve.com` | Always-on isolated synthetic public demo | Dedicated project/holding cutover pending external configuration and rehearsal |
 | `kinsleuth.vercel.app` | Legacy product hostname | Static `noindex` holding page; not a usable beta |
 
-The marketing site and `beta@kinresolve.com` delivery are live. The site uses an isolated `kinresolve-marketing` Vercel project and cannot deploy the product. `app.kinresolve.com` must not receive product DNS until the protected product project, canonical `APP_BASE_URL`, TLS, candidate workflow, rollback ownership, and body-aware health checks are ready.
+The marketing site and `beta@kinresolve.com` delivery are live. The site uses an isolated
+`kinresolve-marketing` Vercel project and cannot deploy the product. The public demo uses
+the separate `kinresolve-demo` project and synthetic database; its external cutover and
+rehearsal gates are tracked in [`public-demo-runbook.md`](public-demo-runbook.md).
+`app.kinresolve.com` remains separate and must not receive a real-family runtime until its
+private-beta launch gates pass.
 
 ## Public claims contract
 

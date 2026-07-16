@@ -3,6 +3,7 @@ type JsonObject = Record<string, unknown>;
 export type VercelProjectSafetyExpectations = {
   expectedProjectId: string;
   expectedOrgId: string;
+  expectedProjectName?: string;
   expectedPaused?: boolean;
 };
 
@@ -28,6 +29,12 @@ export function validateVercelProjectSafety(
   if (orgId !== expectedOrgId) {
     throw new Error("The Vercel project response does not match the protected organization.");
   }
+  if (expectations.expectedProjectName !== undefined) {
+    const expectedProjectName = projectName(expectations.expectedProjectName);
+    if (consistentString(value, ["name"], "project name") !== expectedProjectName) {
+      throw new Error("The Vercel project response does not match the dedicated project name.");
+    }
+  }
   if (value.autoAssignCustomDomains !== false) {
     throw new Error("Vercel production domain auto-assignment must be disabled.");
   }
@@ -44,6 +51,13 @@ export function validateVercelProjectSafety(
     autoAssignCustomDomains: false,
     paused
   };
+}
+
+function projectName(value: string): string {
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/.test(value)) {
+    throw new Error("The expected project name is malformed.");
+  }
+  return value;
 }
 
 function identifier(value: string, label: string): string {

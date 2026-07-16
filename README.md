@@ -334,7 +334,8 @@ The rollback target is also checked in and independently deployable: see
 [Static maintenance holding deployment](docs/static-holding-deployment.md). Its protected
 manual workflow builds a zero-runtime page, stages it with `--skip-domain`, and reports the
 validated ID to use as `STAGING_HOLDING_DEPLOYMENT_ID` or
-`FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`, depending on the selected protected environment;
+`FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`, or `DEMO_HOLDING_DEPLOYMENT_ID`, depending on the
+selected protected environment;
 each target has a separate exact promotion acknowledgement.
 
 The production target has four serialized phases. A staging-only target completes phases
@@ -367,23 +368,13 @@ The production target has four serialized phases. A staging-only target complete
    retryable final job. A failed post-promotion step must re-contain writes before the alias
    can return to the approved holding deployment.
 
-After a successful staging-only run, `.github/workflows/staging-demo-session.yml` may open
-`demo.kinresolve.com` only to that exact fresh candidate from the exact successful run
-attempt and current `main` SHA. Candidate ID and version are derived from the required
-source-run artifact, never dispatch text. It revalidates the isolated project, current
-runtime and legal-byte contracts, generated candidate, pinned holding target, live
-Standard Protection on every generated candidate origin, browser/observability smoke, and
-source freshness before promotion. After promotion it proves exact canonical ownership,
-repeats the canonical smoke and live legal-byte proof, and rechecks current `main`. Opening
-requires `OPEN KIN RESOLVE SYNTHETIC STAGING DEMO`; closing requires
-`CLOSE KIN RESOLVE SYNTHETIC STAGING DEMO TO HOLDING` and accepts no source inputs.
-Close is idempotent and proves the canonical root is the exact checked-in zero-runtime
-holding body with `/api/health` returning `404`. This is a traffic-session lifecycle, not a
-database or object-store reset. A failed, cancelled, or timed-out open or close starts
-`.github/workflows/staging-demo-safety.yml`, which restores the pinned holding deployment,
-repairs domain auto-assignment, proves the canonical holding surface, or pauses the exact
-staging project fail-closed. Later release, recovery, holding, and demo operations refuse
-to overtake a missing or failed safety receipt.
+The legacy staging demo controller is retired and checked in only as a credential-free
+historical tombstone. The always-on synthetic public demo uses the dedicated
+`kinresolve-demo` project, database, holding target, release workflow, safety workflow, and
+monitoring cell. Its exact external configuration, first hostname cutover, release,
+rollback, containment, and rehearsal procedure are documented in
+[the public demo runbook](docs/public-demo-runbook.md). Public-demo release remains blocked
+until GitHub reports the legacy controller manually disabled and idle.
 
 The protected GitHub environments are intentionally separate. Configure their exact
 inventory as follows; do not promote a repository-level secret as a shortcut:
@@ -408,6 +399,21 @@ inventory as follows; do not promote a repository-level secret as a shortcut:
   `RECOVERY_TARGET_SUPABASE_PROJECT_REF`. The two project refs are required release
   evidence bindings and must differ. The pulled scheduled-write setting must be readable
   and exactly `true`.
+- `demo-production` is the protected public-demo release environment. Secrets:
+  `DEMO_HOLDING_DEPLOYMENT_ID`, `KINRESOLVE_DEMO_CANARY_SECRET`,
+  `KINRESOLVE_OBSERVABILITY_PROBE_SECRET`, `MIGRATION_DATABASE_URL`,
+  `VERCEL_AUTOMATION_BYPASS_SECRET`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and
+  `VERCEL_TOKEN`. Variables: `APP_BASE_URL`, `KINRESOLVE_DATABASE_IDENTITY`,
+  `MARKETING_VERCEL_PROJECT_ID`, `PRODUCTION_DATABASE_IDENTITY`,
+  `PRODUCTION_VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. The exact
+  setup and runtime contract are in [the public demo runbook](docs/public-demo-runbook.md).
+- `demo-containment` is the matching automatic, no-reviewer safety environment. It carries
+  only the pinned holding, monitor/canary, and Vercel control credentials needed to prove a
+  compatible rollback, restore exact holding bytes, repair hostname ownership, or pause
+  `kinresolve-demo` fail-closed.
+- `demo-monitoring` carries `APP_BASE_URL`, the demo canary/health-probe secrets, and an
+  optional fixed-schema alert URL. It receives no database, migration, AI, auth, email,
+  object-storage, or Vercel deployment credential.
 - `beta-staging-containment` is an automatic safety environment with no required reviewers
   or wait timer. Secrets: `STAGING_HOLDING_DEPLOYMENT_ID`, `VERCEL_ORG_ID`,
   `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables: `APP_BASE_URL`, `VERCEL_ORG_ID`, and

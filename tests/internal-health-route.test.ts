@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   getArchiveId: vi.fn(),
   getRuntimeStatus: vi.fn(),
   isRuntimeReady: vi.fn(),
+  publicDemoEnabled: vi.fn(),
+  readPublicDemoDiagnostics: vi.fn(),
   readJobLagHealth: vi.fn(),
   readWorkerFreshness: vi.fn()
 }));
@@ -19,6 +21,12 @@ vi.mock("@/lib/runtime-status", () => ({
 vi.mock("@/lib/beta-operations", () => ({
   readJobLagHealth: mocks.readJobLagHealth,
   readWorkerFreshness: mocks.readWorkerFreshness
+}));
+vi.mock("@/lib/public-demo-config", () => ({
+  publicDemoEnabled: mocks.publicDemoEnabled
+}));
+vi.mock("@/lib/public-demo-session-store", () => ({
+  readPublicDemoDiagnostics: mocks.readPublicDemoDiagnostics
 }));
 vi.mock("@/lib/workspace-store", () => ({
   getArchiveId: mocks.getArchiveId
@@ -38,6 +46,28 @@ beforeEach(() => {
   mocks.getArchiveId.mockReturnValue("pilot-archive");
   mocks.getRuntimeStatus.mockResolvedValue(runtimeStatus());
   mocks.isRuntimeReady.mockReturnValue(true);
+  mocks.publicDemoEnabled.mockReturnValue(true);
+  mocks.readPublicDemoDiagnostics.mockResolvedValue({
+    capacity: {
+      active: 3,
+      maximum: 25,
+      provisioning: 1,
+      available: 21
+    },
+    cleanup: {
+      leaseHeld: false,
+      lastStartedAt: new Date().toISOString(),
+      lastCompletedAt: new Date().toISOString(),
+      lastFailedAt: null,
+      staleProvisioning: 0
+    },
+    ai: {
+      maximumConcurrent: 5,
+      maximumDaily: 150,
+      usedToday: 12,
+      running: 1
+    }
+  });
   mocks.readWorkerFreshness.mockResolvedValue([
     {
       workerKind: "integration-jobs",
@@ -71,6 +101,7 @@ describe("GET /api/internal/health", () => {
     await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
     expect(mocks.getRuntimeStatus).not.toHaveBeenCalled();
     expect(mocks.getArchiveId).not.toHaveBeenCalled();
+    expect(mocks.readPublicDemoDiagnostics).not.toHaveBeenCalled();
     expect(mocks.readWorkerFreshness).not.toHaveBeenCalled();
     expect(mocks.readJobLagHealth).not.toHaveBeenCalled();
   });
@@ -119,6 +150,25 @@ describe("GET /api/internal/health", () => {
         recentFailedCount: 0,
         recentFailedCountCapped: false,
         freshness: "healthy"
+      },
+      publicDemo: {
+        capacity: {
+          active: 3,
+          maximum: 25,
+          occupied: 4,
+          provisioning: 1
+        },
+        cleanup: {
+          freshness: "healthy",
+          lastCompletedAt: expect.any(String)
+        },
+        staleProvisioning: 0,
+        aiBudget: {
+          concurrentLimit: 5,
+          dailyLimit: 150,
+          dailyUsed: 12,
+          running: 1
+        }
       }
     });
     expect(mocks.readWorkerFreshness).toHaveBeenCalledExactlyOnceWith({
@@ -127,6 +177,7 @@ describe("GET /api/internal/health", () => {
     expect(mocks.readJobLagHealth).toHaveBeenCalledExactlyOnceWith({
       archiveId: "pilot-archive"
     });
+    expect(mocks.readPublicDemoDiagnostics).toHaveBeenCalledOnce();
     expect(JSON.stringify(body)).not.toMatch(
       /database-private-marker|archiveName|archiveTagline|archiveCount|peopleCount|caseCount|aiRunCount|baseUrl|chatModel|embeddingModel/
     );
@@ -149,6 +200,38 @@ describe("GET /api/internal/health", () => {
     expect(body.workers).toBeNull();
     expect(body.jobLag).toBeNull();
     expect(JSON.stringify(body)).not.toMatch(/database-private-marker|private-password|db\.internal/);
+  });
+
+  it.each([
+    {
+      name: "missing cleanup completion",
+      diagnostics: { lastCompletedAt: null, staleProvisioning: 0 }
+    },
+    {
+      name: "stale cleanup completion",
+      diagnostics: { lastCompletedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(), staleProvisioning: 0 }
+    },
+    {
+      name: "stale provisioning",
+      diagnostics: { lastCompletedAt: new Date().toISOString(), staleProvisioning: 1 }
+    }
+  ])("degrades protected health for $name", async ({ diagnostics }) => {
+    mocks.authenticate.mockReturnValue(true);
+    mocks.readPublicDemoDiagnostics.mockResolvedValue({
+      capacity: { active: 0, maximum: 25, provisioning: 0, available: 25 },
+      cleanup: {
+        leaseHeld: false,
+        lastStartedAt: diagnostics.lastCompletedAt,
+        lastCompletedAt: diagnostics.lastCompletedAt,
+        lastFailedAt: null,
+        staleProvisioning: diagnostics.staleProvisioning
+      },
+      ai: { maximumConcurrent: 5, maximumDaily: 150, usedToday: 0, running: 0 }
+    });
+
+    const response = await GET(probeRequest);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ status: "degraded" });
   });
 });
 

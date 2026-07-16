@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { DemoSampleImportPanel } from "@/components/demo-sample-import-panel";
 import { Icons } from "@/components/icons";
 import { Confidence, Metric, Status, TableScroll } from "@/components/ui";
 import { isDnaResearchCase, projectResearchCaseForDnaCapability } from "@/lib/case-search";
@@ -7,13 +10,16 @@ import { buildDashboardSummary } from "@/lib/dashboard";
 import { isGuidedResearchEnabled } from "@/lib/guided-research-config";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { buildResearchGuide } from "@/lib/research-guide";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppDashboardPage() {
   const capabilities = resolveHostedCapabilities();
-  const workspace = await readWorkspace();
+  const session = await getSessionContext(await headers());
+  if (!session) notFound();
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const dashboard = buildDashboardSummary(workspace, {
     dnaEnabled: capabilities.dna,
     publicPublishingEnabled: capabilities.publicPublishing
@@ -44,7 +50,12 @@ export default async function AppDashboardPage() {
       title="Investigation Dashboard"
       active="/app"
       archiveName={workspace.archiveName}
-      actions={
+      actions={session.kind === "demo-guest" ? (
+        <Link className="button" href="/app/cases/case-mercer-march-identity?guide=1">
+          <Icons.FileSearch size={16} aria-hidden />
+          Continue guided demo
+        </Link>
+      ) : (
         <div className="hero-actions" style={{ marginTop: 0 }}>
           <Link className="button" href="/app/cases">
             <Icons.FileSearch size={16} aria-hidden />
@@ -55,7 +66,7 @@ export default async function AppDashboardPage() {
             Import GEDCOM
           </Link>
         </div>
-      }
+      )}
     >
       <div className="metric-row">
         <Metric icon={<Icons.Users size={18} aria-hidden />} label="Imported people" value={dashboard.metrics.people.toLocaleString()} detail="from private workspace" />
@@ -70,6 +81,8 @@ export default async function AppDashboardPage() {
           detail={capabilities.dna ? `${dashboard.metrics.highPriorityDnaMatches.toLocaleString()} high-priority DNA` : "private research in progress"}
         />
       </div>
+
+      {session.kind === "demo-guest" ? <DemoSampleImportPanel /> : null}
 
       <div className="dashboard-columns">
         <div className="dashboard-column">

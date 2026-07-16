@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ImportsPage() {
   const session = await getSessionContext(await headers());
-  if (!session || !hasPermission(session.role, "imports:manage")) {
+  if (!session || session.kind === "demo-guest" || !hasPermission(session.role, "imports:manage")) {
     notFound();
   }
 

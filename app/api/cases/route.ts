@@ -11,6 +11,7 @@ import {
 } from "@/lib/case-search";
 import { projectCaseApiResponse } from "@/lib/api-case-projection";
 import { withPermission } from "@/lib/api-authorization";
+import { workspaceOptionsForSession } from "@/lib/auth-session";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger } from "@/lib/pagination";
 import { captureOperationalError, emitOperationalEvent } from "@/lib/observability";
@@ -53,7 +54,7 @@ export const GET = withPermission("cases:read", async (request, authorization) =
   const url = new URL(request.url);
   const capabilities = resolveHostedCapabilities();
   const queryOptions = {
-    archiveId: authorization.archiveId,
+    ...workspaceOptionsForSession(authorization),
     includeDnaEvidence: capabilities.dna
   };
 

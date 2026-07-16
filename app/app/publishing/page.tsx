@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Icons } from "@/components/icons";
 import { PaginationLinks } from "@/components/pagination-links";
@@ -6,6 +8,7 @@ import { Metric, Status } from "@/components/ui";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger, type SearchParamValue } from "@/lib/pagination";
 import { buildPublicationReview, type PublicationStatus } from "@/lib/publishing";
+import { getSessionContext, workspaceOptionsForSession } from "@/lib/auth-session";
 import { readWorkspace } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +20,9 @@ type PublishingSearchParams = Record<string, SearchParamValue>;
 export default async function PublishingPage({ searchParams }: { searchParams: Promise<PublishingSearchParams> }) {
   const capabilities = resolveHostedCapabilities();
   const params = await searchParams;
-  const workspace = await readWorkspace();
+  const session = await getSessionContext(await headers());
+  if (!session || session.kind === "demo-guest") notFound();
+  const workspace = await readWorkspace(workspaceOptionsForSession(session));
   const publicationEnabled = capabilities.publicArchive && capabilities.publicPublishing;
   const review = buildPublicationReview(workspace.people, {
     profilePage: parsePositiveInteger(params.profilesPage, 1),

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { workspaceOptionsForSession } from "@/lib/auth-session";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { parsePositiveInteger } from "@/lib/pagination";
 import { buildQualityReportPage } from "@/lib/quality";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export const GET = withPermission("archive:read-private", async (request, authorization) => {
   const capabilities = resolveHostedCapabilities();
-  const workspace = await readWorkspace({ archiveId: authorization.archiveId });
+  const workspace = await readWorkspace(workspaceOptionsForSession(authorization));
   const url = new URL(request.url);
 
   return NextResponse.json(

@@ -81,10 +81,33 @@ jobs:
 
       - name: Pull Vercel project settings
         env:
+          DEMO_DOMAIN: demo.kinresolve.com
+          DEMO_VERCEL_PROJECT_ID: ${{ vars.DEMO_VERCEL_PROJECT_ID }}
+          EXPECTED_VERCEL_DOMAIN: demo.kinresolve.com
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel pull --yes --environment="$DEPLOY_ENV"
+        run: |
+          set -euo pipefail
+          [[ "$DEMO_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$DEMO_VERCEL_PROJECT_ID" != "$VERCEL_PROJECT_ID"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$DEMO_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query" \
+            --output "$RUNNER_TEMP/marketing-demo-domain-before.json"
+          VERCEL_PROJECT_ID="$DEMO_VERCEL_PROJECT_ID" \
+            node --experimental-strip-types ../scripts/validate-vercel-project-domain.mjs \
+              "$RUNNER_TEMP/marketing-demo-domain-before.json"
+          marketing_domain_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$RUNNER_TEMP/marketing-domain-before.json" \
+            --write-out '%{http_code}' \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query")"
+          test "$marketing_domain_status" = "404"
+          vercel pull --yes --environment="$DEPLOY_ENV"
 
       - name: Build preview
         if: env.DEPLOY_ENV == 'preview'
@@ -116,10 +139,32 @@ jobs:
       - name: Deploy production release
         if: env.DEPLOY_ENV == 'production'
         env:
+          DEMO_DOMAIN: demo.kinresolve.com
+          DEMO_VERCEL_PROJECT_ID: ${{ vars.DEMO_VERCEL_PROJECT_ID }}
+          EXPECTED_VERCEL_DOMAIN: demo.kinresolve.com
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
+          set -euo pipefail
+          [[ "$DEMO_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$DEMO_VERCEL_PROJECT_ID" != "$VERCEL_PROJECT_ID"
           DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --yes)"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$DEMO_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query" \
+            --output "$RUNNER_TEMP/marketing-demo-domain-after.json"
+          VERCEL_PROJECT_ID="$DEMO_VERCEL_PROJECT_ID" \
+            node --experimental-strip-types ../scripts/validate-vercel-project-domain.mjs \
+              "$RUNNER_TEMP/marketing-demo-domain-after.json"
+          marketing_domain_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$RUNNER_TEMP/marketing-domain-after.json" \
+            --write-out '%{http_code}' \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query")"
+          test "$marketing_domain_status" = "404"
           echo "### Marketing production deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "$DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"

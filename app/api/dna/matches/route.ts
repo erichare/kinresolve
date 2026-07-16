@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
 import { capabilityUnavailableResponse } from "@/lib/api-capabilities";
+import { workspaceOptionsForSession } from "@/lib/auth-session";
 import {
   type DnaHelpfulnessFilter,
   type DnaSideFilter,
@@ -24,6 +25,7 @@ export const GET = withPermission("dna:read", async (request: Request, authoriza
   if (unavailable) return unavailable;
 
   const url = new URL(request.url);
+  const archiveOptions = workspaceOptionsForSession(authorization);
 
   const result = await searchDnaMatchesPageFromDb(
     {
@@ -38,11 +40,9 @@ export const GET = withPermission("dna:read", async (request: Request, authoriza
       page: parsePositiveInteger(url.searchParams.get("page"), 1),
       pageSize: parsePositiveInteger(url.searchParams.get("pageSize"), 25)
     },
-    { archiveId: authorization.archiveId }
+    archiveOptions
   );
-  const hypotheses = await createDnaHypothesesForMatches(result.items, {
-    archiveId: authorization.archiveId
-  });
+  const hypotheses = await createDnaHypothesesForMatches(result.items, archiveOptions);
 
   return NextResponse.json({ ...result, hypotheses });
 });

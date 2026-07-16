@@ -17,7 +17,8 @@
     "014_beta_invitations.sql": "8f8cb6a692f5cf7dfe1582ef8668c4d1a0efa1e448963d5890de0e7b46d2a88a",
     "015_beta_operations.sql": "92cf51032274239d63ea0b2aa821a66829e31e03d7242245dfd749d2ddbd3337",
     "016_beta_api_tokens.sql": "5dcef9457a54e83ac677d5cd19652e3f946c8ca46096e97e8d311c24ec7b5b0f",
-    "017_beta_applications.sql": "0c879f0c5c321dc99487d4559045119152cb2ce572a35cc7d1639fa26d91c082"
+    "017_beta_applications.sql": "0c879f0c5c321dc99487d4559045119152cb2ce572a35cc7d1639fa26d91c082",
+    "018_public_demo.sql": "6569df1039864d3009c669d0fba34df2933e93c744cb4306fba56869e0843d26"
   },
   "releaseAnchors": {
     "v0.17.4": {

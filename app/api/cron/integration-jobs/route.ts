@@ -17,6 +17,8 @@ import {
   operationalErrorCode
 } from "@/lib/observability";
 import { getActiveReleaseFence } from "@/lib/release-fence";
+import { resolvePublicDemoConfiguration } from "@/lib/public-demo-config";
+import { cleanupPublicDemoSessions } from "@/lib/public-demo-session-store";
 import { releaseFenceLockedResponse } from "@/lib/release-fence-http";
 import { getScheduledWritesStatus } from "@/lib/scheduled-writes";
 import { getArchiveId } from "@/lib/workspace-store";
@@ -53,6 +55,21 @@ export async function GET(request: Request) {
       route: "/api/cron/integration-jobs",
       workerKind: "integration-jobs"
     });
+    // The public demo has no visitor uploads or external integration queue.
+    // Reuse this five-minute authenticated cron slot exclusively for bounded
+    // guest expiry/retirement rather than provisioning a third cron.
+    if (resolvePublicDemoConfiguration().enabled) {
+      const cleanup = await cleanupPublicDemoSessions({ limit: 100 });
+      await recordWorkerSucceeded("integration-jobs", requestId, operationOptions);
+      await emitOperationalEvent({
+        event: "worker_succeeded",
+        severity: "info",
+        requestId,
+        route: "/api/cron/integration-jobs",
+        workerKind: "integration-jobs"
+      });
+      return NextResponse.json({ demoCleanup: cleanup });
+    }
     const configuration = integrationWorkerConfiguration();
     // Cleanup is independent of parse-queue discovery, so a cron invocation
     // still performs bounded maintenance when there are no jobs or archives

@@ -1,9 +1,13 @@
 import { resolveHostedCapabilities } from "./hosted-capabilities";
+import {
+  publicDemoCanonicalArchiveId,
+  resolvePublicDemoConfiguration
+} from "./public-demo-config";
 
 type Environment = Record<string, string | undefined>;
 
-const publicArchiveRoots = new Set(["/", "/people", "/places", "/stories", "/kinsleuth"]);
-const publicArchivePrefixes = ["/people/", "/places/", "/stories/", "/kinsleuth/"];
+const publicArchiveRoots = new Set(["/", "/family", "/people", "/places", "/stories", "/kinsleuth"]);
+const publicArchivePrefixes = ["/family/", "/people/", "/places/", "/stories/", "/kinsleuth/"];
 
 export const privateWorkspaceLoginPath = "/login?next=/app";
 
@@ -17,4 +21,12 @@ export function publicArchiveEnabled(environment: Environment = process.env): bo
   } catch {
     return false;
   }
+}
+
+export function resolvePublicArchiveId(environment: Environment = process.env): string {
+  if (resolvePublicDemoConfiguration(environment).enabled) {
+    return publicDemoCanonicalArchiveId;
+  }
+
+  return environment.KINSLEUTH_ARCHIVE_ID?.trim() || "archive-default";
 }

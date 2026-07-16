@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import type { Pool } from "pg";
 
+import { demoFixtureVersion } from "../lib/archive-provisioning.ts";
 import {
   currentBetaLegalAcceptance,
   loadApprovedBetaLegalManifest,
@@ -44,7 +45,7 @@ export type ProductMutationBaseline = Readonly<{
 
 export type DisposableDatabasePreflight = Readonly<{
   baseline: ProductMutationBaseline;
-  unpublishedPersonId: string;
+  publicationTargetPersonId: string;
 }>;
 
 export function createIdentityCanarySecrets(runId: string): IdentityCanarySecrets {
@@ -101,15 +102,15 @@ export async function assertDisposableDatabasePreflight(
     dataset_mode: string;
     demo_fixture_version: number | null;
     database_name: string;
-    unpublished_person_id: string | null;
+    publication_target_person_id: string | null;
   }>(
     `SELECT current_database() AS database_name,
             archive.id AS archive_id,
             archive.dataset_mode,
             archive.demo_fixture_version,
             (SELECT id FROM public.people
-             WHERE archive_id = archive.id AND published = false
-             ORDER BY sort_order, id COLLATE "C" LIMIT 1) AS unpublished_person_id
+             WHERE archive_id = archive.id AND published = true
+             ORDER BY sort_order, id COLLATE "C" LIMIT 1) AS publication_target_person_id
      FROM public.archives AS archive
      WHERE archive.id = $1`,
     [configuration.archiveId]
@@ -121,8 +122,8 @@ export async function assertDisposableDatabasePreflight(
     || row.database_name !== configuration.databaseName
     || row.archive_id !== configuration.archiveId
     || row.dataset_mode !== "demo"
-    || row.demo_fixture_version !== 1
-    || !row.unpublished_person_id
+    || row.demo_fixture_version !== demoFixtureVersion
+    || !row.publication_target_person_id
   ) {
     throw new Error("The disposable identity database binding is invalid.");
   }
@@ -149,7 +150,7 @@ export async function assertDisposableDatabasePreflight(
 
   return {
     baseline: await readProductMutationBaseline(pool, configuration.archiveId),
-    unpublishedPersonId: row.unpublished_person_id
+    publicationTargetPersonId: row.publication_target_person_id
   };
 }
 
@@ -277,7 +278,7 @@ export async function assertFinalProductMutationBoundary(
   input: {
     archiveId: string;
     baseline: ProductMutationBaseline;
-    unpublishedPersonId: string;
+    publicationTargetPersonId: string;
   }
 ): Promise<void> {
   const final = await readProductMutationBaseline(pool, input.archiveId);
@@ -298,11 +299,11 @@ export async function assertFinalProductMutationBoundary(
              WHERE archive_id = $1 AND provider = 'local' AND model = 'deterministic') AS local_runs
      FROM public.people AS person
      WHERE person.archive_id = $1 AND person.id = $2`,
-    [input.archiveId, input.unpublishedPersonId]
+    [input.archiveId, input.publicationTargetPersonId]
   );
   if (
     invariant.rows.length !== 1
-    || invariant.rows[0]?.published !== false
+    || invariant.rows[0]?.published !== true
     || invariant.rows[0]?.local_runs < 1
   ) {
     throw new Error("The disposable identity canary final state is invalid.");

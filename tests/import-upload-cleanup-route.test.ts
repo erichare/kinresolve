@@ -163,6 +163,21 @@ describe("scheduled GEDCOM upload cleanup", () => {
     ]);
   });
 
+  it("does not require upload storage or account retention in hosted public-demo mode", async () => {
+    process.env.CRON_SECRET = "expected-secret";
+    setHostedPublicDemo();
+    storageMocks.cleanupAllStaleGedcomUploads.mockRejectedValueOnce(
+      new Error("object storage is intentionally absent")
+    );
+
+    const response = await GET(cleanupRequest("expected-secret"));
+
+    expect(response.status).toBe(200);
+    expect(storageMocks.cleanupAllStaleGedcomUploads).not.toHaveBeenCalled();
+    expect(invitationMocks.cleanupExpiredBetaStateForSystem).not.toHaveBeenCalled();
+    expect(operationMocks.recordWorkerFailed).not.toHaveBeenCalled();
+  });
+
   it("returns 423 with the exact active fence before cleanup starts", async () => {
     process.env.CRON_SECRET = "expected-secret";
     releaseFenceMocks.getActiveReleaseFence.mockResolvedValue(activeFence());
@@ -202,4 +217,20 @@ function setHostedScheduledWrites(value: string | undefined) {
   process.env.KINRESOLVE_DATASET_MODE = "pilot";
   if (value === undefined) delete process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED;
   else process.env.KINRESOLVE_SCHEDULED_WRITES_ENABLED = value;
+}
+
+function setHostedPublicDemo() {
+  Object.assign(process.env, {
+    APP_BASE_URL: "https://demo.kinresolve.com",
+    KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+    KINRESOLVE_DATASET_MODE: "demo",
+    KINRESOLVE_PUBLIC_DEMO_ENABLED: "true",
+    KINRESOLVE_PUBLIC_DEMO_ORIGIN: "https://demo.kinresolve.com",
+    KINRESOLVE_SCHEDULED_WRITES_ENABLED: "true"
+  });
+  delete process.env.KINRESOLVE_OBJECT_STORAGE_BACKEND;
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  delete process.env.S3_BUCKET;
+  delete process.env.S3_ACCESS_KEY_ID;
+  delete process.env.S3_SECRET_ACCESS_KEY;
 }

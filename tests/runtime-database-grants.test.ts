@@ -79,6 +79,21 @@ describe("beta operations runtime database grants", () => {
     expect(script).not.toMatch(/\bsource\b.*\.env\.production\.local/);
   });
 
+  it("pins the runtime backend while its live session identity is observed", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "lib", "runtime-database-grants.ts"),
+      "utf8"
+    );
+    const beginAt = source.indexOf('await runtimeClient.query("BEGIN")');
+    const sessionAt = source.indexOf("const runtimeSession = await runtimeClient.query");
+    const observedAt = source.indexOf("await migrationClient.query(liveRuntimeSessionQuery");
+    const rollbackAt = source.indexOf('await runtimeClient.query("ROLLBACK")', observedAt);
+    expect(beginAt).toBeGreaterThan(-1);
+    expect(beginAt).toBeLessThan(sessionAt);
+    expect(sessionAt).toBeLessThan(observedAt);
+    expect(observedAt).toBeLessThan(rollbackAt);
+  });
+
   it("contains only the exact required DML and never builds protected-table statements", () => {
     expect(betaOperationsRuntimeGrantContract).toEqual([
       { table: "auth_rate_limit_buckets", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
@@ -87,6 +102,12 @@ describe("beta operations runtime database grants", () => {
       { table: "beta_worker_heartbeats", privileges: ["SELECT", "INSERT", "UPDATE"] },
       { table: "api_tokens", privileges: ["SELECT", "INSERT", "UPDATE"] },
       { table: "api_rate_limit_buckets", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_capacity", privileges: ["SELECT", "INSERT", "UPDATE"] },
+      { table: "public_demo_sessions", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_rate_limits", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_generations", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_ai_attempts", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
+      { table: "public_demo_events", privileges: ["SELECT", "INSERT", "DELETE"] },
       { table: "security_events", privileges: ["INSERT"] }
     ]);
     const statements = buildBetaOperationsGrantStatements('runtime "role"');
@@ -103,6 +124,18 @@ describe("beta operations runtime database grants", () => {
       'GRANT SELECT, INSERT, UPDATE ON TABLE public."api_tokens" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."api_rate_limit_buckets" FROM "runtime ""role"""',
       'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_capacity" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public."public_demo_capacity" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_sessions" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_sessions" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_rate_limits" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_rate_limits" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_generations" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_generations" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_ai_attempts" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_ai_attempts" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_events" FROM "runtime ""role"""',
+      'GRANT SELECT, INSERT, DELETE ON TABLE public."public_demo_events" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."security_events" FROM "runtime ""role"""',
       'GRANT INSERT ON TABLE public."security_events" TO "runtime ""role"""'
     ]);
@@ -110,7 +143,12 @@ describe("beta operations runtime database grants", () => {
     expect(statements.filter((statement) => /\bDELETE\b/.test(statement))).toEqual([
       'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."auth_rate_limit_buckets" TO "runtime ""role"""',
       'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."beta_applications" TO "runtime ""role"""',
-      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""'
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."api_rate_limit_buckets" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_sessions" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_rate_limits" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_generations" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_ai_attempts" TO "runtime ""role"""',
+      'GRANT SELECT, INSERT, DELETE ON TABLE public."public_demo_events" TO "runtime ""role"""'
     ]);
     expect(statements.join("\n")).not.toMatch(/\bTRUNCATE\b|\bREFERENCES\b|\bTRIGGER\b|\bMAINTAIN\b/);
   });
@@ -123,6 +161,12 @@ describe("beta operations runtime database grants", () => {
       expect.objectContaining({ table: "beta_worker_heartbeats", select: true, insert: true, update: true }),
       expect.objectContaining({ table: "api_tokens", select: true, insert: true, update: true, delete: false }),
       expect.objectContaining({ table: "api_rate_limit_buckets", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_capacity", select: true, insert: true, update: true, delete: false }),
+      expect.objectContaining({ table: "public_demo_sessions", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_rate_limits", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_generations", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_ai_attempts", select: true, insert: true, update: true, delete: true }),
+      expect.objectContaining({ table: "public_demo_events", select: true, insert: true, update: false, delete: true }),
       expect.objectContaining({ table: "security_events", select: false, insert: true, update: false, delete: false }),
       expect.objectContaining({ table: "release_write_fences", select: true, insert: false, update: false }),
       expect.objectContaining({ table: "schema_migrations", select: true, insert: false, update: false })
@@ -188,7 +232,7 @@ describe("beta operations runtime database grants", () => {
 });
 
 describeIfDatabase("beta operations runtime grants against PostgreSQL", () => {
-  it("repairs only the five post-migration tables and re-attests exact effective access", async () => {
+  it("repairs only the exact managed tables and re-attests effective access", async () => {
     const suffix = `${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
     const roleName = `kr_runtime_grant_${suffix}`;
     const extraRoleName = `kr_extra_${suffix}`;
@@ -280,7 +324,7 @@ describeIfDatabase("beta operations runtime grants against PostgreSQL", () => {
         representativeAppWriteRolledBack: true,
         persistentDataMutation: false
       });
-      expect(receipt.managedTablePrivileges).toHaveLength(7);
+      expect(receipt.managedTablePrivileges).toHaveLength(betaOperationsRuntimeGrantContract.length);
       expect(receipt.protectedTablePrivileges).toHaveLength(2);
 
       const runtimePool = new Pool({ connectionString: runtimeUrl.toString(), max: 1 });

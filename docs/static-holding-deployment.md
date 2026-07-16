@@ -25,9 +25,9 @@ or a symlink or runtime function appears.
 
 Run **Deploy Kin Resolve static holding page** (`.github/workflows/vercel-holding.yml`)
 manually from `main`. Supply the exact 40-character commit shown by the workflow dispatch
-form and select either `beta-staging` or `production`. The job uses that protected GitHub
-environment and shares the `kinresolve-beta-release` concurrency group with the product
-release workflow.
+form and select `beta-staging`, `public-demo`, or `production`. The first and last use the
+`kinresolve-beta-release` queue. `public-demo` uses `demo-production` and the
+`kinresolve-public-demo-release` queue.
 
 Before checkout, enter both protected-infrastructure acknowledgements required by the
 product release workflow:
@@ -53,7 +53,10 @@ Each target environment needs only these Vercel deployment secrets:
 It also needs readable `APP_BASE_URL` and `VERCEL_PROJECT_ID` environment variables. The
 secret project ID must equal the readable project ID. Production is pinned to
 `https://app.kinresolve.com` and the production Vercel project; beta-staging must use a
-different HTTPS origin and Vercel project.
+different HTTPS origin and Vercel project. Public demo is pinned to
+`https://demo.kinresolve.com` and project name `kinresolve-demo`; it also requires readable
+`MARKETING_VERCEL_PROJECT_ID`, and the demo project must differ from marketing and
+production.
 
 The workflow does not pull Vercel environment variables and never receives application,
 database, Blob, authentication, or cron credentials. It links the selected project locally,
@@ -75,6 +78,7 @@ enter the exact acknowledgement for the selected environment:
 | Target | Exact acknowledgement |
 | --- | --- |
 | `beta-staging` | `PROMOTE KIN RESOLVE STATIC HOLDING TO BETA-STAGING` |
+| `public-demo` | `PROMOTE KIN RESOLVE STATIC HOLDING TO DEMO.KINRESOLVE.COM` |
 | `production` | `PROMOTE KIN RESOLVE STATIC HOLDING TO APP.KINRESOLVE.COM` |
 
 For example, the production acknowledgement is:
@@ -90,6 +94,10 @@ proves that the selected environment's `APP_BASE_URL` resolves to the exact vali
 holding deployment. If the field cannot be disabled and proven on the same runner, the
 workflow attempts to pause and independently re-read that exact project; the source run
 still fails so an operator must resolve and rerun the safety path before another release.
+For `public-demo`, promotion also atomically moves the hostname from marketing when needed,
+proves the dedicated-project domain record, proves marketing no longer owns it,
+byte-compares the canonical page with `holding/login.html`, and requires `/api/health` to
+return `404`.
 
 ## Automatic runner-loss repair
 
@@ -99,13 +107,15 @@ attempt's GitHub job record without credentials to determine whether the promoti
 skipped. It then uses a target-specific automatic environment:
 
 - `beta-staging-containment` for `beta-staging`;
+- `demo-containment` for `public-demo`;
 - `production-containment` for `production`.
 
-Neither environment may require a reviewer or wait timer. Both carry only the Vercel
+None of these environments may require a reviewer or wait timer. They carry only the Vercel
 control secrets needed by this repair plus independently protected readable
 `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` variables; the secret and readable identities must
 match before any Vercel mutation. Production is additionally pinned to the checked-in
-production project ID, while beta-staging must differ. The repair PATCHes auto-assignment to `false` and
+production project ID, while beta-staging must differ. Public-demo repair also restores and
+proves dedicated hostname ownership and exact holding bytes. The repair PATCHes auto-assignment to `false` and
 independently GET-validates the project. If that cannot be proved and promotion may have
 run, it pauses and re-reads the exact project. A pre-promotion failure never triggers a
 pause, but a failed repair still withholds the exact safety receipt and blocks later
@@ -118,6 +128,7 @@ environment-specific line to the run summary:
 
 ```text
 STAGING_HOLDING_DEPLOYMENT_ID=dpl_...             # beta-staging
+DEMO_HOLDING_DEPLOYMENT_ID=dpl_...                # public-demo
 FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID=dpl_...       # production
 ```
 

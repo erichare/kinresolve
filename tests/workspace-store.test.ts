@@ -29,12 +29,12 @@ let storeOptions: { databaseUrl: string; archiveId: string };
 
 beforeAll(async () => {
   if (!databaseUrl) return;
-  await query("DELETE FROM archives WHERE id LIKE 'test-%'", [], { databaseUrl });
+  await query("DELETE FROM archives WHERE id LIKE 'test-workspace-%'", [], { databaseUrl });
 });
 
 beforeEach(async () => {
   if (!databaseUrl) return;
-  storeOptions = { databaseUrl, archiveId: `test-${randomUUID()}` };
+  storeOptions = { databaseUrl, archiveId: `test-workspace-${randomUUID()}` };
   await provisionTestArchive(storeOptions);
 });
 
@@ -505,7 +505,7 @@ describeIfDatabase("workspace store", () => {
     // Regression: ids repeat across archives by design (GEDCOM xrefs, fixed
     // fixed fictional-demo ids such as p-nora-hartwell). With global primary keys the
     // second archive's seed failed with a duplicate-key error on people_pkey.
-    const otherOptions = { ...storeOptions, archiveId: `test-${randomUUID()}` };
+    const otherOptions = { ...storeOptions, archiveId: `test-workspace-${randomUUID()}` };
 
     try {
       await provisionTestArchive(otherOptions);

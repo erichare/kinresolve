@@ -5,6 +5,10 @@ export type DeploymentOwnershipExpectations = {
   expectedOrgId: string;
 };
 
+export type PublicDemoRollbackExpectations = DeploymentOwnershipExpectations & {
+  allowHolding: boolean;
+};
+
 export type CandidateDeploymentExpectations = DeploymentOwnershipExpectations & {
   appBaseUrl: string;
   expectedGithubCommitSha: string;
@@ -46,6 +50,10 @@ export type ValidatedVercelDeployment = {
   status: "READY";
 };
 
+export type ValidatedPublicDemoRollbackDeployment = ValidatedVercelDeployment & {
+  kind: "holding" | "public-demo";
+};
+
 export type ValidatedContainmentCanonical = ValidatedVercelDeployment & {
   containmentRequired: boolean;
   state: "holding" | "source-release" | "other-release";
@@ -82,6 +90,50 @@ export function validatePreviousDeployment(
   expectations: DeploymentOwnershipExpectations
 ): ValidatedVercelDeployment {
   return publicResult(normalizeReadyProductionDeployment(document, expectations));
+}
+
+export function validatePublicDemoRollbackDeployment(
+  document: unknown,
+  expectations: PublicDemoRollbackExpectations
+): ValidatedPublicDemoRollbackDeployment {
+  const deployment = normalizeReadyProductionDeployment(document, expectations);
+  if (!deployment.metadata) throw publicDemoRollbackError();
+  const metadata = deployment.metadata;
+  try {
+    if (metadata.releaseRole === staticHoldingDeploymentMetadata.releaseRole) {
+      if (!expectations.allowHolding) throw publicDemoRollbackError();
+      for (const [name, expectedValue] of Object.entries(staticHoldingDeploymentMetadata)) {
+        requireExactMetadata(metadata, name, expectedValue, "holding");
+      }
+      return { ...publicResult(deployment), kind: "holding" };
+    }
+
+    requireExactMetadata(metadata, "releaseRole", "public-demo", "public demo rollback");
+    requireExactMetadata(metadata, "datasetMode", "demo", "public demo rollback");
+    requireExactMetadata(
+      metadata,
+      "canonicalArchiveId",
+      "kinresolve-demo-public",
+      "public demo rollback"
+    );
+    validatedMetadataValue(metadata, "githubCommitSha", /^[a-f0-9]{40}$/);
+    validatedMetadataValue(metadata, "githubRunId", /^[1-9][0-9]{0,19}$/);
+    validatedMetadataValue(metadata, "githubRunAttempt", /^[1-9][0-9]{0,9}$/);
+    validatedMetadataValue(
+      metadata,
+      "releaseTag",
+      /^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/
+    );
+    validatedMetadataValue(
+      metadata,
+      "packageVersion",
+      /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/
+    );
+    return { ...publicResult(deployment), kind: "public-demo" };
+  } catch (error) {
+    if (error instanceof Error && /public demo rollback/i.test(error.message)) throw error;
+    throw publicDemoRollbackError(error);
+  }
 }
 
 export function validateHoldingDeployment(
@@ -453,6 +505,12 @@ function validateGithubRunAttempt(value: string): void {
   if (!/^[1-9][0-9]{0,9}$/.test(value)) {
     throw new Error("The expected githubRunAttempt metadata is malformed.");
   }
+}
+
+function publicDemoRollbackError(cause?: unknown): Error {
+  return new Error("The public demo rollback deployment is not an approved safe target.", {
+    cause
+  });
 }
 
 function isObject(value: unknown): value is JsonObject {

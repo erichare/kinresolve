@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withPermission } from "@/lib/api-authorization";
+import { workspaceOptionsForSession } from "@/lib/auth-session";
 import { type PeopleLivingFilter, type PeoplePrivacyFilter, type PeoplePublicationFilter, type PeopleSortKey } from "@/lib/people-search";
 import { parsePositiveInteger } from "@/lib/pagination";
 import { searchPeoplePageFromDb } from "@/lib/store/people-queries";
@@ -27,7 +28,7 @@ export const GET = withPermission("archive:read-private", async (request, author
         page: parsePositiveInteger(url.searchParams.get("page"), 1),
         pageSize: parsePositiveInteger(url.searchParams.get("pageSize"), 50)
       },
-      { archiveId: authorization.archiveId }
+      workspaceOptionsForSession(authorization)
     )
   );
 });

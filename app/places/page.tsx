@@ -2,9 +2,8 @@ import { Icons } from "@/components/icons";
 import { redirect } from "next/navigation";
 import { PublicShell } from "@/components/public-shell";
 import { EmptyState } from "@/components/ui";
-import { canPublishPerson, publicFactFilter } from "@/lib/privacy";
-import { privateWorkspaceLoginPath, publicArchiveEnabled } from "@/lib/public-surface";
-import { readWorkspace } from "@/lib/workspace-store";
+import { privateWorkspaceLoginPath, publicArchiveEnabled, resolvePublicArchiveId } from "@/lib/public-surface";
+import { listPublicPlaces, readArchiveBranding } from "@/lib/store/people-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -12,25 +11,15 @@ export default async function PlacesPage() {
   if (!publicArchiveEnabled()) {
     redirect(privateWorkspaceLoginPath);
   }
-  const workspace = await readWorkspace();
-  const publishedPeople = workspace.people.filter((person) => person.published && canPublishPerson(person));
-  const placeIndex = new Map<string, { referenceCount: number; personNames: Set<string> }>();
-
-  for (const person of publishedPeople) {
-    for (const fact of person.facts.filter(publicFactFilter)) {
-      if (!fact.place) continue;
-      const entry = placeIndex.get(fact.place) ?? { referenceCount: 0, personNames: new Set<string>() };
-      entry.referenceCount += 1;
-      entry.personNames.add(person.displayName);
-      placeIndex.set(fact.place, entry);
-    }
-  }
-
-  const places = Array.from(placeIndex, ([name, entry]) => ({ name, referenceCount: entry.referenceCount, personNames: Array.from(entry.personNames) }))
-    .sort((left, right) => left.name.localeCompare(right.name));
+  const publicArchiveId = resolvePublicArchiveId();
+  const archiveOptions = { archiveId: publicArchiveId };
+  const [branding, places] = await Promise.all([
+    readArchiveBranding(archiveOptions),
+    listPublicPlaces(archiveOptions)
+  ]);
 
   return (
-    <PublicShell active="/places" tagline={workspace.archiveTagline}>
+    <PublicShell active="/places" tagline={branding.tagline}>
       <div className="page-wrap">
         <section className="page-title section">
           <h1>Published Places</h1>

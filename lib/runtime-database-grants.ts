@@ -9,6 +9,7 @@ import {
 } from "./database-attestation.ts";
 import {
   attestRuntimeDatabaseRole,
+  liveRuntimeSessionQuery,
   runtimeDatabaseRoleIdentitySha256,
   runtimeDatabaseRoleQuery,
   validateRuntimeDatabaseRoleRow
@@ -38,6 +39,30 @@ export const betaOperationsRuntimeGrantContract = [
   {
     table: "api_rate_limit_buckets",
     privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_capacity",
+    privileges: ["SELECT", "INSERT", "UPDATE"]
+  },
+  {
+    table: "public_demo_sessions",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_rate_limits",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_generations",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_ai_attempts",
+    privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"]
+  },
+  {
+    table: "public_demo_events",
+    privileges: ["SELECT", "INSERT", "DELETE"]
   },
   {
     table: "security_events",
@@ -118,6 +143,7 @@ export async function grantAndAttestBetaOperationsRuntimeRole(
   let migrationClient: PoolClient | undefined;
   let runtimeClient: PoolClient | undefined;
   let grantTransactionOpen = false;
+  let runtimeObservationTransactionOpen = false;
   try {
     migrationClient = await migrationPool.connect();
     runtimeClient = await runtimePool.connect();
@@ -138,6 +164,11 @@ export async function grantAndAttestBetaOperationsRuntimeRole(
        FROM pg_catalog.pg_database AS database_record
        WHERE database_record.datname = current_database()`
     );
+    // Transaction poolers may reassign a server backend after every statement.
+    // Pin the backend before reading its PID and keep it pinned through the
+    // independent pg_stat_activity observation and role-posture recheck.
+    await runtimeClient.query("BEGIN");
+    runtimeObservationTransactionOpen = true;
     const runtimeSession = await runtimeClient.query(
       `SELECT current_user::text AS role_name,
               session_user::text AS session_role_name,
@@ -205,17 +236,12 @@ export async function grantAndAttestBetaOperationsRuntimeRole(
       throw new Error("The runtime and migration credentials do not reach the same database.");
     }
 
-    const liveSession = await migrationClient.query(
-      `SELECT 1
-       FROM pg_catalog.pg_stat_activity
-       WHERE pid = $1
-         AND datid = $2::oid
-         AND datname = $3
-         AND application_name = $4
-         AND usename = $5
-         AND backend_type = 'client backend'`,
-      [runtimeBackendPid, runtimeDatabaseOid, runtimeDatabaseName, sessionName, runtimeRoleName]
-    );
+    const liveSession = await migrationClient.query(liveRuntimeSessionQuery, [
+      runtimeBackendPid,
+      runtimeDatabaseOid,
+      runtimeDatabaseName,
+      runtimeRoleName
+    ]);
     if (liveSession.rows.length !== 1) {
       throw new Error("The migration connection cannot observe the exact runtime grant session.");
     }
@@ -259,6 +285,8 @@ export async function grantAndAttestBetaOperationsRuntimeRole(
     ) {
       throw new Error("The runtime database role safety session changed before the grant.");
     }
+    await runtimeClient.query("ROLLBACK");
+    runtimeObservationTransactionOpen = false;
 
     await migrationClient.query("BEGIN");
     grantTransactionOpen = true;
@@ -313,6 +341,13 @@ export async function grantAndAttestBetaOperationsRuntimeRole(
       persistentDataMutation: false
     };
   } finally {
+    if (runtimeObservationTransactionOpen && runtimeClient) {
+      try {
+        await runtimeClient.query("ROLLBACK");
+      } catch {
+        // The caller still fails closed and the CLI never renders driver details.
+      }
+    }
     if (grantTransactionOpen && migrationClient) {
       try {
         await migrationClient.query("ROLLBACK");

@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - beta-staging
+          - public-demo
           - production
       holding_commit:
         description: Full 40-character commit SHA currently selected on main
@@ -34,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: kinresolve-beta-release
+  group: ${{ inputs.target == 'public-demo' && 'kinresolve-public-demo-release' || 'kinresolve-beta-release' }}
   queue: max
   cancel-in-progress: false
 
@@ -59,6 +60,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Require the legacy demo controller to be disabled and idle
+        if: inputs.target == 'public-demo'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          KINRESOLVE_STAGING_DEMO_WORKFLOW_ID: ${{ vars.KINRESOLVE_STAGING_DEMO_WORKFLOW_ID }}
+        run: node --experimental-strip-types scripts/validate-legacy-demo-retirement.mjs
+
       - name: Refuse to overtake unresolved containment or cleanup
         env:
           GH_TOKEN: ${{ github.token }}
@@ -69,7 +78,7 @@ jobs:
     needs: safety
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: ${{ inputs.target }}
+    environment: ${{ inputs.target == 'public-demo' && 'demo-production' || inputs.target }}
     outputs:
       app_base_url: ${{ steps.dispatch.outputs.app_base_url }}
       deployment_id: ${{ steps.holding-candidate.outputs.deployment_id }}
@@ -88,6 +97,7 @@ jobs:
           PROMOTION_ACKNOWLEDGEMENT: ${{ inputs.promotion_acknowledgement }}
           TARGET: ${{ inputs.target }}
           TARGET_APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
           TARGET_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
@@ -114,6 +124,14 @@ jobs:
               summary_secret_name="FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID"
               test "$TARGET_APP_BASE_URL" = "$production_app_base_url"
               test "$TARGET_VERCEL_PROJECT_ID" = "$production_vercel_project_id"
+              ;;
+            public-demo)
+              exact_acknowledgement="PROMOTE KIN RESOLVE STATIC HOLDING TO DEMO.KINRESOLVE.COM"
+              summary_secret_name="DEMO_HOLDING_DEPLOYMENT_ID"
+              test "$TARGET_APP_BASE_URL" = "https://demo.kinresolve.com"
+              [[ "$MARKETING_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+              test "$TARGET_VERCEL_PROJECT_ID" != "$production_vercel_project_id"
+              test "$TARGET_VERCEL_PROJECT_ID" != "$MARKETING_VERCEL_PROJECT_ID"
               ;;
             *)
               exit 1
@@ -170,6 +188,9 @@ jobs:
 
       - name: Verify zero-runtime holding output
         run: npm run holding:verify
+
+      - name: Prove automatic Git deployments remain disabled in source
+        run: npm run vercel:config:validate
 
       - name: Install the pinned Vercel CLI without deployment credentials
         run: npm install --global --ignore-scripts vercel@56.1.0
@@ -296,6 +317,7 @@ jobs:
         if: steps.dispatch.outputs.promote == 'true'
         timeout-minutes: 5
         env:
+          EXPECTED_VERCEL_PROJECT_NAME: ${{ inputs.target == 'public-demo' && 'kinresolve-demo' || '' }}
           EXPECTED_VERCEL_PROJECT_PAUSED: "false"
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -317,6 +339,70 @@ jobs:
             "$project_api" --output "$RUNNER_TEMP/static-holding-project.json"
           node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
             "$RUNNER_TEMP/static-holding-project.json"
+
+      - name: Move the public demo hostname from marketing to the dedicated project
+        if: steps.dispatch.outputs.promote == 'true' && inputs.target == 'public-demo'
+        timeout-minutes: 10
+        env:
+          DEMO_DOMAIN: demo.kinresolve.com
+          EXPECTED_VERCEL_DOMAIN: demo.kinresolve.com
+          MARKETING_VERCEL_PROJECT_ID: ${{ vars.MARKETING_VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$MARKETING_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$MARKETING_VERCEL_PROJECT_ID" != "$VERCEL_PROJECT_ID"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          destination_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query"
+          destination_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$RUNNER_TEMP/public-demo-domain-before.json" \
+            --write-out '%{http_code}' "$destination_api")"
+          if test "$destination_status" = "200"; then
+            node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+              "$RUNNER_TEMP/public-demo-domain-before.json"
+          else
+            test "$destination_status" = "404"
+            curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+              --fail --silent --show-error \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v9/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query" \
+              --output "$RUNNER_TEMP/public-demo-marketing-domain-before.json"
+            VERCEL_PROJECT_ID="$MARKETING_VERCEL_PROJECT_ID" \
+              node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+                "$RUNNER_TEMP/public-demo-marketing-domain-before.json"
+            node -e '
+              const { writeFileSync } = require("node:fs");
+              writeFileSync(process.env.RUNNER_TEMP + "/public-demo-domain-move.json", JSON.stringify({
+                "projectId": process.env.VERCEL_PROJECT_ID
+              }) + "\n", { mode: 0o600 });
+            '
+            curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+              --fail --silent --show-error --request POST \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data-binary "@$RUNNER_TEMP/public-demo-domain-move.json" \
+              "https://api.vercel.com/v1/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN/move$scope_query" \
+              --output "$RUNNER_TEMP/public-demo-domain-moved.json"
+            node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+              "$RUNNER_TEMP/public-demo-domain-moved.json"
+          fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$destination_api" --output "$RUNNER_TEMP/public-demo-domain-after.json"
+          node --experimental-strip-types scripts/validate-vercel-project-domain.mjs \
+            "$RUNNER_TEMP/public-demo-domain-after.json"
+          marketing_status="$(curl --connect-timeout 10 --max-time 30 --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$RUNNER_TEMP/public-demo-marketing-domain-after.json" \
+            --write-out '%{http_code}' \
+            "https://api.vercel.com/v9/projects/$MARKETING_VERCEL_PROJECT_ID/domains/$DEMO_DOMAIN$scope_query")"
+          test "$marketing_status" = "404"
 
       - name: Emergency-pause the target if domain auto-assignment cannot be disabled
         if: >-
@@ -385,6 +471,26 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding "$RUNNER_TEMP/static-holding-promoted.json" "${APP_BASE_URL#https://}"
+
+      - name: Prove the canonical hostname serves only the exact checked-in holding artifact
+        if: steps.dispatch.outputs.promote == 'true'
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ steps.dispatch.outputs.app_base_url }}
+        run: |
+          set -euo pipefail
+          status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --silent --show-error --max-filesize 1048576 \
+            --dump-header "$RUNNER_TEMP/static-holding-canonical.headers" \
+            --output "$RUNNER_TEMP/static-holding-canonical.html" \
+            --write-out '%{http_code}' "$APP_BASE_URL/")"
+          test "$status" = "200"
+          if grep -Eiq '^location:' "$RUNNER_TEMP/static-holding-canonical.headers"; then exit 1; fi
+          cmp "$RUNNER_TEMP/static-holding-canonical.html" holding/login.html
+          health_status="$(curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "$APP_BASE_URL/api/health")"
+          test "$health_status" = "404"
 
       - name: Record the holding deployment ID
         if: always() && steps.holding-candidate.outcome == 'success'

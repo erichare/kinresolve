@@ -8,10 +8,20 @@ import {
   validateHoldingDeployment,
   validateHoldingRecordDeployment,
   validatePreviousDeployment,
+  validatePublicDemoRollbackDeployment,
   validatePromotedDeployment
 } from "../lib/vercel-release-contract.ts";
 
-const modes = new Set(["previous", "holding-record", "holding", "candidate", "containment", "promoted"]);
+const modes = new Set([
+  "previous",
+  "demo-rollback",
+  "demo-rollback-or-holding",
+  "holding-record",
+  "holding",
+  "candidate",
+  "containment",
+  "promoted"
+]);
 const canonicalLookupModes = new Set(["holding", "containment", "promoted"]);
 
 function requiredEnvironment(name) {
@@ -51,7 +61,7 @@ try {
     || (!requiresCanonicalLookup && canonicalLookupHostname !== undefined)
   ) {
     throw new Error(
-      "Usage: validate-vercel-deployment.mjs <previous|holding-record|holding|candidate|containment|promoted> <json-file> [canonical-lookup-hostname]. The canonical lookup hostname is required only for holding, containment, and promoted modes."
+      "Usage: validate-vercel-deployment.mjs <previous|demo-rollback|demo-rollback-or-holding|holding-record|holding|candidate|containment|promoted> <json-file> [canonical-lookup-hostname]. The canonical lookup hostname is required only for holding, containment, and promoted modes."
     );
   }
 
@@ -60,6 +70,11 @@ try {
   let result;
   if (mode === "previous") {
     result = validatePreviousDeployment(document, ownership);
+  } else if (mode === "demo-rollback" || mode === "demo-rollback-or-holding") {
+    result = validatePublicDemoRollbackDeployment(document, {
+      ...ownership,
+      allowHolding: mode === "demo-rollback-or-holding"
+    });
   } else if (mode === "holding-record") {
     result = validateHoldingRecordDeployment(document, {
       ...ownership,
@@ -110,6 +125,11 @@ try {
       `containment_required=${result.containmentRequired ? "true" : "false"}`,
       `canonical_state=${result.state}`
     ] : []),
+    ...(
+      mode === "demo-rollback" || mode === "demo-rollback-or-holding"
+        ? [`rollback_kind=${result.kind}`]
+        : []
+    ),
     ""
   ].join("\n");
   if (process.env.GITHUB_OUTPUT) {
