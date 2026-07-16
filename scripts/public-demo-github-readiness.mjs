@@ -127,6 +127,7 @@ function configurationFrom(environment) {
   const repository = environment.GITHUB_REPOSITORY;
   const workflowId = environment.PRODUCT_CI_WORKFLOW_ID;
   const releaseCommit = environment.RELEASE_COMMIT;
+  // GitHub App installation tokens are opaque and may use the stateless JWT format.
   const token = environment.GH_TOKEN;
   if (
     typeof repository !== "string"
@@ -136,10 +137,9 @@ function configurationFrom(environment) {
     || typeof releaseCommit !== "string"
     || !/^[a-f0-9]{40}$/.test(releaseCommit)
     || typeof token !== "string"
+    || token.length === 0
     || token.trim() !== token
     || /[\s\u0000-\u001f\u007f]/u.test(token)
-    || token.length < 20
-    || token.length > 256
   ) {
     throw readinessError();
   }

@@ -8,7 +8,7 @@ type Check = (
   fetchImplementation?: typeof fetch
 ) => Promise<Readonly<{ workflowId: string; state: "disabled_manually" }>>;
 
-const opaqueToken = "ghs_opaque.token-with-punctuation_xxxxxxxxx";
+const opaqueToken = `ghs_314133192_${"a".repeat(300)}.${"b".repeat(300)}.${"c".repeat(64)}`;
 
 const environment = {
   GH_TOKEN: opaqueToken,
@@ -20,6 +20,7 @@ const environment = {
 describe("legacy staging demo retirement preflight", () => {
   it("requires the exact workflow to be manually disabled with no active runs", async () => {
     const check = await loadCheck();
+    expect(opaqueToken.length).toBeGreaterThan(512);
     const fetchImplementation = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/actions/workflows/12345678")) {

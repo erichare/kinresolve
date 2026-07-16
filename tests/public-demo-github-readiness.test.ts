@@ -9,7 +9,7 @@ type Readiness = (
 ) => Promise<Readonly<{ runId: number; runAttempt: number; gate: "success" }>>;
 
 const sha = "a".repeat(40);
-const token = "ghs_opaque.token-with-punctuation_xxxxxxxxx";
+const token = `ghs_7654321_${"a".repeat(300)}.${"b".repeat(300)}.${"c".repeat(64)}`;
 const environment = {
   GH_TOKEN: token,
   GITHUB_API_URL: "https://api.github.com",
@@ -36,6 +36,7 @@ describe("public demo GitHub release readiness", () => {
 
   it("requires the exact successful main CI gate and zero open high or critical code alerts", async () => {
     const validate = await loadValidator();
+    expect(token.length).toBeGreaterThan(512);
     const fetchImplementation = responses();
 
     await expect(validate(environment, fetchImplementation)).resolves.toEqual({
