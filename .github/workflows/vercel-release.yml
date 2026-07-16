@@ -558,13 +558,14 @@ jobs:
           set -euo pipefail
           status="$(curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
             --silent --show-error \
+            --dump-header "$RUNNER_TEMP/staging-candidate-unauthenticated.headers" \
             --output "$RUNNER_TEMP/staging-candidate-unauthenticated" \
             --write-out '%{http_code}' \
             "$CANDIDATE_ORIGIN/api/health")"
-          case "$status" in
-            401|403) ;;
-            *) exit 1 ;;
-          esac
+          node --experimental-strip-types scripts/validate-vercel-protection-response.mjs \
+            "$status" \
+            "$RUNNER_TEMP/staging-candidate-unauthenticated.headers" \
+            "$CANDIDATE_ORIGIN/api/health"
           if jq -e '
             type == "object" and
             (has("database") or has("capabilities") or has("scheduledWrites"))
@@ -1615,13 +1616,14 @@ jobs:
           set -euo pipefail
           status="$(curl --connect-timeout 10 --max-time 45 --retry 3 --retry-all-errors \
             --silent --show-error \
+            --dump-header "$RUNNER_TEMP/production-candidate-unauthenticated.headers" \
             --output "$RUNNER_TEMP/production-candidate-unauthenticated" \
             --write-out '%{http_code}' \
             "$CANDIDATE_ORIGIN/api/health")"
-          case "$status" in
-            401|403) ;;
-            *) exit 1 ;;
-          esac
+          node --experimental-strip-types scripts/validate-vercel-protection-response.mjs \
+            "$status" \
+            "$RUNNER_TEMP/production-candidate-unauthenticated.headers" \
+            "$CANDIDATE_ORIGIN/api/health"
           if jq -e '
             type == "object" and
             (has("database") or has("capabilities") or has("scheduledWrites"))
