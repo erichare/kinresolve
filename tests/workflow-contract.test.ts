@@ -509,7 +509,11 @@ describe("stable release workflow contract", () => {
     expect(protectionProbeStep).toContain(
       "CANDIDATE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}"
     );
-    expect(protectionProbeStep).toContain("401|403) ;;");
+    expect(protectionProbeStep).toContain(
+      '--dump-header "$RUNNER_TEMP/staging-candidate-unauthenticated.headers"'
+    );
+    expect(protectionProbeStep).toContain("scripts/validate-vercel-protection-response.mjs");
+    expect(protectionProbeStep).toContain('"$CANDIDATE_ORIGIN/api/health"');
     expect(protectionProbeStep).toContain(
       'has("database") or has("capabilities") or has("scheduledWrites")'
     );
@@ -714,7 +718,11 @@ describe("stable release workflow contract", () => {
     expect(probeStep).toContain(
       "CANDIDATE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}"
     );
-    expect(probeStep).toContain("401|403) ;;");
+    expect(probeStep).toContain(
+      '--dump-header "$RUNNER_TEMP/production-candidate-unauthenticated.headers"'
+    );
+    expect(probeStep).toContain("scripts/validate-vercel-protection-response.mjs");
+    expect(probeStep).toContain('"$CANDIDATE_ORIGIN/api/health"');
     expect(probeStep).toContain('has("database") or has("capabilities") or has("scheduledWrites")');
     expect(probeStep).toContain("production-candidate-unauthenticated");
     expect(probeStep).not.toContain("x-vercel-protection-bypass");

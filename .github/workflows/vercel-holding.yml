@@ -252,13 +252,14 @@ jobs:
           set -euo pipefail
           status="$(curl --connect-timeout 5 --max-time 20 --retry 3 --retry-all-errors \
             --silent --show-error \
+            --dump-header "$RUNNER_TEMP/static-holding-unauthenticated.headers" \
             --output "$RUNNER_TEMP/static-holding-unauthenticated.html" \
             --write-out '%{http_code}' \
             "$HOLDING_DEPLOYMENT_URL/")"
-          case "$status" in
-            401|403) ;;
-            *) exit 1 ;;
-          esac
+          node --experimental-strip-types scripts/validate-vercel-protection-response.mjs \
+            "$status" \
+            "$RUNNER_TEMP/static-holding-unauthenticated.headers" \
+            "$HOLDING_DEPLOYMENT_URL/"
           if grep -Fq "Kin Resolve" "$RUNNER_TEMP/static-holding-unauthenticated.html"; then
             echo "Unauthenticated request reached the Kin Resolve holding page." >&2
             exit 1
