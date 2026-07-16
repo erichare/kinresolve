@@ -276,16 +276,22 @@ Provider export / DNA CSV ──▶ Private workspace (Postgres) ──▶ Curat
 | `uploads/sources/` | Uploaded source files | ignored |
 | `data/` | Local GEDCOM, DNA CSV, and research exports | ignored |
 
-## Production releases
+## Staging and production releases
 
 Releases are candidate-first. Run `.github/workflows/vercel-release.yml` manually from
 `main` with an exact full commit SHA, the matching stable `package.json` version, the
-forward-only policy acknowledgement, and the run ID plus SHA-256 of a fresh attested
-attempt-scoped `production-recovery-evidence-<run_attempt>` artifact. The workflow refuses an existing tag or release;
-the stable GitHub tag and Release are created idempotently only after the exact candidate
-is live and verified. GitHub verifies that recovery evidence came from the protected workflow at the
-requested `main` commit; typed text is not accepted as backup or quiescence evidence.
-Git auto-deployments remain disabled in `vercel.json`.
+forward-only policy acknowledgement, and an explicit `release_target`. A `staging-only`
+run must use application mode with intake disabled and every production recovery, API,
+and writer-perimeter input empty. It stops after the isolated staging rehearsal and records
+the exact candidate deployment ID, run, attempt, SHA, and version; it cannot enter the
+production, marketing, or GitHub Release jobs. A `production` run additionally requires
+the run ID plus SHA-256 of a fresh attested attempt-scoped
+`production-recovery-evidence-<run_attempt>` artifact and the protected writer-perimeter
+acknowledgement. The workflow refuses an existing tag or release; the stable GitHub tag
+and Release are created idempotently only after the exact production candidate is live and
+verified. GitHub verifies that recovery evidence came from the protected workflow at the
+requested `main` commit; typed text is not accepted as backup or quiescence evidence. Git
+auto-deployments remain disabled in `vercel.json`.
 
 Protected infrastructure prerequisite: before approving a production release or holding
 promotion, a reviewer must verify in the Vercel project dashboard that production
@@ -331,7 +337,8 @@ validated ID to use as `STAGING_HOLDING_DEPLOYMENT_ID` or
 `FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`, depending on the selected protected environment;
 each target has a separate exact promotion acknowledgement.
 
-The workflow has four serialized phases:
+The production target has four serialized phases. A staging-only target completes phases
+1 and 2 and then emits its immutable candidate evidence:
 
 1. Prove the requested SHA is the workflow's `main` SHA, run the full product/release
    suite, immutable migration checks, build, and production dependency audit without
@@ -339,8 +346,12 @@ The workflow has four serialized phases:
 2. Prove the protected `beta-staging` canonical origin is on its exact approved static
    holding deployment and smoke that zero-runtime target before mutation. Then rehearse
    the release using a separate target-specific build from the same commit and procedure,
-   a separate Vercel project, database, object store, archive, and generated unaliased URL;
-   the staging candidate is never promoted.
+   a separate Vercel project, database, object store, archive, and generated unaliased URL.
+   The workflow temporarily promotes that exact candidate for the authenticated browser
+   journey, then restores and proves the pinned holding deployment from a fresh finalizer.
+   A staging-only run never leaves the candidate promoted or enters production; it must
+   upload an attempt-scoped machine evidence artifact containing the candidate ID, run,
+   attempt, SHA, and version.
 3. In the protected `production` environment, validate Vercel metadata and actual
    readable settings, verify policy and machine-attested recovery/fence evidence, prove
    the canonical alias is on the approved static holding deployment, build and deploy an
@@ -356,12 +367,33 @@ The workflow has four serialized phases:
    retryable final job. A failed post-promotion step must re-contain writes before the alias
    can return to the approved holding deployment.
 
+After a successful staging-only run, `.github/workflows/staging-demo-session.yml` may open
+`demo.kinresolve.com` only to that exact fresh candidate from the exact successful run
+attempt and current `main` SHA. Candidate ID and version are derived from the required
+source-run artifact, never dispatch text. It revalidates the isolated project, current
+runtime and legal-byte contracts, generated candidate, pinned holding target, live
+Standard Protection on every generated candidate origin, browser/observability smoke, and
+source freshness before promotion. After promotion it proves exact canonical ownership,
+repeats the canonical smoke and live legal-byte proof, and rechecks current `main`. Opening
+requires `OPEN KIN RESOLVE SYNTHETIC STAGING DEMO`; closing requires
+`CLOSE KIN RESOLVE SYNTHETIC STAGING DEMO TO HOLDING` and accepts no source inputs.
+Close is idempotent and proves the canonical root is the exact checked-in zero-runtime
+holding body with `/api/health` returning `404`. This is a traffic-session lifecycle, not a
+database or object-store reset. A failed, cancelled, or timed-out open or close starts
+`.github/workflows/staging-demo-safety.yml`, which restores the pinned holding deployment,
+repairs domain auto-assignment, proves the canonical holding surface, or pauses the exact
+staging project fail-closed. Later release, recovery, holding, and demo operations refuse
+to overtake a missing or failed safety receipt.
+
 The protected GitHub environments are intentionally separate. Configure their exact
 inventory as follows; do not promote a repository-level secret as a shortcut:
 
-- `beta-staging` secrets: `CRON_SECRET`, `MIGRATION_DATABASE_URL`,
+- `beta-staging` secrets: `CRON_SECRET`, `KINRESOLVE_OBSERVABILITY_PROBE_SECRET`,
+  `MIGRATION_DATABASE_URL`, `STAGING_BROWSER_CANARY_EMAIL`,
+  `STAGING_BROWSER_CANARY_PASSWORD`, `STAGING_BROWSER_CANARY_USER_ID`,
   `STAGING_HOLDING_DEPLOYMENT_ID`, `VERCEL_AUTOMATION_BYPASS_SECRET`, `VERCEL_ORG_ID`,
-  `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables: `APP_BASE_URL`,
+  `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`; when protected intake rehearsal is enabled it
+  also needs `BETA_APPLICATION_CANARY_EMAIL_PATTERN`. Variables: `APP_BASE_URL`,
   `VERCEL_PROJECT_ID`, `KINRESOLVE_OBJECT_STORAGE_PROVIDER_ID`, and the exact protected
   production exclusions `FORBIDDEN_PRODUCTION_DATABASE_IDENTITY`,
   `FORBIDDEN_PRODUCTION_OBJECT_STORAGE_IDENTITY`, and
@@ -377,10 +409,12 @@ inventory as follows; do not promote a repository-level secret as a shortcut:
   evidence bindings and must differ. The pulled scheduled-write setting must be readable
   and exactly `true`.
 - `beta-staging-containment` is an automatic safety environment with no required reviewers
-  or wait timer. Secrets: `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`.
-  Variables: `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`. Its Vercel organization and project
-  identities must exactly match the `beta-staging` cell; it exists only so failed holding runs cannot wait for an
-  interactive deployment approval before disabling domain auto-assignment.
+  or wait timer. Secrets: `STAGING_HOLDING_DEPLOYMENT_ID`, `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables: `APP_BASE_URL`, `VERCEL_ORG_ID`, and
+  `VERCEL_PROJECT_ID`. Its Vercel organization, project, hostname, and pinned holding
+  identities must exactly match the `beta-staging` cell; it exists so explicit close and
+  failed release/holding/demo runs cannot wait for an interactive deployment approval before
+  restoring holding traffic or disabling domain auto-assignment.
 - `production-containment` is an automatic safety environment with no required reviewers
   or wait timer. Secrets: `MIGRATION_DATABASE_URL`,
   `FIRST_CUTOVER_HOLDING_DEPLOYMENT_ID`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and
@@ -449,7 +483,9 @@ promotion or the live smoke fails, automation may move the alias only to the
 captured, pre-approved static holding deployment and only after the production write
 fence is active. It never runs a down migration or reattaches the legacy application.
 A failed, cancelled, or timed-out release run starts a credential-free classifier first.
-It leaves production alone when the production job was skipped, and it leaves a verified
+It independently restores the pinned staging holding deployment, or proves the exact
+staging project is paused, before its safety receipt can succeed. It leaves production
+alone when the production job was skipped, and it leaves a verified
 candidate live when only GitHub publication failed after the final canonical revalidation.
 A failed, cancelled, or timed-out production job instead recontains the exact database
 fence and rolls back to the pre-approved holding deployment. A failed, cancelled, or
@@ -458,8 +494,9 @@ target objects and destroys only the identity-bound disposable target database p
 A failed, cancelled, or timed-out holding promotion starts a target-specific automatic
 repair that disables and independently re-reads domain auto-assignment; when promotion may
 have occurred and repair cannot be proven, it pauses that exact Vercel project. Every marked
-failed source attempt needs its exact successful containment, cleanup, or holding-repair
-receipt before any later release, recovery, or holding run may load protected credentials.
+failed source attempt needs its exact successful containment, cleanup, holding-repair, or
+demo-session repair receipt before any later release, recovery, holding, or demo run may
+load protected credentials.
 Vercel's [Cron Jobs rollback guidance](https://vercel.com/docs/cron-jobs/manage-cron-jobs#rollbacks-with-cron-jobs)
 and [Instant Rollback guidance](https://vercel.com/docs/instant-rollback) describe different
 schedule behavior, so both rollback paths keep the durable write fence active and record mandatory dashboard cron verification; the

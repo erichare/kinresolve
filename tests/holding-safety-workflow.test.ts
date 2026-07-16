@@ -147,9 +147,11 @@ describe("failed holding auto-assignment safety workflow", () => {
       "`beta-staging-containment` is an automatic safety environment with no required reviewers"
     );
     expect(readme).toContain(
-      "Secrets: `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`."
+      "Secrets: `STAGING_HOLDING_DEPLOYMENT_ID`, `VERCEL_ORG_ID`,"
     );
-    expect(readme).toContain("Variables: `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`.");
+    expect(readme).toContain(
+      "`VERCEL_PROJECT_ID`, and `VERCEL_TOKEN`. Variables: `APP_BASE_URL`, `VERCEL_ORG_ID`, and"
+    );
     expect(readme).toContain(
       "`production-containment` is an automatic safety environment with no required reviewers"
     );

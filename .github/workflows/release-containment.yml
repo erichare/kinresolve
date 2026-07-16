@@ -129,6 +129,339 @@ jobs:
             printf -- "- Reason: \`%s\`\n" "$reason"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  staging-authorize:
+    name: Authorize exact failed release for staging containment
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'cancelled' ||
+      github.event.workflow_run.conclusion == 'timed_out'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      authorized: ${{ steps.event.outputs.authorized }}
+    steps:
+      - name: Validate the exact failed release event for staging containment
+        id: event
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_ACTION" = "completed"
+          test "$EVENT_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_WORKFLOW_NAME" = "Release Kin Resolve beta candidate" || \
+            test "$SOURCE_WORKFLOW_NAME" = "$SOURCE_DISPLAY_TITLE"
+          test "$SOURCE_DISPLAY_TITLE" = "Kin Resolve beta release run $SOURCE_RUN_ID attempt $SOURCE_RUN_ATTEMPT"
+          test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/vercel-release.yml"
+          test "$SOURCE_EVENT" = "workflow_dispatch"
+          test "$SOURCE_HEAD_BRANCH" = "main"
+          test "$SOURCE_HEAD_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_RUN_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_CONCLUSION" = "failure" || \
+            test "$SOURCE_CONCLUSION" = "cancelled" || \
+            test "$SOURCE_CONCLUSION" = "timed_out"
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$SOURCE_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          printf 'authorized=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact failed release revision for staging authorization
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify current protected-main ancestry without staging credentials
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SOURCE_HEAD_SHA"
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" origin/main
+
+  staging-contain:
+    name: Restore staging holding or fail-closed pause
+    needs: staging-authorize
+    if: >-
+      needs.staging-authorize.result == 'success' &&
+      needs.staging-authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: beta-staging-containment
+    steps:
+      - name: Revalidate the exact failed release event before staging credentials
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_ACTION" = "completed"
+          test "$EVENT_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_WORKFLOW_NAME" = "Release Kin Resolve beta candidate" || \
+            test "$SOURCE_WORKFLOW_NAME" = "$SOURCE_DISPLAY_TITLE"
+          test "$SOURCE_DISPLAY_TITLE" = "Kin Resolve beta release run $SOURCE_RUN_ID attempt $SOURCE_RUN_ATTEMPT"
+          test "$SOURCE_WORKFLOW_PATH" = ".github/workflows/vercel-release.yml"
+          test "$SOURCE_EVENT" = "workflow_dispatch"
+          test "$SOURCE_HEAD_BRANCH" = "main"
+          test "$SOURCE_HEAD_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_RUN_REPOSITORY" = "$CURRENT_REPOSITORY"
+          test "$SOURCE_CONCLUSION" = "failure" || \
+            test "$SOURCE_CONCLUSION" = "cancelled" || \
+            test "$SOURCE_CONCLUSION" = "timed_out"
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$SOURCE_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+
+      - name: Check out the exact authorized failed release revision again
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reverify exact current protected-main ancestry before staging containment
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force --no-tags
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$SOURCE_HEAD_SHA"
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" origin/main
+
+      - name: Set up the pinned Node.js runtime for staging containment
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Install the pinned Vercel CLI for staging containment
+        run: npm install --global --ignore-scripts vercel@56.1.0
+
+      - name: Validate and link the exact isolated staging project
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$APP_BASE_URL" = "https://demo.kinresolve.com"
+          [[ "$EXPECTED_VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test -n "$VERCEL_TOKEN"
+          test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          test "$EXPECTED_VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+          test "$VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+          mkdir -p .vercel
+          node -e '
+            const { writeFileSync } = require("node:fs");
+            writeFileSync(".vercel/project.json", JSON.stringify({
+              orgId: process.env.VERCEL_ORG_ID,
+              projectId: process.env.VERCEL_PROJECT_ID
+            }) + "\n", { mode: 0o600 });
+          '
+
+      - name: Fetch and validate the pinned staging holding record
+        id: staging-holding
+        continue-on-error: true
+        env:
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$APPROVED_HOLDING_DEPLOYMENT_ID$scope_query" \
+            --output "$RUNNER_TEMP/release-staging-holding-record.json"
+          node --experimental-strip-types scripts/validate-vercel-deployment.mjs holding-record \
+            "$RUNNER_TEMP/release-staging-holding-record.json"
+
+      - name: Idempotently restore the pinned staging holding deployment
+        id: staging-restore
+        if: always() && steps.staging-holding.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          HOLDING_DEPLOYMENT_URL: ${{ steps.staging-holding.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel promote "$HOLDING_DEPLOYMENT_URL" --yes --timeout=5m
+
+      - name: Set and independently re-read disabled staging domain auto-assignment
+        id: staging-project-safety
+        if: always() && steps.staging-restore.outcome == 'success'
+        continue-on-error: true
+        env:
+          EXPECTED_VERCEL_PROJECT_PAUSED: "false"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          project_api="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request PATCH \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"autoAssignCustomDomains":false}' \
+            "$project_api" --output "$RUNNER_TEMP/release-staging-project-patch.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "$project_api" --output "$RUNNER_TEMP/release-staging-project.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/release-staging-project.json"
+
+      - name: Prove the canonical staging alias resolves to exact holding
+        id: staging-holding-proof
+        if: >-
+          always() &&
+          steps.staging-restore.outcome == 'success' &&
+          steps.staging-project-safety.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          APPROVED_HOLDING_DEPLOYMENT_ID: ${{ secrets.STAGING_HOLDING_DEPLOYMENT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$APP_BASE_URL" = "https://demo.kinresolve.com"
+          canonical_host="${APP_BASE_URL#https://}"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          for attempt in $(seq 1 20); do
+            rm -f "$RUNNER_TEMP/release-staging-canonical.json"
+            if curl --connect-timeout 10 --max-time 30 --fail --silent --show-error \
+                --header "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v13/deployments/$canonical_host$scope_query" \
+                --output "$RUNNER_TEMP/release-staging-canonical.json" \
+              && env -u GITHUB_OUTPUT node --experimental-strip-types \
+                scripts/validate-vercel-deployment.mjs holding \
+                "$RUNNER_TEMP/release-staging-canonical.json" \
+                "${APP_BASE_URL#https://}" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [[ "$attempt" = 20 ]]; then exit 1; fi
+            sleep 3
+          done
+
+      - name: Fail closed by pausing the exact staging project
+        id: staging-pause-fallback
+        if: >-
+          always() &&
+          (steps.staging-holding.outcome != 'success' ||
+           steps.staging-restore.outcome != 'success' ||
+           steps.staging-project-safety.outcome != 'success' ||
+           steps.staging-holding-proof.outcome != 'success')
+        env:
+          EXPECTED_VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          EXPECTED_VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          EXPECTED_VERCEL_PROJECT_PAUSED: "true"
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_VERCEL_ORG_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          [[ "$EXPECTED_VERCEL_PROJECT_ID" =~ ^[A-Za-z0-9_]{4,128}$ ]]
+          test "$VERCEL_ORG_ID" = "$EXPECTED_VERCEL_ORG_ID"
+          test "$VERCEL_PROJECT_ID" = "$EXPECTED_VERCEL_PROJECT_ID"
+          test "$EXPECTED_VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+          test "$VERCEL_PROJECT_ID" != "prj_ZK8tbbhxoDuuGFy1k67kW7XgjXzs"
+          scope_query=""
+          if [[ "$VERCEL_ORG_ID" == team_* ]]; then scope_query="?teamId=$VERCEL_ORG_ID"; fi
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/pause$scope_query" \
+            --output "$RUNNER_TEMP/release-staging-pause.json"
+          curl --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+            --fail --silent --show-error \
+            --header "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$scope_query" \
+            --output "$RUNNER_TEMP/release-staging-project-paused.json"
+          node --experimental-strip-types scripts/validate-vercel-project-safety.mjs \
+            "$RUNNER_TEMP/release-staging-project-paused.json"
+
+      - name: Require exact staging holding or a proved fail-closed pause
+        if: always()
+        env:
+          HOLDING_PROOF_OUTCOME: ${{ steps.staging-holding-proof.outcome }}
+          HOLDING_RECORD_OUTCOME: ${{ steps.staging-holding.outcome }}
+          PAUSE_OUTCOME: ${{ steps.staging-pause-fallback.outcome }}
+          PROJECT_SAFETY_OUTCOME: ${{ steps.staging-project-safety.outcome }}
+          RESTORE_OUTCOME: ${{ steps.staging-restore.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$HOLDING_RECORD_OUTCOME" = "success" &&
+                "$RESTORE_OUTCOME" = "success" &&
+                "$PROJECT_SAFETY_OUTCOME" = "success" &&
+                "$HOLDING_PROOF_OUTCOME" = "success" ]]; then
+            exit 0
+          fi
+          test "$PAUSE_OUTCOME" = "success"
+
+      - name: Record the staging release-containment safety receipt
+        if: success()
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          {
+            printf '## Kin Resolve failed-release staging containment\n\n'
+            printf -- '- Source release: %s attempt %s\n' "$SOURCE_RUN_ID" "$SOURCE_RUN_ATTEMPT"
+            printf -- '- Commit: %s\n' "$SOURCE_HEAD_SHA"
+            printf -- '- Pinned staging holding restored or exact staging project paused: true\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove staging containment material
+        if: always()
+        run: |
+          rm -f .vercel/project.json
+          rm -f "$RUNNER_TEMP/release-staging-"*.json
+
   contain:
     needs: classify
     if: >-

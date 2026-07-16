@@ -6,11 +6,12 @@ import {
   validateCandidateDeployment,
   validateContainmentCanonicalDeployment,
   validateHoldingDeployment,
+  validateHoldingRecordDeployment,
   validatePreviousDeployment,
   validatePromotedDeployment
 } from "../lib/vercel-release-contract.ts";
 
-const modes = new Set(["previous", "holding", "candidate", "containment", "promoted"]);
+const modes = new Set(["previous", "holding-record", "holding", "candidate", "containment", "promoted"]);
 const canonicalLookupModes = new Set(["holding", "containment", "promoted"]);
 
 function requiredEnvironment(name) {
@@ -50,7 +51,7 @@ try {
     || (!requiresCanonicalLookup && canonicalLookupHostname !== undefined)
   ) {
     throw new Error(
-      "Usage: validate-vercel-deployment.mjs <previous|holding|candidate|containment|promoted> <json-file> [canonical-lookup-hostname]. The canonical lookup hostname is required only for holding, containment, and promoted modes."
+      "Usage: validate-vercel-deployment.mjs <previous|holding-record|holding|candidate|containment|promoted> <json-file> [canonical-lookup-hostname]. The canonical lookup hostname is required only for holding, containment, and promoted modes."
     );
   }
 
@@ -59,6 +60,11 @@ try {
   let result;
   if (mode === "previous") {
     result = validatePreviousDeployment(document, ownership);
+  } else if (mode === "holding-record") {
+    result = validateHoldingRecordDeployment(document, {
+      ...ownership,
+      approvedHoldingDeploymentId: requiredEnvironment("APPROVED_HOLDING_DEPLOYMENT_ID")
+    });
   } else if (mode === "holding") {
     result = validateHoldingDeployment(document, {
       ...ownership,

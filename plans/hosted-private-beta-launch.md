@@ -1,9 +1,9 @@
 # Kin Resolve hosted private beta launch blueprint
 
-- **Status:** Execution in progress; source integration and safe holding surfaces are complete, while owner, legal, runtime, and recovery gates remain open
+- **Status:** Execution in progress; source integration, safe holding surfaces, and the staging demo-session control plane are complete, while owner, legal, runtime, provider, and recovery gates remain open
 - **Planning date:** 2026-07-14
 - **Last execution update:** 2026-07-15
-- **Planning base:** blueprint drafted at `be6aca1b7b1f449a988fd496b24be9fde16ce55d`; B0–B7 plus release-safety hardening are merged on `main` through `ab2cddf19017cee4b8c73868210582ac363214f7`
+- **Planning base:** blueprint drafted at `be6aca1b7b1f449a988fd496b24be9fde16ce55d`; B0–B7 plus holding and release-safety hardening are merged on `main` through PR 48 at `5cff6fa4b31a7d365b78658103fdace647984288`
 - **Primary product origin:** `https://app.kinresolve.com`
 - **Marketing origin:** `https://kinresolve.com`
 - **Recommended launch window:** 30–40 engineering days for one primary engineer, or roughly 4–5 elapsed weeks with two engineering streams plus an independent owner/legal track
@@ -11,10 +11,10 @@
 
 ### Live execution snapshot — 2026-07-15
 
-- B0–B7 source work is merged on `main` through PR 44. PRs 45–47 then hardened custom
-  GitHub run-name containment, Vercel protection-redirect validation, and exact canonical
-  hostname-to-deployment proof. The integrated head is
-  `ab2cddf19017cee4b8c73868210582ac363214f7`.
+- B0–B7 source work is merged on `main` through PR 44. PRs 45–48 then hardened custom
+  GitHub run-name containment, Vercel protection-redirect validation, exact canonical
+  hostname-to-deployment proof, and the checked-in holding deployment path. The last
+  integrated launch snapshot is `5cff6fa4b31a7d365b78658103fdace647984288`.
 - `kinresolve.com`, `/developers`, and `/beta/thanks` serve the truthful applications-open
   prelaunch package from Vercel deployment `dpl_AHHAfGM5J7oDFR9AtaGpagZ6ykro`, produced by
   GitHub Actions run `29460468707`. The copy still says invitations have not started.
@@ -36,10 +36,20 @@
   resolved conversations, and force-push/deletion blocks. Because Eric is currently the
   only repository collaborator, the rule requires zero outside approvals and retains the
   administrator recovery path.
+- The repository now has a persistent synthetic staging lifecycle: a staging-only release
+  records an immutable candidate without entering the product production job or environment;
+  a separately acknowledged
+  open operation accepts only that exact fresh successful attempt; explicit close returns
+  the canonical hostname to the pinned holding deployment; and failed/cancelled/timed-out
+  sessions trigger automatic holding restoration or a fail-closed project pause. The
+  lifecycle has not been dispatched because the isolated runtime and approved legal bytes
+  do not exist yet. It restores traffic to holding but deliberately does not claim to reset
+  database or object-store state.
 - The current critical path is owner D1–D8 sign-off; counsel-approved legal bytes and an
   approved applicant access/DSAR process; fresh isolated staging database and object
-  storage; verified transactional email, support, and monitoring routes; a persistent
-  synthetic-demo open/close lifecycle; and an evidence-retaining staging dress rehearsal.
+  storage; verified transactional email, support, and monitoring routes; protected runtime
+  configuration; and an evidence-retaining staging-only release plus open/close dress
+  rehearsal.
   Production additionally requires isolated pilot and recovery resources, observed
   restore/deletion/monitoring, exact candidate promotion, and coordinated claim publication.
 - No real family data is authorized. The first public launch remains a synthetic,
@@ -73,10 +83,12 @@
   identity-verified applicant access/DSAR delivery process, provider/mail-route proof,
   protected runtime activation, and the evidence-backed live claim switch remain
   external/launch-time gates.
-- B8 remains protected runtime execution work. DNS and the exact safe holding deployments
-  are complete; legal approval, full provider/runtime configuration, observed
-  recovery/deletion/monitoring, exact runtime candidate promotion, and coordinated claim
-  publication have not been completed.
+- B8 remains protected runtime execution work. DNS, the exact safe holding deployments,
+  staging-only candidate provenance, explicit synthetic-demo open/close, exact live legal
+  endpoint probing, and automatic staging holding repair are present in source. Legal
+  approval, full provider/runtime configuration, the first observed staging session,
+  recovery/deletion/monitoring evidence, exact production candidate promotion, and
+  coordinated claim publication have not been completed.
 
 ## 1. Outcome
 

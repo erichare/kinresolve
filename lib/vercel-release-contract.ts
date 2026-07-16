@@ -21,6 +21,10 @@ export type HoldingDeploymentExpectations = DeploymentOwnershipExpectations & {
   approvedHoldingDeploymentId: string;
 };
 
+export type HoldingRecordExpectations = DeploymentOwnershipExpectations & {
+  approvedHoldingDeploymentId: string;
+};
+
 export type PromotedDeploymentExpectations = DeploymentOwnershipExpectations & {
   appBaseUrl: string;
   canonicalLookupHostname: string;
@@ -88,6 +92,13 @@ export function validateHoldingDeployment(
     expectations.canonicalLookupHostname,
     expectations.appBaseUrl
   );
+  return validateHoldingRecordDeployment(document, expectations);
+}
+
+export function validateHoldingRecordDeployment(
+  document: unknown,
+  expectations: HoldingRecordExpectations
+): ValidatedVercelDeployment {
   const deployment = normalizeReadyProductionDeployment(document, expectations);
   const approvedId = validateDeploymentId(
     expectations.approvedHoldingDeploymentId,
@@ -122,6 +133,7 @@ export function validateCandidateDeployment(
   if (deployment.aliases.includes(canonicalHostname)) {
     throw new Error("The candidate deployment must not own the canonical application alias before promotion.");
   }
+  generatedCandidateOrigins(deployment);
 
   const metadata = deployment.metadata;
   if (!metadata) {
@@ -137,6 +149,13 @@ export function validateCandidateDeployment(
   requireExactMetadata(metadata, "packageVersion", expectations.expectedPackageVersion);
 
   return publicResult(deployment);
+}
+
+export function candidateProtectionOrigins(
+  document: unknown,
+  expectations: DeploymentOwnershipExpectations
+): readonly string[] {
+  return generatedCandidateOrigins(normalizeReadyProductionDeployment(document, expectations));
 }
 
 export function validateContainmentCanonicalDeployment(
@@ -359,6 +378,9 @@ function readAliases(document: JsonObject): readonly string[] {
     if (!Array.isArray(value)) {
       throw new Error("The Vercel deployment aliases must be an array.");
     }
+    if (value.length > 100) {
+      throw new Error("The Vercel deployment aliases exceed the bounded candidate contract.");
+    }
     const aliases = value.map((alias) => {
       if (typeof alias !== "string") {
         throw new Error("Every Vercel deployment alias must be a string origin.");
@@ -377,6 +399,20 @@ function readAliases(document: JsonObject): readonly string[] {
     throw new Error("The Vercel response contains ambiguous deployment aliases.");
   }
   return normalizedLists[0];
+}
+
+function generatedCandidateOrigins(deployment: NormalizedDeployment): readonly string[] {
+  const origins = new Set<string>([deployment.url]);
+  for (const alias of deployment.aliases) {
+    let origin: string;
+    try {
+      origin = validateGeneratedDeploymentOrigin(`https://${alias}`).origin;
+    } catch {
+      throw new Error("Every candidate alias must be a generated Vercel deployment origin.");
+    }
+    origins.add(origin);
+  }
+  return Object.freeze([...origins].sort());
 }
 
 function requireExactMetadata(

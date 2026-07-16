@@ -6,12 +6,14 @@ const workflowNames = [
   "vercel-holding.yml",
   "vercel-release.yml",
   "release-containment.yml",
-  "recovery-evidence.yml"
+  "recovery-evidence.yml",
+  "staging-demo-session.yml",
+  "staging-demo-safety.yml"
 ] as const;
 
 const canonicalModes = ["holding", "containment", "promoted"] as const;
 const canonicalInvocation = new RegExp(
-  `scripts/validate-vercel-deployment\\.mjs (${canonicalModes.join("|")})`,
+  `scripts/validate-vercel-deployment\\.mjs (${canonicalModes.join("|")})(?!-)`,
   "g"
 );
 

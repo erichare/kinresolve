@@ -506,17 +506,10 @@ describe("stable release workflow contract", () => {
     expect(candidateGate).toBeLessThan(protectionProbe);
     expect(protectionProbe).toBeLessThan(identityProbe);
     const protectionProbeStep = staging.slice(protectionProbe, identityProbe);
-    expect(protectionProbeStep).toContain(
-      "CANDIDATE_ORIGIN: ${{ steps.staging-candidate.outputs.deployment_url }}"
-    );
-    expect(protectionProbeStep).toContain(
-      '--dump-header "$RUNNER_TEMP/staging-candidate-unauthenticated.headers"'
-    );
-    expect(protectionProbeStep).toContain("scripts/validate-vercel-protection-response.mjs");
-    expect(protectionProbeStep).toContain('"$CANDIDATE_ORIGIN/api/health"');
-    expect(protectionProbeStep).toContain(
-      'has("database") or has("capabilities") or has("scheduledWrites")'
-    );
+    expect(protectionProbeStep).toContain("scripts/probe-vercel-candidate-protection.mjs");
+    expect(protectionProbeStep).toContain('"$RUNNER_TEMP/staging-candidate.json"');
+    expect(protectionProbeStep).toContain("VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}");
+    expect(protectionProbeStep).toContain("VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}");
     expect(protectionProbeStep).not.toContain("x-vercel-protection-bypass");
     expect(protectionProbeStep).not.toContain("VERCEL_AUTOMATION_BYPASS_SECRET");
     expect(identityProbe).toBeLessThan(disabledSchedulers);
@@ -715,16 +708,10 @@ describe("stable release workflow contract", () => {
     expect(unauthenticatedProbe).toBeGreaterThan(candidateValidation);
     expect(authenticatedSmoke).toBeGreaterThan(unauthenticatedProbe);
     expect(authenticatedSmoke).toBeLessThan(migrate);
-    expect(probeStep).toContain(
-      "CANDIDATE_ORIGIN: ${{ steps.production-candidate.outputs.deployment_url }}"
-    );
-    expect(probeStep).toContain(
-      '--dump-header "$RUNNER_TEMP/production-candidate-unauthenticated.headers"'
-    );
-    expect(probeStep).toContain("scripts/validate-vercel-protection-response.mjs");
-    expect(probeStep).toContain('"$CANDIDATE_ORIGIN/api/health"');
-    expect(probeStep).toContain('has("database") or has("capabilities") or has("scheduledWrites")');
-    expect(probeStep).toContain("production-candidate-unauthenticated");
+    expect(probeStep).toContain("scripts/probe-vercel-candidate-protection.mjs");
+    expect(probeStep).toContain('"$RUNNER_TEMP/production-candidate.json"');
+    expect(probeStep).toContain("VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}");
+    expect(probeStep).toContain("VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}");
     expect(probeStep).not.toContain("x-vercel-protection-bypass");
     expect(probeStep).not.toContain("VERCEL_AUTOMATION_BYPASS_SECRET");
     expect(authenticatedStep).toContain(

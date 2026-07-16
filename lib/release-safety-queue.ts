@@ -1,6 +1,6 @@
 type JsonObject = Record<string, unknown>;
 
-export type ReleaseSafetySource = "release" | "recovery" | "holding";
+export type ReleaseSafetySource = "release" | "recovery" | "holding" | "demo";
 
 export type WorkflowRunList = {
   total_count: number;
@@ -11,9 +11,11 @@ export type ReleaseSafetyQueueInput = {
   releaseRuns: WorkflowRunList;
   recoveryRuns: WorkflowRunList;
   holdingRuns: WorkflowRunList;
+  demoRuns: WorkflowRunList;
   containmentRuns: WorkflowRunList;
   cleanupRuns: WorkflowRunList;
   holdingSafetyRuns: WorkflowRunList;
+  demoSafetyRuns: WorkflowRunList;
   currentSourceRun?: {
     source: ReleaseSafetySource;
     expectedRepository: string;
@@ -69,6 +71,10 @@ const sourceWorkflowContract: Record<ReleaseSafetySource, { name: string; path: 
   holding: {
     name: "Deploy Kin Resolve static holding page",
     path: ".github/workflows/vercel-holding.yml"
+  },
+  demo: {
+    name: "Operate Kin Resolve synthetic staging demo session",
+    path: ".github/workflows/staging-demo-session.yml"
   }
 };
 
@@ -86,9 +92,11 @@ export function assessReleaseSafetyQueue(input: ReleaseSafetyQueueInput): Releas
   const releaseRuns = normalizeList(input.releaseRuns, "release");
   const recoveryRuns = normalizeList(input.recoveryRuns, "recovery");
   const holdingRuns = normalizeList(input.holdingRuns, "holding");
+  const demoRuns = normalizeList(input.demoRuns, "demo session");
   const containmentRuns = normalizeList(input.containmentRuns, "containment");
   const cleanupRuns = normalizeList(input.cleanupRuns, "cleanup");
   const holdingSafetyRuns = normalizeList(input.holdingSafetyRuns, "holding safety");
+  const demoSafetyRuns = normalizeList(input.demoSafetyRuns, "demo safety");
   const priorAttempts = (input.priorCurrentRunAttempts ?? []).map(({ source, run }) => ({
     source,
     run: normalizeBoundRun(run, `${source} prior attempt`)
@@ -96,7 +104,12 @@ export function assessReleaseSafetyQueue(input: ReleaseSafetyQueueInput): Releas
   authenticatePriorAttempts(input.currentSourceRun, priorAttempts);
 
   const issues: ReleaseSafetyIssue[] = [];
-  for (const safetyRun of [...containmentRuns, ...cleanupRuns, ...holdingSafetyRuns]) {
+  for (const safetyRun of [
+    ...containmentRuns,
+    ...cleanupRuns,
+    ...holdingSafetyRuns,
+    ...demoSafetyRuns
+  ]) {
     if (safetyRun.status !== "completed") {
       issues.push({
         kind: "pending-safety-run",
@@ -122,6 +135,7 @@ export function assessReleaseSafetyQueue(input: ReleaseSafetyQueueInput): Releas
     ...releaseRuns.map((run) => ({ source: "release" as const, run, markerAuthenticated: false })),
     ...recoveryRuns.map((run) => ({ source: "recovery" as const, run, markerAuthenticated: false })),
     ...holdingRuns.map((run) => ({ source: "holding" as const, run, markerAuthenticated: false })),
+    ...demoRuns.map((run) => ({ source: "demo" as const, run, markerAuthenticated: false })),
     ...priorAttempts.map(({ source, run }) => ({ source, run, markerAuthenticated: true }))
   ];
   const seen = new Set<string>();
@@ -140,7 +154,8 @@ export function assessReleaseSafetyQueue(input: ReleaseSafetyQueueInput): Releas
     const safetyRuns = safetyRunsForSource(source, {
       containmentRuns,
       cleanupRuns,
-      holdingSafetyRuns
+      holdingSafetyRuns,
+      demoSafetyRuns
     });
     const resolved = safetyRuns.some((candidate) =>
       candidate.status === "completed"
@@ -233,11 +248,13 @@ function safetyRunsForSource(
     containmentRuns: NormalizedRun[];
     cleanupRuns: NormalizedRun[];
     holdingSafetyRuns: NormalizedRun[];
+    demoSafetyRuns: NormalizedRun[];
   }
 ): NormalizedRun[] {
   if (source === "release") return runs.containmentRuns;
   if (source === "recovery") return runs.cleanupRuns;
-  return runs.holdingSafetyRuns;
+  if (source === "holding") return runs.holdingSafetyRuns;
+  return runs.demoSafetyRuns;
 }
 
 function isMarkedSourceRun(source: ReleaseSafetySource, run: NormalizedRun): boolean {
@@ -247,14 +264,19 @@ function isMarkedSourceRun(source: ReleaseSafetySource, run: NormalizedRun): boo
   if (source === "recovery") {
     return run.displayTitle === `Kin Resolve recovery run ${run.id} attempt ${run.attempt}`;
   }
-  return run.displayTitle === `Kin Resolve static holding beta-staging run ${run.id} attempt ${run.attempt}`
-    || run.displayTitle === `Kin Resolve static holding production run ${run.id} attempt ${run.attempt}`;
+  if (source === "holding") {
+    return run.displayTitle === `Kin Resolve static holding beta-staging run ${run.id} attempt ${run.attempt}`
+      || run.displayTitle === `Kin Resolve static holding production run ${run.id} attempt ${run.attempt}`;
+  }
+  return run.displayTitle === `Kin Resolve staging demo open run ${run.id} attempt ${run.attempt}`
+    || run.displayTitle === `Kin Resolve staging demo close run ${run.id} attempt ${run.attempt}`;
 }
 
 function safetyReceiptTitle(source: ReleaseSafetySource, run: NormalizedRun): string {
   if (source === "release") return `Contain release run ${run.id} attempt ${run.attempt}`;
   if (source === "recovery") return `Clean recovery run ${run.id} attempt ${run.attempt}`;
-  return `Repair holding run ${run.id} attempt ${run.attempt}`;
+  if (source === "holding") return `Repair holding run ${run.id} attempt ${run.attempt}`;
+  return `Close demo session run ${run.id} attempt ${run.attempt}`;
 }
 
 function normalizeList(value: WorkflowRunList, label: string): NormalizedRun[] {

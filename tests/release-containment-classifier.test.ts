@@ -51,6 +51,18 @@ describe("release containment classification", () => {
     });
   });
 
+  it("does not disturb production after a failed staging-only release attempt", () => {
+    expect(classify([
+      job("Verify release contract", "success"),
+      job("Deploy staging candidate", "failure"),
+      job(productionReleaseJobName, "skipped"),
+      job(publishReleaseJobName, "skipped")
+    ])).toEqual({
+      shouldContain: false,
+      reason: "production-skipped"
+    });
+  });
+
   it("does not disturb production for a failed attempt with no production-phase jobs", () => {
     expect(classify([job("Verify release", "failure")])).toEqual({
       shouldContain: false,
