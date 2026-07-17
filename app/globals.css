@@ -4551,6 +4551,10 @@ h3,
   background: var(--accent-soft);
 }
 
+.demo-next-assignment > p {
+  color: var(--accent-strong);
+}
+
 .demo-curated-ai {
   display: grid;
   gap: 14px;
@@ -5593,6 +5597,10 @@ h3,
 
 .public-demo-path form {
   width: 100%;
+}
+
+.public-demo-path .form-error > p {
+  color: inherit;
 }
 
 .public-demo-path .button,

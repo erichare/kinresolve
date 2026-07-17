@@ -169,8 +169,9 @@ async function auditCapacityFallback(browserInstance, configuration, axeSource) 
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await activateByKeyboard(page, "Start guided demo");
     await page.getByRole("alert").getByText("The public demo is at capacity. Please try again shortly.").waitFor();
-    const family = page.getByRole("link", { name: "Explore the fictional family" });
-    const challenge = page.getByRole("link", { name: "Try the research challenge" });
+    const fallback = page.getByRole("navigation", { name: "Other fictional demo options" });
+    const family = fallback.getByRole("link", { name: "Explore the fictional family" });
+    const challenge = fallback.getByRole("link", { name: "Try the research challenge" });
     if (await family.getAttribute("href") !== "/family" || await challenge.getAttribute("href") !== "/challenge") {
       throw new Error("The capacity state did not expose only fixed safe fallbacks.");
     }
@@ -275,6 +276,13 @@ async function activateLocatorByKeyboard(page, target, key) {
 
 async function focusByKeyboard(page, target) {
   await target.waitFor();
+  const enabledDeadline = Date.now() + timeoutMs;
+  while (!(await target.isEnabled())) {
+    if (Date.now() >= enabledDeadline) {
+      throw new Error("The demo control did not become ready for keyboard input.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   for (let index = 0; index < 240; index += 1) {
     if (await target.evaluate((element) => element === document.activeElement)) return;
     await page.keyboard.press("Tab");
@@ -362,19 +370,27 @@ async function installProtectedCandidateRoute(context, configuration) {
       return;
     }
     const mutation = !["GET", "HEAD", "OPTIONS"].includes(request.method());
-    await route.continue({
-      headers: {
-        ...request.headers(),
-        "x-kinresolve-demo-canary": configuration.canarySecret,
-        ...(configuration.bypassSecret
-          ? { "x-vercel-protection-bypass": configuration.bypassSecret }
-          : {}),
-        ...(mutation ? {
-          origin: "https://demo.kinresolve.com",
-          "sec-fetch-site": "same-origin"
-        } : {})
-      }
-    });
+    const headers = {
+      ...request.headers(),
+      "x-kinresolve-demo-canary": configuration.canarySecret,
+      ...(configuration.bypassSecret
+        ? { "x-vercel-protection-bypass": configuration.bypassSecret }
+        : {}),
+      ...(mutation ? {
+        origin: "https://demo.kinresolve.com",
+        "sec-fetch-site": "same-origin"
+      } : {})
+    };
+    if (configuration.generatedCandidate && mutation) {
+      const response = await route.fetch({
+        headers,
+        maxRedirects: 0,
+        timeout: timeoutMs
+      });
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue({ headers });
   });
 }
 
@@ -405,6 +421,7 @@ function resolveConfiguration(environment) {
   }
   return Object.freeze({
     origin,
+    generatedCandidate,
     browserName,
     bypassSecret,
     canarySecret: requiredSecret(environment.KINRESOLVE_DEMO_CANARY_SECRET)

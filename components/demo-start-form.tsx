@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import {
   publicDemoGuidedStartPath,
@@ -16,9 +16,15 @@ type StartResponse = {
 };
 
 export function DemoStartForm() {
+  const [ready, setReady] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [showFallback, setShowFallback] = useState(false);
+
+  useEffect(() => {
+    const readyTimer = window.setTimeout(() => setReady(true), 0);
+    return () => window.clearTimeout(readyTimer);
+  }, []);
 
   async function startDemo(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -55,7 +61,7 @@ export function DemoStartForm() {
   return (
     <form action="/api/demo/sessions" method="post" onSubmit={startDemo}>
       <input name="noticeVersion" type="hidden" value={publicDemoNoticeVersion} />
-      <button className="button" disabled={pending} type="submit">
+      <button className="button" disabled={!ready || pending} type="submit">
         {pending ? "Preparing your workspace…" : "Start guided demo"}
       </button>
       <div aria-live="polite" className={error ? "form-error" : "sr-only"} role={error ? "alert" : "status"}>
