@@ -42,6 +42,20 @@ describe("public demo guided case journey", () => {
     expect(styles).toContain(".demo-guided-journey");
     expect(styles).toMatch(/@media \(max-width: 520px\)[\s\S]*\.demo-signature-grid/);
   });
+
+  it("gives the next-assignment paragraph AA text contrast on its accent background", async () => {
+    const styles = await source("app/globals.css");
+    const mutedRule = styles.match(
+      /[^{}]*\.demo-next-assignment p[^{}]*\{[^{}]*color:\s*var\(--muted\)/
+    );
+    const darkerOverride = styles.match(
+      /\.demo-next-assignment\s*>\s*p\s*\{[^{}]*color:\s*(?:var\(--(?:ink|accent-strong|accent-deep)\)|#(?:0d1a16|003d34|002b25))[^{}]*\}/i
+    );
+
+    expect(mutedRule?.index).toBeTypeOf("number");
+    expect(darkerOverride?.index).toBeTypeOf("number");
+    expect(darkerOverride?.index).toBeGreaterThan(mutedRule?.index ?? Number.MAX_SAFE_INTEGER);
+  });
 });
 
 function source(relativePath: string): Promise<string> {

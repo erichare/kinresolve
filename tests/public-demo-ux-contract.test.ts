@@ -53,6 +53,40 @@ describe("public demo landing and guided entry", () => {
     expect(implementation).toContain("/app/cases/case-mercer-march-identity?guide=1");
     expect(implementation).toMatch(/The Mercer[–-]March passenger mystery/);
   });
+
+  it("keeps the server-rendered start action inert until client hydration", async () => {
+    const form = await source("components/demo-start-form.tsx");
+
+    expect(form).toMatch(/useEffect\s*\(/);
+    expect(form).toMatch(
+      /const\s*\[\s*ready\s*,\s*setReady\s*\]\s*=\s*useState\s*\(\s*false\s*\)/
+    );
+    expect(form).toMatch(/window\.setTimeout\s*\([\s\S]*setReady\s*\(\s*true\s*\)/);
+    expect(form).toMatch(
+      /return\s*\(\s*\)\s*=>\s*window\.clearTimeout\s*\(\s*readyTimer\s*\)/
+    );
+    expect(form).toMatch(/setReady\s*\(\s*true\s*\)/);
+    expect(form).toMatch(/disabled=\{\s*!ready\s*\|\|\s*pending\s*\}/);
+  });
+
+  it("keeps the capacity error paragraph at the form-error danger color", async () => {
+    const styles = await source("app/globals.css");
+    const competingSpecificity = cssSpecificity(".public-demo-path p");
+    const matchingRule = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((match) => {
+      const declarations = match[2] ?? "";
+      if (!/\bcolor\s*:\s*(?:inherit|var\(--danger\))\s*;?/i.test(declarations)) {
+        return false;
+      }
+
+      return (match[1] ?? "").split(",").some((selector) => (
+        /\.form-error\b/.test(selector)
+        && /(?:^|[\s>+~])p\b/.test(selector)
+        && compareSpecificity(cssSpecificity(selector), competingSpecificity) > 0
+      ));
+    });
+
+    expect(matchingRule?.[0]).toBeDefined();
+  });
 });
 
 describe("public demo workspace chrome", () => {
@@ -151,4 +185,27 @@ async function source(...paths: string[]): Promise<string> {
     })
   );
   return parts.join("\n");
+}
+
+type Specificity = readonly [ids: number, classes: number, elements: number];
+
+function cssSpecificity(selector: string): Specificity {
+  const withoutAttributes = selector.replace(/\[[^\]]+\]/g, "");
+  const ids = withoutAttributes.match(/#[\w-]+/g)?.length ?? 0;
+  const classes = (withoutAttributes.match(/\.[\w-]+/g)?.length ?? 0)
+    + (selector.match(/\[[^\]]+\]/g)?.length ?? 0)
+    + (withoutAttributes.match(/:(?!:)[\w-]+/g)?.length ?? 0);
+  const elements = withoutAttributes
+    .replace(/#[\w-]+|\.[\w-]+|::?[\w-]+/g, " ")
+    .split(/[\s>+~*]+/)
+    .filter(Boolean).length;
+  return [ids, classes, elements];
+}
+
+function compareSpecificity(left: Specificity, right: Specificity): number {
+  for (let index = 0; index < left.length; index += 1) {
+    const difference = left[index] - right[index];
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }

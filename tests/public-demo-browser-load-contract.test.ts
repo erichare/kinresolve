@@ -61,12 +61,66 @@ describe("public demo browser and capacity launch gates", () => {
     expect(browser).toContain("beta_cta_clicked");
   });
 
+  it("scopes duplicate capacity fallback links to the fixed fallback navigation", () => {
+    const start = browser.indexOf("async function auditCapacityFallback");
+    const end = browser.indexOf("async function startGuidedDemo", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const capacityAudit = browser.slice(start, end);
+    expect(capacityAudit).toContain(
+      'getByRole("navigation", { name: "Other fictional demo options" })'
+    );
+    expect(capacityAudit).not.toMatch(
+      /page\.getByRole\("link",\s*\{\s*name:\s*"Explore the fictional family"/
+    );
+    expect(capacityAudit).not.toMatch(
+      /page\.getByRole\("link",\s*\{\s*name:\s*"Try the research challenge"/
+    );
+  });
+
+  it("waits for a hydrated control to become enabled before keyboard activation", () => {
+    const start = browser.indexOf("async function focusByKeyboard");
+    const end = browser.indexOf("async function auditAccessibility", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const keyboardFocus = browser.slice(start, end);
+    expect(keyboardFocus).toContain("target.isEnabled()");
+    expect(keyboardFocus).toMatch(
+      /Date\.now\(\)\s*\+\s*timeoutMs[\s\S]*while\s*\([\s\S]*target\.isEnabled\(\)[\s\S]*enabledDeadline[\s\S]*setTimeout/
+    );
+    expect(keyboardFocus.indexOf("target.isEnabled()")).toBeLessThan(
+      keyboardFocus.indexOf('page.keyboard.press("Tab")')
+    );
+  });
+
   it("rewrites protected candidate mutations to the canonical same-origin contract", () => {
     expect(browser).toContain("x-vercel-protection-bypass");
     expect(browser).toContain("x-kinresolve-demo-canary");
     expect(browser).toContain('origin: "https://demo.kinresolve.com"');
     expect(browser).toContain('"sec-fetch-site": "same-origin"');
     expect(browser).toMatch(/route\([\s\S]*request\(\)[\s\S]*route\.continue/);
+  });
+
+  it("fetches and fulfills generated-candidate mutations before the normal continue path", () => {
+    const start = browser.indexOf("async function installProtectedCandidateRoute");
+    const end = browser.indexOf("function requestHeaders", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const protectedRoute = browser.slice(start, end);
+    const fetch = protectedRoute.indexOf("route.fetch(");
+    const fulfill = protectedRoute.indexOf("route.fulfill(", fetch);
+    const normalContinue = protectedRoute.lastIndexOf("route.continue(");
+    expect(protectedRoute.slice(0, fetch)).toMatch(/generatedCandidate[\s\S]*mutation|mutation[\s\S]*generatedCandidate/);
+    expect(fetch).toBeGreaterThan(-1);
+    expect(fulfill).toBeGreaterThan(fetch);
+    expect(normalContinue).toBeGreaterThan(fulfill);
+    expect(protectedRoute.slice(fetch, fulfill)).toMatch(/headers/);
+    expect(protectedRoute.slice(fetch, fulfill)).toMatch(/maxRedirects:\s*0/);
+    expect(protectedRoute.slice(fetch, fulfill)).toMatch(/timeout:\s*timeoutMs/);
+    expect(protectedRoute.slice(fulfill, normalContinue)).toMatch(/response/);
   });
 
   it("starts 25 sessions concurrently, proves core reads, enforces p95, and always cleans up", () => {
