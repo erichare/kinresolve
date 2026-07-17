@@ -192,20 +192,18 @@ describeIfDatabase("archive provisioning", () => {
       [
         canonicalOptions.archiveId,
         [
-          "p-orson-hartwell",
-          "p-lydia-thorne",
-          "p-luca-bellandi",
-          "p-mira-solari",
-          "p-micah-mercer",
-          "p-eliza-fenwick",
-          "p-declan-rowan",
-          "p-eileen-pike"
+          "p-ada-hartwell",
+          "p-vincent-hartwell",
+          "p-iris-mercer",
+          "p-peter-mercer",
+          "p-henry-vale",
+          "p-june-vale"
         ]
       ],
       canonicalOptions
     );
     await query(
-      "UPDATE archives SET demo_fixture_version = 2 WHERE id = $1",
+      "UPDATE archives SET demo_fixture_version = 3 WHERE id = $1",
       [canonicalOptions.archiveId],
       canonicalOptions
     );
@@ -215,13 +213,13 @@ describeIfDatabase("archive provisioning", () => {
         [canonicalOptions.archiveId],
         canonicalOptions
       )
-    ).resolves.toMatchObject({ rows: [{ total: 8 }] });
+    ).resolves.toMatchObject({ rows: [{ total: 16 }] });
 
     await expect(
-      rotateCanonicalPublicDemoFixture(2, canonicalOptions)
+      rotateCanonicalPublicDemoFixture(3, canonicalOptions)
     ).resolves.toEqual({
       archiveId: canonicalOptions.archiveId,
-      previousDemoFixtureVersion: 2,
+      previousDemoFixtureVersion: 3,
       demoFixtureVersion,
       status: "rotated"
     });
@@ -232,11 +230,11 @@ describeIfDatabase("archive provisioning", () => {
       [canonicalOptions.archiveId],
       canonicalOptions
     );
-    expect(workspace.people).toHaveLength(16);
+    expect(workspace.people).toHaveLength(22);
     expect(workspace.cases.some((item) => item.title === "Remove during rotation")).toBe(false);
     expect(after.rows[0]?.api_id).toBe(before.rows[0]?.api_id);
     await expect(
-      rotateCanonicalPublicDemoFixture(2, canonicalOptions)
+      rotateCanonicalPublicDemoFixture(3, canonicalOptions)
     ).resolves.toMatchObject({ status: "already-current", demoFixtureVersion });
   });
 
@@ -249,16 +247,16 @@ describeIfDatabase("archive provisioning", () => {
     archiveIds.push(canonicalOptions.archiveId);
     await provisionArchive("demo", canonicalOptions);
     await query(
-      "UPDATE archives SET demo_fixture_version = 1 WHERE id = $1",
+      "UPDATE archives SET demo_fixture_version = 2 WHERE id = $1",
       [canonicalOptions.archiveId],
       canonicalOptions
     );
 
     await expect(
-      rotateCanonicalPublicDemoFixture(2, canonicalOptions)
-    ).rejects.toThrow(/expected fixture version 2.*persisted version is 1/i);
+      rotateCanonicalPublicDemoFixture(3, canonicalOptions)
+    ).rejects.toThrow(/expected fixture version 3.*persisted version is 2/i);
     await expect(
-      rotateCanonicalPublicDemoFixture(2, storeOptions)
+      rotateCanonicalPublicDemoFixture(3, storeOptions)
     ).rejects.toThrow(/only.*kinresolve-demo-public/i);
   });
 
@@ -271,7 +269,7 @@ describeIfDatabase("archive provisioning", () => {
     archiveIds.push(canonicalOptions.archiveId);
     await provisionArchive("demo", canonicalOptions);
     await query(
-      "UPDATE archives SET demo_fixture_version = 2 WHERE id = $1",
+      "UPDATE archives SET demo_fixture_version = 3 WHERE id = $1",
       [canonicalOptions.archiveId],
       canonicalOptions
     );
@@ -285,7 +283,7 @@ describeIfDatabase("archive provisioning", () => {
     );
 
     await expect(
-      rotateCanonicalPublicDemoFixture(2, canonicalOptions)
+      rotateCanonicalPublicDemoFixture(3, canonicalOptions)
     ).rejects.toThrow(/unsupported product data.*integration_connections/i);
     await expect(
       query<{ demo_fixture_version: number }>(
@@ -293,6 +291,6 @@ describeIfDatabase("archive provisioning", () => {
         [canonicalOptions.archiveId],
         canonicalOptions
       )
-    ).resolves.toMatchObject({ rows: [{ demo_fixture_version: 2 }] });
+    ).resolves.toMatchObject({ rows: [{ demo_fixture_version: 3 }] });
   });
 });
