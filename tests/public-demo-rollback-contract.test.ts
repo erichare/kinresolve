@@ -76,7 +76,9 @@ describe("public demo rollback deployment contract", () => {
     expect(workflow).toContain('--meta "releaseRole=public-demo"');
     expect(workflow).toContain('--meta "datasetMode=demo"');
     expect(workflow).toContain('--meta "canonicalArchiveId=kinresolve-demo-public"');
-    expect(workflow).toContain("scripts/validate-vercel-deployment.mjs demo-rollback-or-holding");
+    expect(workflow).toContain("scripts/validate-vercel-deployment.mjs holding-record");
+    expect(workflow).toContain("scripts/validate-vercel-deployment.mjs demo-rollback");
+    expect(workflow).not.toContain("scripts/validate-vercel-deployment.mjs demo-rollback-or-holding");
     expect(workflow).toContain('mode="demo-rollback"');
     expect(workflow).toContain("Prove the automatic rollback at the canonical hostname");
     expect(workflow).toContain("Prove the emergency holding fallback at the canonical hostname");
