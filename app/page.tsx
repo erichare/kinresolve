@@ -195,7 +195,7 @@ function PublicDemoLanding() {
               <Icons.Users aria-hidden size={24} />
               <span className="card-kicker">Read-only archive</span>
               <h2>Meet the family first</h2>
-              <p>Browse a complete four-generation tree and its curated profiles and citations without starting a session.</p>
+              <p>Browse a complete five-generation tree with branching family lines, plus its curated profiles and citations, without starting a session.</p>
               <Link className="button-secondary" href="/family">
                 Explore the fictional family
               </Link>

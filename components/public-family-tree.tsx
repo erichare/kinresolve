@@ -67,9 +67,9 @@ export function PublicFamilyTree({
     <section aria-labelledby="public-family-tree-heading" className="section public-family-section public-family-tree-section">
       <div className="section-heading heading-row public-family-tree-heading">
         <div>
-          <span className="card-kicker">Four connected generations</span>
+          <span className="card-kicker">Five connected generations</span>
           <h2 id="public-family-tree-heading">Complete family tree</h2>
-          <p>Follow each branch from the great-grandparents to Clara and Tobias. Every profile in the archive appears below.</p>
+          <p>Follow the sibling branches from the great-grandparents through Clara&apos;s descendants. Every profile in the archive appears below.</p>
         </div>
         <div aria-label="Family tree view controls" className="public-family-tree-controls" role="group">
           <button

@@ -13,7 +13,7 @@ export const dynamic = "force-static";
 
 export const metadata: Metadata = {
   title: "Hartwell–Mercer Family Archive · Kin Resolve",
-  description: "Explore the complete four-generation fictional Hartwell–Mercer family tree and its curated source citations.",
+  description: "Explore the complete five-generation fictional Hartwell–Mercer family tree and its curated source citations.",
   robots: { index: true, follow: true },
   alternates: { canonical: "/family" }
 };
@@ -35,7 +35,7 @@ export default async function FamilyPage() {
           <h1>{family.archiveName}</h1>
           <p>
             Explore the curated public side of Kin Resolve through {family.people.length} deceased fictional profiles,
-            a complete four-generation tree, and {family.citations.length} source citations. Research cases, source
+            a complete five-generation tree, and {family.citations.length} source citations. Research cases, source
             detail, DNA, imports, and analysis remain outside this projection.
           </p>
           <p className="fiction-disclosure" role="note">

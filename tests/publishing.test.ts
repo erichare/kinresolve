@@ -49,7 +49,7 @@ describe("publishing readiness", () => {
     expect(profile.recommendedAction).toContain("Resolve blockers");
   });
 
-  it("keeps all 16 fictional demo profiles curated and public", () => {
+  it("keeps all 22 fictional demo profiles curated and public", () => {
     const plan = buildPublicationPlan(demoPeople);
 
     expect(plan.summary.total).toBe(demoPeople.length);
@@ -58,7 +58,7 @@ describe("publishing readiness", () => {
     expect(plan.summary.blocked).toBe(0);
     expect(plan.summary.published).toBe(demoPeople.length);
     expect(plan.summary.draft).toBe(0);
-    expect(demoPeople).toHaveLength(16);
+    expect(demoPeople).toHaveLength(22);
     expect(demoPeople.every((person) => person.livingStatus === "deceased")).toBe(true);
     expect(demoPeople.every((person) => person.privacy === "public" && person.published)).toBe(true);
     expect(plan.profiles.find((profile) => profile.personId === "p-samuel-mercer")?.status).toBe("needs_review");

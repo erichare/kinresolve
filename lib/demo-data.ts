@@ -19,7 +19,17 @@ const demoPersonDrafts: PersonSummary[] = [
     livingStatus: "deceased",
     privacy: "public",
     published: true,
-    relatives: ["p-elias-hartwell", "p-amalia-bellandi", "p-samuel-mercer", "p-clara-mercer", "p-tobias-mercer"],
+    relatives: [
+      "p-elias-hartwell",
+      "p-amalia-bellandi",
+      "p-ada-hartwell",
+      "p-vincent-hartwell",
+      "p-samuel-mercer",
+      "p-clara-mercer",
+      "p-tobias-mercer",
+      "p-iris-mercer",
+      "p-peter-mercer"
+    ],
     notes: `${demoFictionNotice} Nora kept the household journal that calls the blue memory box “Amalia's tin.” She wrote that Samuel arrived in 1907 with a folded passenger notice and a harbor photograph, then marked unverified family stories with tiny lanterns.`,
     facts: [
       {
@@ -74,7 +84,15 @@ const demoPersonDrafts: PersonSummary[] = [
     livingStatus: "deceased",
     privacy: "private",
     published: false,
-    relatives: ["p-jonah-mercer", "p-maeve-mercer", "p-nora-hartwell", "p-clara-mercer", "p-tobias-mercer"],
+    relatives: [
+      "p-jonah-mercer",
+      "p-maeve-mercer",
+      "p-nora-hartwell",
+      "p-clara-mercer",
+      "p-tobias-mercer",
+      "p-iris-mercer",
+      "p-peter-mercer"
+    ],
     notes: `${demoFictionNotice} Family lore says Samuel arrived in 1907 carrying a folded passenger notice and a harbor photograph, and refused to explain why one harbor list called him Samuel March. He repaired boat lanterns and carved a small compass rose beneath every finished base.`,
     facts: [
       {
@@ -130,7 +148,14 @@ const demoPersonDrafts: PersonSummary[] = [
     livingStatus: "deceased",
     privacy: "private",
     published: false,
-    relatives: ["p-luca-bellandi", "p-mira-solari", "p-elias-hartwell", "p-nora-hartwell"],
+    relatives: [
+      "p-luca-bellandi",
+      "p-mira-solari",
+      "p-elias-hartwell",
+      "p-nora-hartwell",
+      "p-ada-hartwell",
+      "p-vincent-hartwell"
+    ],
     notes: `${demoFictionNotice} Amalia told stories in which Ceraluna Alta's bells could be heard across an entire valley. Her recipe notebook records her assembling the blue memory tin in 1922 from Samuel's two old papers and later family keepsakes.`,
     facts: [
       {
@@ -185,7 +210,14 @@ const demoPersonDrafts: PersonSummary[] = [
     livingStatus: "deceased",
     privacy: "private",
     published: false,
-    relatives: ["p-orson-hartwell", "p-lydia-thorne", "p-amalia-bellandi", "p-nora-hartwell"],
+    relatives: [
+      "p-orson-hartwell",
+      "p-lydia-thorne",
+      "p-amalia-bellandi",
+      "p-nora-hartwell",
+      "p-ada-hartwell",
+      "p-vincent-hartwell"
+    ],
     notes: `${demoFictionNotice} Elias was said to recognize every working vessel by the rhythm of its harbor bell. A fictional dock payroll places him in Lantern Bay before Amalia arrived.`,
     facts: [
       {
@@ -231,7 +263,15 @@ const demoPersonDrafts: PersonSummary[] = [
     livingStatus: "deceased",
     privacy: "private",
     published: false,
-    relatives: ["p-nora-hartwell", "p-samuel-mercer", "p-tobias-mercer"],
+    relatives: [
+      "p-nora-hartwell",
+      "p-samuel-mercer",
+      "p-tobias-mercer",
+      "p-iris-mercer",
+      "p-peter-mercer",
+      "p-henry-vale",
+      "p-june-vale"
+    ],
     notes: `${demoFictionNotice} Clara wrote labels for the family photographs in violet ink, but left the harbor photograph unnamed. A late note says only: “Ask Tobias about the second Samuel.”`,
     facts: [
       {
@@ -277,7 +317,13 @@ const demoPersonDrafts: PersonSummary[] = [
     livingStatus: "deceased",
     privacy: "private",
     published: false,
-    relatives: ["p-nora-hartwell", "p-samuel-mercer", "p-clara-mercer"],
+    relatives: [
+      "p-nora-hartwell",
+      "p-samuel-mercer",
+      "p-clara-mercer",
+      "p-iris-mercer",
+      "p-peter-mercer"
+    ],
     notes: `${demoFictionNotice} Tobias inherited Samuel's repair bench and the blue tin. His inventory lists a brass key, a folded passenger notice, and “the photograph nobody agrees about.”`,
     facts: [
       {
@@ -766,6 +812,286 @@ const demoPersonDrafts: PersonSummary[] = [
         place: "Northstar Cove, Nova Scotia",
         source: "Fictional Northstar Cove memorial register",
         confidence: 0.83,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-ada-hartwell",
+    slug: "ada-celeste-hartwell",
+    displayName: "Ada Celeste Hartwell",
+    givenName: "Ada Celeste",
+    surname: "Hartwell",
+    birthDate: "17 May 1892",
+    birthPlace: "Lantern Bay, Wisconsin",
+    deathDate: "2 Dec 1974",
+    deathPlace: "Duluth, Minnesota",
+    sex: "F",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: ["p-elias-hartwell", "p-amalia-bellandi", "p-nora-hartwell", "p-vincent-hartwell"],
+    notes: `${demoFictionNotice} Ada taught in one-room schools along the lake and mailed Nora clipped newspaper notices with the names underlined. Her branch of the family remained in Minnesota rather than returning to Lantern Bay.`,
+    facts: [
+      {
+        id: "fact-ada-birth",
+        type: "BIRT",
+        date: "17 May 1892",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay civil register",
+        confidence: 0.92,
+        privacy: "public"
+      },
+      {
+        id: "fact-ada-occupation",
+        type: "OCCU",
+        date: "1920",
+        place: "Duluth, Minnesota",
+        value: "Schoolteacher",
+        source: "Fictional Duluth school directory",
+        confidence: 0.79,
+        privacy: "public"
+      },
+      {
+        id: "fact-ada-death",
+        type: "DEAT",
+        date: "2 Dec 1974",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth memorial register",
+        confidence: 0.88,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-vincent-hartwell",
+    slug: "vincent-luca-hartwell",
+    displayName: "Vincent Luca Hartwell",
+    givenName: "Vincent Luca",
+    surname: "Hartwell",
+    birthDate: "29 Jan 1896",
+    birthPlace: "Lantern Bay, Wisconsin",
+    deathDate: "18 Jul 1963",
+    deathPlace: "Port Haven, Michigan",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: ["p-elias-hartwell", "p-amalia-bellandi", "p-nora-hartwell", "p-ada-hartwell"],
+    notes: `${demoFictionNotice} Vincent crossed the lake to repair wireless sets in Port Haven. A postcard in Nora's journal says he recognized Samuel's compass-rose carving but never explained where he had seen it before.`,
+    facts: [
+      {
+        id: "fact-vincent-birth",
+        type: "BIRT",
+        date: "29 Jan 1896",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay civil register",
+        confidence: 0.92,
+        privacy: "public"
+      },
+      {
+        id: "fact-vincent-occupation",
+        type: "OCCU",
+        date: "1930",
+        place: "Port Haven, Michigan",
+        value: "Wireless repairer",
+        source: "Fictional Port Haven trade directory",
+        confidence: 0.77,
+        privacy: "public"
+      },
+      {
+        id: "fact-vincent-death",
+        type: "DEAT",
+        date: "18 Jul 1963",
+        place: "Port Haven, Michigan",
+        source: "Fictional Port Haven memorial register",
+        confidence: 0.87,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-iris-mercer",
+    slug: "iris-mae-mercer",
+    displayName: "Iris Mae Mercer",
+    givenName: "Iris Mae",
+    surname: "Mercer",
+    birthDate: "7 Aug 1918",
+    birthPlace: "Lantern Bay, Wisconsin",
+    deathDate: "23 Oct 2006",
+    deathPlace: "Madison, Wisconsin",
+    sex: "F",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: ["p-nora-hartwell", "p-samuel-mercer", "p-clara-mercer", "p-tobias-mercer", "p-peter-mercer"],
+    notes: `${demoFictionNotice} Iris became a municipal archivist and imposed her own careful numbering system on the family letters. She believed the passenger notice and harbor photograph came from different journeys.`,
+    facts: [
+      {
+        id: "fact-iris-birth",
+        type: "BIRT",
+        date: "7 Aug 1918",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay civil register",
+        confidence: 0.94,
+        privacy: "public"
+      },
+      {
+        id: "fact-iris-occupation",
+        type: "OCCU",
+        date: "1950",
+        place: "Madison, Wisconsin",
+        value: "Municipal archivist",
+        source: "Fictional Madison municipal directory",
+        confidence: 0.81,
+        privacy: "public"
+      },
+      {
+        id: "fact-iris-death",
+        type: "DEAT",
+        date: "23 Oct 2006",
+        place: "Madison, Wisconsin",
+        source: "Fictional Madison memorial register",
+        confidence: 0.9,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-peter-mercer",
+    slug: "peter-elias-mercer",
+    displayName: "Peter Elias Mercer",
+    givenName: "Peter Elias",
+    surname: "Mercer",
+    birthDate: "14 Apr 1923",
+    birthPlace: "Lantern Bay, Wisconsin",
+    deathDate: "30 Jan 1989",
+    deathPlace: "Green Bay, Wisconsin",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: ["p-nora-hartwell", "p-samuel-mercer", "p-clara-mercer", "p-tobias-mercer", "p-iris-mercer"],
+    notes: `${demoFictionNotice} Peter surveyed shore roads around Green Bay and rarely appeared in the Lantern Bay albums. His field book repeats a small lantern symbol used by Nora for unresolved family stories.`,
+    facts: [
+      {
+        id: "fact-peter-birth",
+        type: "BIRT",
+        date: "14 Apr 1923",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay civil register",
+        confidence: 0.94,
+        privacy: "public"
+      },
+      {
+        id: "fact-peter-occupation",
+        type: "OCCU",
+        date: "1952",
+        place: "Green Bay, Wisconsin",
+        value: "County surveyor",
+        source: "Fictional Green Bay county directory",
+        confidence: 0.8,
+        privacy: "public"
+      },
+      {
+        id: "fact-peter-death",
+        type: "DEAT",
+        date: "30 Jan 1989",
+        place: "Green Bay, Wisconsin",
+        source: "Fictional Green Bay memorial register",
+        confidence: 0.89,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-henry-vale",
+    slug: "henry-rowan-vale",
+    displayName: "Henry Rowan Vale",
+    givenName: "Henry Rowan",
+    surname: "Vale",
+    birthDate: "6 Nov 1909",
+    birthPlace: "Gullhaven, Michigan",
+    deathDate: "12 Mar 1978",
+    deathPlace: "Lantern Bay, Wisconsin",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: ["p-clara-mercer", "p-june-vale"],
+    notes: `${demoFictionNotice} Henry married Clara after meeting her on a lake ferry. His careful handwriting appears on only a few photograph backs, making his labels easy to distinguish from Clara's violet-ink captions.`,
+    facts: [
+      {
+        id: "fact-henry-birth",
+        type: "BIRT",
+        date: "6 Nov 1909",
+        place: "Gullhaven, Michigan",
+        source: "Fictional Gullhaven civil register",
+        confidence: 0.9,
+        privacy: "public"
+      },
+      {
+        id: "fact-henry-marriage",
+        type: "MARR",
+        date: "8 Jun 1935",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay marriage ledger",
+        confidence: 0.91,
+        privacy: "public"
+      },
+      {
+        id: "fact-henry-death",
+        type: "DEAT",
+        date: "12 Mar 1978",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay memorial register",
+        confidence: 0.89,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-june-vale",
+    slug: "june-hartwell-vale",
+    displayName: "June Hartwell Vale",
+    givenName: "June Hartwell",
+    surname: "Vale",
+    birthDate: "20 Feb 1938",
+    birthPlace: "Lantern Bay, Wisconsin",
+    deathDate: "4 Sep 2019",
+    deathPlace: "Minneapolis, Minnesota",
+    sex: "F",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: ["p-clara-mercer", "p-henry-vale"],
+    notes: `${demoFictionNotice} June inherited Clara's photograph labels and donated copies to an invented lake-history society. Her notes preserve several family identifications while openly marking the uncertain harbor portrait.`,
+    facts: [
+      {
+        id: "fact-june-birth",
+        type: "BIRT",
+        date: "20 Feb 1938",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay civil register",
+        confidence: 0.95,
+        privacy: "public"
+      },
+      {
+        id: "fact-june-residence",
+        type: "RESI",
+        date: "1964",
+        place: "Minneapolis, Minnesota",
+        source: "Fictional Minneapolis household directory",
+        confidence: 0.82,
+        privacy: "public"
+      },
+      {
+        id: "fact-june-death",
+        type: "DEAT",
+        date: "4 Sep 2019",
+        place: "Minneapolis, Minnesota",
+        source: "Fictional Minneapolis memorial register",
+        confidence: 0.91,
         privacy: "public"
       }
     ]

@@ -30,18 +30,30 @@ export const demoFamilyTree = {
     },
     {
       id: "parents",
-      label: "Parents",
+      label: "Parents and siblings",
       members: [
-        { personId: "p-nora-hartwell", column: 3 },
-        { personId: "p-samuel-mercer", column: 11 }
+        { personId: "p-ada-hartwell", column: 0 },
+        { personId: "p-vincent-hartwell", column: 2 },
+        { personId: "p-nora-hartwell", column: 6 },
+        { personId: "p-samuel-mercer", column: 8 }
       ]
     },
     {
       id: "children",
-      label: "Children",
+      label: "Children and spouses",
       members: [
-        { personId: "p-clara-mercer", column: 6 },
-        { personId: "p-tobias-mercer", column: 8 }
+        { personId: "p-henry-vale", column: 2 },
+        { personId: "p-clara-mercer", column: 4 },
+        { personId: "p-tobias-mercer", column: 6 },
+        { personId: "p-iris-mercer", column: 8 },
+        { personId: "p-peter-mercer", column: 10 }
+      ]
+    },
+    {
+      id: "grandchildren",
+      label: "Grandchildren",
+      members: [
+        { personId: "p-june-vale", column: 3 }
       ]
     }
   ],
@@ -69,7 +81,7 @@ export const demoFamilyTree = {
     {
       id: "family-elias-amalia",
       partnerIds: ["p-elias-hartwell", "p-amalia-bellandi"],
-      childIds: ["p-nora-hartwell"]
+      childIds: ["p-ada-hartwell", "p-vincent-hartwell", "p-nora-hartwell"]
     },
     {
       id: "family-jonah-maeve",
@@ -79,7 +91,12 @@ export const demoFamilyTree = {
     {
       id: "family-nora-samuel",
       partnerIds: ["p-nora-hartwell", "p-samuel-mercer"],
-      childIds: ["p-clara-mercer", "p-tobias-mercer"]
+      childIds: ["p-clara-mercer", "p-tobias-mercer", "p-iris-mercer", "p-peter-mercer"]
+    },
+    {
+      id: "family-clara-henry",
+      partnerIds: ["p-clara-mercer", "p-henry-vale"],
+      childIds: ["p-june-vale"]
     }
   ]
 } as const satisfies FamilyTreeDefinition;
