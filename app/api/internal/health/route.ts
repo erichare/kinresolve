@@ -12,6 +12,9 @@ import { getArchiveId } from "@/lib/workspace-store";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const cleanupLeaseDurationMs = 4 * 60 * 1000;
+const maximumClockSkewMs = 60 * 1000;
+
 export async function GET(request: Request) {
   if (!authenticateObservabilityProbe(request)) {
     return NextResponse.json(
@@ -109,12 +112,11 @@ function projectPublicDemoDiagnostics(
       occupied
     },
     cleanup: {
+      leaseHeld: diagnostics.cleanup.leaseHeld,
+      lastStartedAt: diagnostics.cleanup.lastStartedAt,
       lastCompletedAt: diagnostics.cleanup.lastCompletedAt,
       lastFailedAt: diagnostics.cleanup.lastFailedAt,
-      freshness: cleanupStatus(
-        diagnostics.cleanup.lastCompletedAt,
-        diagnostics.cleanup.lastFailedAt
-      )
+      freshness: cleanupStatus(diagnostics.cleanup)
     },
     staleProvisioning: diagnostics.cleanup.staleProvisioning,
     aiBudget: {
@@ -130,14 +132,29 @@ function publicDemoDiagnosticsReady(
   diagnostics: ReturnType<typeof projectPublicDemoDiagnostics> | null
 ): boolean {
   return diagnostics !== null
-    && diagnostics.cleanup.freshness === "healthy"
+    && ["healthy", "running"].includes(diagnostics.cleanup.freshness)
     && diagnostics.staleProvisioning === 0;
 }
 
 function cleanupStatus(
-  lastCompletedAt: string | null,
-  lastFailedAt: string | null
-): "healthy" | "missing" | "stale" | "failed" {
+  cleanup: {
+    leaseHeld: boolean;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    lastFailedAt: string | null;
+  }
+): "healthy" | "running" | "missing" | "stale" | "failed" {
+  const { leaseHeld, lastStartedAt, lastCompletedAt, lastFailedAt } = cleanup;
+  if (leaseHeld) {
+    if (lastCompletedAt !== null || lastFailedAt !== null || !lastStartedAt) return "stale";
+    const startedAt = Date.parse(lastStartedAt);
+    const age = Date.now() - startedAt;
+    return Number.isFinite(startedAt)
+      && age >= -maximumClockSkewMs
+      && age <= cleanupLeaseDurationMs
+      ? "running"
+      : "stale";
+  }
   if (lastFailedAt) {
     const failedAt = Date.parse(lastFailedAt);
     const completedAt = lastCompletedAt ? Date.parse(lastCompletedAt) : Number.NaN;

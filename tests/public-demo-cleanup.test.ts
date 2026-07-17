@@ -27,6 +27,37 @@ describe("public demo provisioning recovery", () => {
     dbMocks.query.mockResolvedValue({ rows: [], rowCount: 0 });
   });
 
+  it("uses the database clock for a repeatable cleanup lease transition", async () => {
+    let leaseAvailabilitySql = "";
+    let leaseUpdateSql = "";
+    dbMocks.withTransaction.mockImplementation(async (_options, callback) => callback({
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("AS available")) {
+          leaseAvailabilitySql = sql;
+          return { rows: [{ available: true }], rowCount: 1 };
+        }
+        if (sql.includes("cleanup_lease_expires_at =")) leaseUpdateSql = sql;
+        return { rows: [], rowCount: 0 };
+      })
+    }));
+
+    await cleanupPublicDemoSessions({
+      now,
+      leaseOwner: "22222222-2222-4222-8222-222222222222"
+    });
+
+    expect(leaseAvailabilitySql).toMatch(
+      /cleanup_lease_expires_at\s*<=\s*clock_timestamp\(\)/
+    );
+    expect(leaseUpdateSql).toMatch(
+      /cleanup_lease_expires_at\s*=\s*clock_timestamp\(\)\s*\+\s*interval '4 minutes'/
+    );
+    expect(leaseUpdateSql).toMatch(/last_cleanup_started_at\s*=\s*clock_timestamp\(\)/);
+    expect(leaseUpdateSql).toMatch(/last_cleanup_completed_at\s*=\s*NULL/);
+    expect(leaseUpdateSql).toMatch(/last_cleanup_failed_at\s*=\s*NULL/);
+    expect(leaseUpdateSql).not.toContain("$2");
+  });
+
   it("fails provisioning sessions stale for two minutes and queues their generation for cleanup", async () => {
     const transactionSql: string[] = [];
     const directSql: string[] = [];
@@ -34,7 +65,7 @@ describe("public demo provisioning recovery", () => {
       query: vi.fn(async (sql: string) => {
         transactionSql.push(sql);
         if (sql.includes("AS available")) return { rows: [{ available: true }], rowCount: 1 };
-        if (sql.includes("updated_at <= $1 - interval '2 minutes'")) {
+        if (sql.includes("updated_at <= $1::timestamptz - interval '2 minutes'")) {
           return { rows: [{ id: staleSessionId }], rowCount: 1 };
         }
         if (sql.includes("status IN ('active', 'provisioning') AND expires_at <= $1")) {
@@ -66,7 +97,9 @@ describe("public demo provisioning recovery", () => {
     });
 
     expect(transactionSql).toEqual(expect.arrayContaining([
-      expect.stringMatching(/SET status = 'failed'.*updated_at <= \$1 - interval '2 minutes'/s),
+      expect.stringMatching(
+        /SET status = 'failed'.*updated_at <= \$1::timestamptz - interval '2 minutes'/s
+      ),
       expect.stringMatching(/SET state = 'failed'.*session_id = ANY/s)
     ]));
     expect(transactionSql).toContain(

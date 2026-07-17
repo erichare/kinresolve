@@ -425,7 +425,8 @@ export async function recordPublicDemoEvent(
        id, session_id, event_name, usefulness, clarity, feature_interest,
        beta_interest, occurred_at, retention_expires_at
      )
-     SELECT $1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $8 + interval '30 days'
+     SELECT $1::uuid, $2::uuid, $3, $4, $5, $6, $7,
+       $8::timestamptz, $8::timestamptz + interval '30 days'
      WHERE $2::uuid IS NULL OR EXISTS (
        SELECT 1 FROM public.public_demo_sessions AS session
        WHERE session.id = $2::uuid AND session.is_canary = false
@@ -481,7 +482,11 @@ export async function reservePublicDemoAiAttempt(
     const budgets = await client.query<{ running: number; daily: number }>(
       `SELECT
          count(*) FILTER (WHERE state = 'running' AND lease_expires_at > $1)::int AS running,
-         count(*) FILTER (WHERE started_at >= date_trunc('day', $1 AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')::int AS daily
+         count(*) FILTER (
+           WHERE started_at >= date_trunc(
+             'day', $1::timestamptz AT TIME ZONE 'UTC'
+           ) AT TIME ZONE 'UTC'
+         )::int AS daily
        FROM public.public_demo_ai_attempts`,
       [now]
     );
@@ -502,7 +507,10 @@ export async function reservePublicDemoAiAttempt(
     await client.query(
       `INSERT INTO public.public_demo_ai_attempts (
          id, session_id, archive_id, generation, prompt_id, state, started_at, lease_expires_at
-       ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'running', $6, $6 + interval '30 seconds')`,
+       ) VALUES (
+         $1::uuid, $2::uuid, $3, $4, $5, 'running',
+         $6::timestamptz, $6::timestamptz + interval '30 seconds'
+       )`,
       [attemptId, input.sessionId, input.archiveId, input.generation, input.promptId, now]
     );
     return { attemptId, remaining: publicDemoSessionPolicy.aiAttemptsPerSession - used - 1 };
@@ -570,10 +578,10 @@ export async function readPublicDemoDiagnostics(
        )::int AS provisioning,
        count(*) FILTER (
          WHERE session.status = 'provisioning'
-           AND session.updated_at <= $1 - interval '2 minutes'
+           AND session.updated_at <= $1::timestamptz - interval '2 minutes'
        )::int AS stale_provisioning,
        capacity.cleanup_lease_owner IS NOT NULL
-         AND capacity.cleanup_lease_expires_at > $1 AS cleanup_lease_held,
+         AND capacity.cleanup_lease_expires_at > clock_timestamp() AS cleanup_lease_held,
        capacity.last_cleanup_started_at,
        capacity.last_cleanup_completed_at,
        capacity.last_cleanup_failed_at,
@@ -636,9 +644,9 @@ export async function cleanupPublicDemoSessions(
   const prepared = await withTransaction(options, async (client) => {
     await lockCapacity(client);
     const lease = await client.query<{ available: boolean }>(
-      `SELECT cleanup_lease_owner IS NULL OR cleanup_lease_expires_at <= $1 AS available
-       FROM public.public_demo_capacity WHERE singleton = true`,
-      [now]
+      `SELECT cleanup_lease_owner IS NULL
+         OR cleanup_lease_expires_at <= clock_timestamp() AS available
+       FROM public.public_demo_capacity WHERE singleton = true`
     );
     if (lease.rows[0]?.available !== true) {
       throw new Error("The public demo cleanup lease is already held.");
@@ -646,17 +654,19 @@ export async function cleanupPublicDemoSessions(
     await client.query(
       `UPDATE public.public_demo_capacity
        SET cleanup_lease_owner = $1::uuid,
-           cleanup_lease_expires_at = $2 + interval '4 minutes',
-           last_cleanup_started_at = $2,
-           updated_at = $2
+           cleanup_lease_expires_at = clock_timestamp() + interval '4 minutes',
+           last_cleanup_started_at = clock_timestamp(),
+           last_cleanup_completed_at = NULL,
+           last_cleanup_failed_at = NULL,
+           updated_at = clock_timestamp()
        WHERE singleton = true`,
-      [leaseOwner, now]
+      [leaseOwner]
     );
     const staleProvisioning = await client.query<{ id: string }>(
       `UPDATE public.public_demo_sessions
        SET status = 'failed', token_digest = NULL, ended_at = $1, updated_at = $1
        WHERE status = 'provisioning'
-         AND updated_at <= $1 - interval '2 minutes'
+         AND updated_at <= $1::timestamptz - interval '2 minutes'
        RETURNING id::text`,
       [now]
     );
@@ -674,7 +684,7 @@ export async function cleanupPublicDemoSessions(
        FROM public.public_demo_sessions AS session
        WHERE generation.session_id = session.id
          AND generation.state = 'provisioning'
-         AND generation.created_at <= $1 - interval '2 minutes'
+         AND generation.created_at <= $1::timestamptz - interval '2 minutes'
          AND (
            session.archive_id <> generation.archive_id
            OR session.generation <> generation.generation
@@ -758,7 +768,7 @@ export async function cleanupPublicDemoSessions(
     await query(
       `DELETE FROM public.public_demo_sessions
        WHERE status = 'cleaned'
-         AND ended_at <= $1 - interval '30 days'`,
+         AND ended_at <= $1::timestamptz - interval '30 days'`,
       [now],
       options
     );

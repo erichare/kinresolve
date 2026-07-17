@@ -41,6 +41,9 @@ import { GET } from "@/app/api/internal/health/route";
 const probeRequest = new Request("https://app.kinresolve.com/api/internal/health", {
   headers: { authorization: `Bearer ${"p".repeat(48)}` }
 });
+const cleanupHealthNow = new Date("2026-07-16T18:00:00.000Z");
+const freshRunningStartedAt = new Date(cleanupHealthNow.getTime() - 4 * 60 * 1000).toISOString();
+const staleRunningStartedAt = new Date(cleanupHealthNow.getTime() - (4 * 60 * 1000 + 1)).toISOString();
 const originalEnvironment = { ...process.env };
 
 beforeEach(() => {
@@ -92,6 +95,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   process.env = { ...originalEnvironment };
 });
 
@@ -187,6 +191,93 @@ describe("GET /api/internal/health", () => {
     expect(JSON.stringify(body)).not.toMatch(
       /database-private-marker|archiveName|archiveTagline|archiveCount|peopleCount|caseCount|aiRunCount|baseUrl|chatModel|embeddingModel/
     );
+  });
+
+  it("keeps protected readiness healthy while a fresh cleanup lease is running", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(cleanupHealthNow);
+    mocks.authenticate.mockReturnValue(true);
+    mocks.readPublicDemoDiagnostics.mockResolvedValue({
+      capacity: { active: 3, maximum: 25, provisioning: 1, available: 21 },
+      cleanup: {
+        leaseHeld: true,
+        lastStartedAt: freshRunningStartedAt,
+        lastCompletedAt: null,
+        lastFailedAt: null,
+        staleProvisioning: 0
+      },
+      ai: { maximumConcurrent: 5, maximumDaily: 150, usedToday: 12, running: 1 }
+    });
+
+    const response = await GET(probeRequest);
+    const body = await response.json();
+
+    expect.soft(response.status).toBe(200);
+    expect.soft(body).toMatchObject({
+      status: "ok",
+      publicDemo: {
+        cleanup: {
+          leaseHeld: true,
+          freshness: "running",
+          lastStartedAt: freshRunningStartedAt,
+          lastCompletedAt: null,
+          lastFailedAt: null
+        }
+      }
+    });
+  });
+
+  it.each([
+    {
+      name: "stale",
+      lastStartedAt: staleRunningStartedAt,
+      lastCompletedAt: null,
+      lastFailedAt: null
+    },
+    {
+      name: "missing-start",
+      lastStartedAt: null,
+      lastCompletedAt: null,
+      lastFailedAt: null
+    },
+    {
+      name: "invalid-start",
+      lastStartedAt: "not-a-timestamp",
+      lastCompletedAt: null,
+      lastFailedAt: null
+    },
+    {
+      name: "uncleared-completion",
+      lastStartedAt: freshRunningStartedAt,
+      lastCompletedAt: cleanupHealthNow.toISOString(),
+      lastFailedAt: null
+    },
+    {
+      name: "uncleared-failure",
+      lastStartedAt: freshRunningStartedAt,
+      lastCompletedAt: null,
+      lastFailedAt: cleanupHealthNow.toISOString()
+    }
+  ])("fails closed for $name running cleanup state", async ({ lastStartedAt, lastCompletedAt, lastFailedAt }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(cleanupHealthNow);
+    mocks.authenticate.mockReturnValue(true);
+    mocks.readPublicDemoDiagnostics.mockResolvedValue({
+      capacity: { active: 0, maximum: 25, provisioning: 0, available: 25 },
+      cleanup: {
+        leaseHeld: true,
+        lastStartedAt,
+        lastCompletedAt,
+        lastFailedAt,
+        staleProvisioning: 0
+      },
+      ai: { maximumConcurrent: 5, maximumDaily: 150, usedToday: 0, running: 0 }
+    });
+
+    const response = await GET(probeRequest);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ status: "degraded" });
   });
 
   it("does not leak a heartbeat query failure through the protected probe", async () => {
