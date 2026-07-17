@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 type Monitor = (
   environment?: Readonly<Record<string, string | undefined>>,
@@ -13,6 +13,13 @@ const canonicalEnvironment = {
   KINRESOLVE_OBSERVABILITY_PROBE_SECRET: "o".repeat(43),
   EXPECTED_RUNTIME_ROLE_IDENTITY_SHA256: "a".repeat(64)
 };
+const cleanupHealthNow = new Date("2026-07-16T18:00:00.000Z");
+const freshRunningStartedAt = new Date(cleanupHealthNow.getTime() - 4 * 60 * 1000).toISOString();
+const staleRunningStartedAt = new Date(cleanupHealthNow.getTime() - (4 * 60 * 1000 + 1)).toISOString();
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("public demo protected internal-health monitor", () => {
   it("authenticates and validates the fixed operational diagnostics", async () => {
@@ -32,6 +39,87 @@ describe("public demo protected internal-health monitor", () => {
     const [cronInput, cronInit] = fetchImplementation.mock.calls[1];
     expect(String(cronInput)).toBe("https://demo.kinresolve.com/api/cron/integration-jobs");
     expect(new Headers(cronInit?.headers).get("authorization")).toBeNull();
+  });
+
+  it("accepts a fresh running cleanup lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(cleanupHealthNow);
+    const runMonitor = await loadMonitor();
+    const fetchImplementation = vi.fn(monitorFetchForCleanup({
+      leaseHeld: true,
+      freshness: "running",
+      lastStartedAt: freshRunningStartedAt,
+      lastCompletedAt: null,
+      lastFailedAt: null
+    }));
+
+    await expect(runMonitor(canonicalEnvironment, fetchImplementation)).resolves.toEqual({
+      active: 2,
+      occupied: 3,
+      dailyAiUsed: 12
+    });
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    {
+      name: "stale",
+      cleanup: {
+        leaseHeld: true,
+        freshness: "running",
+        lastStartedAt: staleRunningStartedAt,
+        lastCompletedAt: null,
+        lastFailedAt: null
+      }
+    },
+    {
+      name: "missing-start",
+      cleanup: {
+        leaseHeld: true,
+        freshness: "running",
+        lastCompletedAt: null,
+        lastFailedAt: null
+      }
+    },
+    {
+      name: "invalid-start",
+      cleanup: {
+        leaseHeld: true,
+        freshness: "running",
+        lastStartedAt: "not-a-timestamp",
+        lastCompletedAt: null,
+        lastFailedAt: null
+      }
+    },
+    {
+      name: "uncleared-completion",
+      cleanup: {
+        leaseHeld: true,
+        freshness: "running",
+        lastStartedAt: freshRunningStartedAt,
+        lastCompletedAt: cleanupHealthNow.toISOString(),
+        lastFailedAt: null
+      }
+    },
+    {
+      name: "uncleared-failure",
+      cleanup: {
+        leaseHeld: true,
+        freshness: "running",
+        lastStartedAt: freshRunningStartedAt,
+        lastCompletedAt: null,
+        lastFailedAt: cleanupHealthNow.toISOString()
+      }
+    }
+  ])("fails closed for $name monitor cleanup state", async ({ cleanup }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(cleanupHealthNow);
+    const runMonitor = await loadMonitor();
+
+    await expect(runMonitor(
+      canonicalEnvironment,
+      vi.fn(monitorFetchForCleanup(cleanup))
+    )).rejects.toThrow(/operational health/i);
   });
 
   it("requires candidate protection and never sends credentials to another origin", async () => {
@@ -130,8 +218,11 @@ function healthyResponse(overrides: {
     publicDemo: {
       capacity: { maximum: 25, active: 2, provisioning: 1, occupied: 3 },
       cleanup: overrides.cleanup ?? {
+        leaseHeld: false,
         freshness: "healthy",
-        lastCompletedAt: new Date().toISOString()
+        lastStartedAt: new Date().toISOString(),
+        lastCompletedAt: new Date().toISOString(),
+        lastFailedAt: null
       },
       staleProvisioning: 0,
       aiBudget: overrides.aiBudget ?? {
@@ -160,6 +251,17 @@ async function successfulMonitorFetch(
     return cronResponse(401, { error: "Unauthorized" });
   }
   throw new Error(`Unexpected monitor URL: ${pathname}`);
+}
+
+function monitorFetchForCleanup(cleanup: Record<string, unknown>) {
+  return async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+    const pathname = new URL(String(input)).pathname;
+    if (pathname === "/api/internal/health") return healthyResponse({ cleanup });
+    if (pathname === "/api/cron/integration-jobs") {
+      return cronResponse(401, { error: "Unauthorized" });
+    }
+    throw new Error(`Unexpected monitor URL: ${pathname}`);
+  };
 }
 
 function cronResponse(status: number, body: Record<string, unknown>): Response {

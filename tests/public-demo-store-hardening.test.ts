@@ -14,6 +14,53 @@ describe("public demo lifecycle hardening", () => {
     expect(reserve.indexOf("lockCapacity(client)")).toBeLessThan(reserve.indexOf("count(*) FILTER"));
   });
 
+  it("types the event timestamp before calculating retention", async () => {
+    const recordEvent = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function recordPublicDemoEvent",
+      "export async function reservePublicDemoAiAttempt"
+    );
+
+    expect(recordEvent).toMatch(/\$8::timestamptz\s*\+\s*interval '30 days'/);
+  });
+
+  it("types the AI timestamp before the UTC day boundary and lease arithmetic", async () => {
+    const reserve = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function reservePublicDemoAiAttempt",
+      "export async function completePublicDemoAiAttempt"
+    );
+
+    expect.soft(reserve).toMatch(
+      /date_trunc\(\s*'day',\s*\$1::timestamptz\s+AT TIME ZONE 'UTC'\s*\)/
+    );
+    expect.soft(reserve).toMatch(/\$6::timestamptz\s*\+\s*interval '30 seconds'/);
+  });
+
+  it("types the diagnostic timestamp before stale-session arithmetic", async () => {
+    const diagnostics = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function readPublicDemoDiagnostics",
+      "export async function cleanupPublicDemoSessions"
+    );
+
+    expect(diagnostics).toMatch(/session\.updated_at\s*<=\s*\$1::timestamptz\s*-\s*interval '2 minutes'/);
+    expect(diagnostics).toMatch(
+      /cleanup_lease_expires_at\s*>\s*clock_timestamp\(\)\s+AS cleanup_lease_held/
+    );
+  });
+
+  it("types cleanup timestamps before stale-session, stale-generation, and retention arithmetic", async () => {
+    const cleanup = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function cleanupPublicDemoSessions",
+      "async function activateProvisionedSession"
+    );
+
+    expect.soft(cleanup.match(/\$1::timestamptz\s*-\s*interval '2 minutes'/g) ?? []).toHaveLength(2);
+    expect.soft(cleanup).toMatch(/ended_at\s*<=\s*\$1::timestamptz\s*-\s*interval '30 days'/);
+  });
+
   it("prevents a successful reset while a provider attempt still leases the generation", async () => {
     const reset = await functionSource(
       "lib/public-demo-session-store.ts",

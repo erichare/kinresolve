@@ -5,6 +5,8 @@ const canonicalOrigin = "https://demo.kinresolve.com";
 const maximumResponseBytes = 256 * 1024;
 const requestTimeoutMs = 30_000;
 const maximumCleanupAgeMs = 10 * 60 * 1000;
+const cleanupLeaseDurationMs = 4 * 60 * 1000;
+const maximumClockSkewMs = 60 * 1000;
 
 export async function runPublicDemoInternalHealthMonitor(
   environment = process.env,
@@ -95,10 +97,9 @@ function validateDiagnostics(document, expectedRuntimeRoleIdentitySha256) {
   const capacity = objectValue(diagnostics?.capacity);
   const cleanup = objectValue(diagnostics?.cleanup);
   const aiBudget = objectValue(diagnostics?.aiBudget);
-  const completedAt = typeof cleanup?.lastCompletedAt === "string"
-    ? Date.parse(cleanup.lastCompletedAt)
-    : Number.NaN;
   const now = Date.now();
+  const healthyCleanup = validHealthyCleanup(cleanup, now);
+  const runningCleanup = validRunningCleanup(cleanup, now);
 
   if (
     document?.status !== "ok"
@@ -116,10 +117,7 @@ function validateDiagnostics(document, expectedRuntimeRoleIdentitySha256) {
     || !nonnegativeInteger(capacity.occupied)
     || capacity.occupied !== capacity.active + capacity.provisioning
     || capacity.occupied > capacity.maximum
-    || cleanup.freshness !== "healthy"
-    || !Number.isFinite(completedAt)
-    || completedAt > now + 60_000
-    || now - completedAt > maximumCleanupAgeMs
+    || (!healthyCleanup && !runningCleanup)
     || diagnostics.staleProvisioning !== 0
     || aiBudget.concurrentLimit !== 5
     || !nonnegativeInteger(aiBudget.running)
@@ -131,6 +129,34 @@ function validateDiagnostics(document, expectedRuntimeRoleIdentitySha256) {
     throw healthError();
   }
   return { capacity, aiBudget };
+}
+
+function validHealthyCleanup(cleanup, now) {
+  if (
+    cleanup?.freshness !== "healthy"
+    || cleanup.leaseHeld !== false
+    || typeof cleanup.lastCompletedAt !== "string"
+    || cleanup.lastFailedAt !== null
+  ) return false;
+  const completedAt = Date.parse(cleanup.lastCompletedAt);
+  return Number.isFinite(completedAt)
+    && completedAt <= now + maximumClockSkewMs
+    && now - completedAt <= maximumCleanupAgeMs;
+}
+
+function validRunningCleanup(cleanup, now) {
+  if (
+    cleanup?.freshness !== "running"
+    || cleanup.leaseHeld !== true
+    || typeof cleanup.lastStartedAt !== "string"
+    || cleanup.lastCompletedAt !== null
+    || cleanup.lastFailedAt !== null
+  ) return false;
+  const startedAt = Date.parse(cleanup.lastStartedAt);
+  const age = now - startedAt;
+  return Number.isFinite(startedAt)
+    && age >= -maximumClockSkewMs
+    && age <= cleanupLeaseDurationMs;
 }
 
 function resolveConfiguration(environment) {
