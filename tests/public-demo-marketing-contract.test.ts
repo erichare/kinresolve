@@ -25,6 +25,28 @@ describe("public demo marketing conversion", () => {
     expect(footer).toMatch(/<a href=\{site\.demoUrl\}>Try the demo<\/a>/i);
   });
 
+  it("keeps desktop navigation focused while mobile navigation stays flat", async () => {
+    const [header, site] = await Promise.all([
+      readFile("site/components/site-header.tsx", "utf8"),
+      readFile("site/lib/site.ts", "utf8")
+    ]);
+    const desktop = header.slice(header.indexOf("function DesktopNavigation"), header.indexOf("function MobileNavigation"));
+    const mobile = header.slice(header.indexOf("function MobileNavigation"), header.indexOf("export function SiteHeader"));
+    const headerActions = header.slice(header.indexOf('className="header-actions"'), header.indexOf('className="mobile-menu"'));
+
+    expect(site).toMatch(/href:\s*["']\/method["'],\s*label:\s*["']Method["']/);
+    expect(desktop).toMatch(/navigation\.slice\(0,\s*2\)/);
+    expect(desktop).toMatch(/<details className=["']desktop-nav-more["']>[\s\S]*<summary>More/);
+    expect(desktop).toMatch(/navigation\.slice\(2\)/);
+    expect(desktop).toMatch(/href=\{site\.github\}/);
+    expect(site.indexOf('label: "Developers"')).toBeLessThan(site.indexOf('label: "Open source"'));
+    expect(site.indexOf('label: "Open source"')).toBeLessThan(site.indexOf('label: "About"'));
+    expect(site.indexOf('label: "About"')).toBeLessThan(site.indexOf('label: "Privacy"'));
+    expect(mobile).toMatch(/navigation\.map/);
+    expect(mobile).toMatch(/href=\{site\.github\}/);
+    expect(headerActions).not.toMatch(/href=\{site\.github\}/);
+  });
+
   it("offers the working demo after the final challenge dossier", async () => {
     const challenge = await readFile("site/shared/research-instincts-challenge.tsx", "utf8");
     const dossier = challenge.slice(challenge.indexOf("{dossierScore ?"), challenge.indexOf('className="challenge-reset"'));

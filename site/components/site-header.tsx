@@ -2,21 +2,41 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { navigation, site } from "@/lib/site";
 
-function NavigationLinks({ mobile = false }: { mobile?: boolean }) {
+function DesktopNavigation() {
   return (
-    <nav className={mobile ? "mobile-nav-links" : "desktop-nav"} aria-label={mobile ? "Mobile navigation" : "Main navigation"}>
+    <nav className="desktop-nav" aria-label="Main navigation">
+      <a href={site.demoUrl}>Demo</a>
+      {navigation.slice(0, 2).map((item) => (
+        <Link href={item.href} key={item.href}>
+          {item.label}
+        </Link>
+      ))}
+      <details className="desktop-nav-more">
+        <summary>More <span aria-hidden="true">⌄</span></summary>
+        <div aria-label="More links" className="desktop-nav-more-menu" role="group">
+          {navigation.slice(2).map((item) => (
+            <Link href={item.href} key={item.href}>
+              {item.label}
+            </Link>
+          ))}
+          <a href={site.github}>GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+      </details>
+    </nav>
+  );
+}
+
+function MobileNavigation() {
+  return (
+    <nav className="mobile-nav-links" aria-label="Mobile navigation">
       <a href={site.demoUrl}>Demo</a>
       {navigation.map((item) => (
         <Link href={item.href} key={item.href}>
           {item.label}
         </Link>
       ))}
-      {mobile && (
-        <>
-          <a href={site.github}>View on GitHub</a>
-          <Link className="button button-small" href="/beta">Apply for the private beta</Link>
-        </>
-      )}
+      <a href={site.github}>View on GitHub</a>
+      <Link className="button button-small" href="/beta">Apply for the private beta</Link>
     </nav>
   );
 }
@@ -26,9 +46,8 @@ export function SiteHeader() {
     <header className="site-header">
       <div className="shell header-inner">
         <Brand />
-        <NavigationLinks />
+        <DesktopNavigation />
         <div className="header-actions">
-          <a className="text-link" href={site.github}>GitHub <span aria-hidden="true">↗</span></a>
           <Link className="button button-small" href="/beta">Apply for the private beta</Link>
         </div>
         <details className="mobile-menu">
@@ -37,7 +56,7 @@ export function SiteHeader() {
             <span aria-hidden="true" />
             <span aria-hidden="true" />
           </summary>
-          <NavigationLinks mobile />
+          <MobileNavigation />
         </details>
       </div>
     </header>
