@@ -23,9 +23,9 @@ export const site = {
 
 export const navigation = [
   { href: "/product", label: "Product" },
-  { href: "/method", label: "Research method" },
+  { href: "/method", label: "Method" },
   { href: "/developers", label: "Developers" },
-  { href: "/privacy", label: "Privacy" },
   { href: "/open-source", label: "Open source" },
-  { href: "/about", label: "About" }
+  { href: "/about", label: "About" },
+  { href: "/privacy", label: "Privacy" }
 ] as const;
