@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
