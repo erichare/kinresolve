@@ -157,7 +157,36 @@ export async function startPublicDemoSession(
     tokenDigest: digestPublicDemoSessionToken(candidateToken)
   };
 
+  // Thundering-herd fast path: while the demo is visibly full, brand-new
+  // starts are turned away by a cheap unlocked count before this request ever
+  // queues on the capacity lock. The authoritative locked admission decision
+  // below is unchanged, and resumable requests (a presented token) always
+  // reach it so an existing visitor can never be bounced by the fast path.
+  if (!input.rawToken) {
+    const fastCount = await query<{ occupied: number }>(
+      `SELECT count(*)::int AS occupied
+       FROM public.public_demo_sessions
+       WHERE status IN ('active', 'provisioning')
+         AND expires_at > $1`,
+      [now],
+      options
+    );
+    if ((fastCount.rows[0]?.occupied ?? 0) >= publicDemoSessionPolicy.maximumActiveSessions) {
+      await recordPublicDemoEvent({ eventName: "capacity_rejected", now }, options)
+        .catch(() => undefined);
+      return {
+        kind: "capacity-exceeded",
+        maximumActiveSessions: publicDemoSessionPolicy.maximumActiveSessions
+      };
+    }
+  }
+
   const reserved = await withTransaction(options, async (client) => {
+    // Bounded reservation waits: a start storm must fail fast into the
+    // route's existing 503 retry path instead of stacking transactions
+    // behind the capacity lock.
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query("SET LOCAL statement_timeout = '5s'");
     await lockCapacity(client);
     const current = input.rawToken
       ? await selectSessionForToken(client, digestPublicDemoSessionToken(input.rawToken), true)

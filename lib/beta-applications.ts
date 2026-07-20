@@ -140,6 +140,7 @@ const providerIdentifierPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const hmacDomain = "kinresolve-beta-application-v1";
 const additionalCredentialEnvironmentNames = [
   "AI_API_KEY",
+  "KINRESOLVE_TURNSTILE_SECRET_KEY",
   "KINSLEUTH_APP_PASSWORD",
   "MINIO_ROOT_PASSWORD",
   "MINIO_ROOT_USER",

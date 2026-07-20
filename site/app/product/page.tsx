@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { CtaStrip } from "@/components/cta-strip";
+import { DemoPulse } from "@/components/demo-pulse";
 import { LaunchMedia } from "@/components/launch-media";
+import { demoLive } from "@/lib/demo-status";
 import { PageHero } from "@/components/page-hero";
 import { betaStatus } from "@/lib/beta-status";
 import { pageMetadata } from "@/lib/metadata";
@@ -120,6 +122,11 @@ export default function ProductPage() {
       </section>
 
       <div className="shell section">
+        {demoLive && (
+          <div aria-live="polite">
+            <DemoPulse surface="product" />
+          </div>
+        )}
         <p className="status-footnote">
           Prefer a no-sign-in puzzle first? <Link href="/challenge">Test your genealogical skills in the fictional research challenge</Link>.
         </p>

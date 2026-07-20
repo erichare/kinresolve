@@ -177,6 +177,114 @@ describe("private-beta marketing and legal surface", () => {
     expect(csp).toMatch(/connect-src [^;]*https:\/\/plausible\.io/);
   });
 
+  it("protects the native intake with a declarative Turnstile widget that preserves the no-JS form contract", async () => {
+    const [turnstile, betaForm, exportCheck, siteVercel, siteCi, siteDeploy, release] = await Promise.all([
+      readFile("site/lib/turnstile.ts", "utf8"),
+      readFile("site/components/beta-form.tsx", "utf8"),
+      readFile(files.exportCheck, "utf8"),
+      readFile("site/vercel.json", "utf8"),
+      readFile(".github/workflows/site-ci.yml", "utf8"),
+      readFile(".github/workflows/site-deploy.yml", "utf8"),
+      readFile(".github/workflows/vercel-release.yml", "utf8")
+    ]);
+
+    // An application-mode build without a widget site key must fail closed.
+    expect(turnstile).toContain(
+      "KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY must be set when the beta intake mode is application."
+    );
+    expect(turnstile).toContain('betaApplicationMode === "application" && marketingTurnstileSiteKey === undefined');
+
+    // Declarative widget: the challenge script injects the optional token
+    // input; a no-JS visitor still submits the plain cross-origin form POST.
+    expect(betaForm).toContain('src="https://challenges.cloudflare.com/turnstile/v0/api.js"');
+    expect(betaForm).toContain('className="cf-turnstile"');
+    expect(betaForm).toContain('data-action="beta-application"');
+    expect(betaForm).toContain("data-sitekey={marketingTurnstileSiteKey}");
+    expect(betaForm).toContain("applicationMode && marketingTurnstileSiteKey");
+    expect(betaForm).not.toContain('name="cf-turnstile-response"');
+
+    // check-export pins the widget per intake mode in lockstep.
+    expect(exportCheck).toContain("Beta application mode is missing the declarative Turnstile challenge script.");
+    expect(exportCheck).toContain("Beta application mode is missing its configured Turnstile widget.");
+    expect(exportCheck).toContain("The Turnstile token input must be widget-injected, never prerendered.");
+    expect(exportCheck).toContain("Beta mail fallback must not load the Turnstile challenge widget.");
+
+    // The static site CSP admits the challenge script and its iframe only.
+    const csp = (JSON.parse(siteVercel) as {
+      headers: Array<{ headers: Array<{ key: string; value: string }> }>;
+    }).headers[0].headers.find(({ key }) => key === "Content-Security-Policy")?.value ?? "";
+    expect(csp).toMatch(/script-src [^;]*https:\/\/challenges\.cloudflare\.com/);
+    expect(csp).toMatch(/frame-src https:\/\/challenges\.cloudflare\.com/);
+    expect(csp).not.toMatch(/connect-src [^;]*challenges\.cloudflare\.com/);
+
+    // Application-mode builds receive a site key in every workflow: the
+    // documented always-passing dummy in CI and proof builds, the repository
+    // variable for real deploys.
+    expect(siteCi).toContain("KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: 1x00000000000000000000AA");
+    expect(siteDeploy).toContain(
+      "KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: ${{ vars.KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY }}"
+    );
+    expect(release).toContain(
+      "KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: ${{ vars.KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY }}"
+    );
+    expect(release).toContain(
+      'KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY="${KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}"'
+    );
+  });
+
+  it("gates the demo-pulse counter behind the live demo mode and the stats-endpoint contract", async () => {
+    const [pulse, home, product, privacy, exportCheck, siteVercel] = await Promise.all([
+      readFile("site/components/demo-pulse.tsx", "utf8"),
+      readFile("site/app/page.tsx", "utf8"),
+      readFile(files.product, "utf8"),
+      readFile(files.privacy, "utf8"),
+      readFile(files.exportCheck, "utf8"),
+      readFile("site/vercel.json", "utf8")
+    ]);
+
+    // The counter reads only the documented stats endpoint, hides itself on
+    // any failure, and displays nothing below the launch threshold.
+    expect(pulse).toContain('"use client"');
+    expect(pulse).toContain("${site.demoUrl}/api/public/demo-stats");
+    expect(pulse).toContain("const DISPLAY_THRESHOLD = 25;");
+    expect(pulse).toContain("const FETCH_TIMEOUT_MS = 3000;");
+    expect(pulse).toContain("controller.abort()");
+    expect(pulse).toContain("Number.isSafeInteger(solved)");
+    expect(pulse).toContain("if (!demoLive) return null;");
+    expect(pulse).toContain("mysteriesSolved === null || mysteriesSolved < DISPLAY_THRESHOLD");
+    expect(pulse).toContain('data-demo-pulse-state="idle"');
+    // The copy states the metric it renders: completed outcomes (a returning
+    // visitor who resets and completes again counts twice), not unique people.
+    expect(pulse).toContain("passenger mysteries solved in");
+    expect(pulse).not.toContain("researchers have worked");
+    expect(pulse).not.toMatch(/mysteriesSolved\s*=\s*\d/);
+
+    // Both marketing surfaces mount the counter only while the demo is live.
+    expect(home).toMatch(/\{demoLive && \(\s*<div className="shell" aria-live="polite">\s*<DemoPulse surface="home" \/>/);
+    expect(product).toMatch(/\{demoLive && \(\s*<div aria-live="polite">\s*<DemoPulse surface="product" \/>/);
+
+    // The privacy page discloses the cross-origin fetch only when it happens.
+    expect(privacy).toContain(
+      "that request sends no identifiers or personal data, though the demo origin—like any web server it contacts—sees the requesting IP address"
+    );
+    expect(privacy).toMatch(/\{demoLive && \(\s*<p>The home and product pages also fetch one aggregate solved-mystery count/);
+
+    // check-export pins the per-mode static behavior in lockstep.
+    expect(exportCheck).toContain('demoPulseCounterPhrase = "passenger mysteries solved in the live demo"');
+    expect(exportCheck).toContain("demoPulseIdleFallback = 'data-demo-pulse-state=\"idle\"'");
+    expect(exportCheck).toContain("Demo-pulse counter must never render while the demo launch is pending.");
+    expect(exportCheck).toContain("Static export must never contain a prerendered solved-mystery count");
+    expect(exportCheck).toContain("Pending-demo privacy page must not disclose a counter fetch that never happens.");
+    expect(exportCheck).toContain("demo-pulse must prerender in its hidden idle state, not with a number");
+
+    // The static CSP allows the demo-stats fetch; the enforced privacy gate is
+    // the demo-mode-gated mount, pinned by check-export per mode.
+    const csp = (JSON.parse(siteVercel) as {
+      headers: Array<{ headers: Array<{ key: string; value: string }> }>;
+    }).headers[0].headers.find(({ key }) => key === "Content-Security-Policy")?.value ?? "";
+    expect(csp).toMatch(/connect-src [^;]*https:\/\/demo\.kinresolve\.com/);
+  });
+
   it("provides separate prelaunch, launch-only, maintenance, and end-of-pilot material", async () => {
     const materials = await readFile(files.launchMaterials, "utf8");
 

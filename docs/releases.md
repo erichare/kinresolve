@@ -197,8 +197,9 @@ audience-bound operator public identity, the approved Resend sender contract,
 `KINRESOLVE_BETA_PRIVACY_HMAC_SECRET`, both observability secrets, `RESEND_API_KEY`,
 `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, and `RELEASE_FENCE_SECRET`. Every listed
 credential, including `DATABASE_URL`, must be a Vercel Sensitive variable. When native
-applications are enabled, `KINRESOLVE_BETA_APPLICATION_HMAC_SECRET` is an additional
-required Sensitive variable; app-off releases do not require it. Every listed
+applications are enabled, `KINRESOLVE_BETA_APPLICATION_HMAC_SECRET` and
+`KINRESOLVE_TURNSTILE_SECRET_KEY` are additional
+required Sensitive variables; app-off releases do not require them. Every listed
 noncredential setting must remain readable, and every assignment
 must be scoped to Production only so the workflow can validate configuration without
 reading secret values. Before either staging or production can build, deploy, or mutate a

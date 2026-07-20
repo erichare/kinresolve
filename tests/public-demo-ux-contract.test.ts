@@ -66,7 +66,24 @@ describe("public demo landing and guided entry", () => {
       /return\s*\(\s*\)\s*=>\s*window\.clearTimeout\s*\(\s*readyTimer\s*\)/
     );
     expect(form).toMatch(/setReady\s*\(\s*true\s*\)/);
-    expect(form).toMatch(/disabled=\{\s*!ready\s*\|\|\s*pending\s*\}/);
+    expect(form).toMatch(/disabled=\{\s*!ready\s*\|\|\s*pending\s*\|\|\s*waiting\s*\}/);
+  });
+
+  it("counts down the server Retry-After at capacity and keeps the stateless fallbacks visible", async () => {
+    const form = await source("components/demo-start-form.tsx");
+
+    // The countdown is bounded and driven only by the server's header value.
+    expect(form).toContain("const maximumRetryAfterSeconds = 900;");
+    expect(form).toMatch(/parseRetryAfterSeconds\(response\.headers\.get\("retry-after"\)\)/);
+    expect(form).toMatch(/if \(response\.status === 429\)/);
+    expect(form).toMatch(/setRetryAfterSeconds\(\(seconds\) => Math\.max\(0, seconds - 1\)\)/);
+    expect(form).toMatch(/Try again in \$\{retryAfterSeconds\}s/);
+    expect(form).toMatch(/You can retry in \{retryAfterSeconds\} seconds/);
+    // 403 (required Turnstile) and 429 (capacity) both surface the stateless
+    // family/challenge fallbacks.
+    expect(form).toMatch(/response\.status === 429 \|\| response\.status === 403/);
+    expect(form).toMatch(/href=["']\/family["']/);
+    expect(form).toMatch(/href=["']\/challenge["']/);
   });
 
   it("keeps the capacity error paragraph at the form-error danger color", async () => {

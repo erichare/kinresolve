@@ -105,6 +105,38 @@ describe("public demo lifecycle hardening", () => {
     expect(cleanup).toMatch(/DELETE FROM public\.public_demo_sessions[\s\S]*interval '30 days'/);
   });
 
+  it("turns away brand-new starts with an unlocked fast path before the capacity lock", async () => {
+    const start = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function startPublicDemoSession",
+      "export async function resetPublicDemoSession"
+    );
+
+    // The cheap unlocked count runs only for token-less requests and sits
+    // before the reservation transaction; the authoritative locked decision
+    // (decidePublicDemoAdmission after lockCapacity) is unchanged.
+    const fastPath = start.indexOf("if (!input.rawToken) {");
+    const reservation = start.indexOf("const reserved = await withTransaction");
+    const lockedDecision = start.indexOf("decidePublicDemoAdmission");
+    expect(fastPath).toBeGreaterThan(-1);
+    expect(fastPath).toBeLessThan(reservation);
+    expect(reservation).toBeLessThan(lockedDecision);
+    expect(start.slice(fastPath, reservation)).toMatch(
+      /count\(\*\)::int AS occupied[\s\S]*status IN \('active', 'provisioning'\)/
+    );
+    expect(start.slice(fastPath, reservation)).not.toMatch(/FOR UPDATE|lockCapacity/);
+    expect(start.slice(fastPath, reservation)).toContain('eventName: "capacity_rejected"');
+
+    // Bounded reservation waits map storms onto the start route's existing
+    // 503 retry path instead of stacking transactions behind the lock.
+    const reservationBody = start.slice(reservation, lockedDecision);
+    expect(reservationBody).toContain("SET LOCAL lock_timeout = '2s'");
+    expect(reservationBody).toContain("SET LOCAL statement_timeout = '5s'");
+    expect(reservationBody.indexOf("SET LOCAL lock_timeout")).toBeLessThan(
+      reservationBody.indexOf("lockCapacity(client)")
+    );
+  });
+
   it("does not consume a new-session network bucket when capacity is already full", async () => {
     const start = await functionSource(
       "lib/public-demo-session-store.ts",

@@ -7,10 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   betaApplicationSensitiveEnvironmentName,
   forbiddenWorkflowOnlyEnvironmentNames,
+  optionalSentryReadableEnvironmentName,
   publicDemoReadableProductionEnvironmentNames,
   publicDemoSensitiveProductionEnvironmentNames,
+  publicDemoTurnstileModeEnvironmentName,
+  publicDemoTurnstileSiteKeyEnvironmentName,
   requiredReadableProductionEnvironmentNames,
   requiredSensitiveProductionEnvironmentNames,
+  turnstileSensitiveEnvironmentName,
   validatePulledVercelEnvironmentContract,
   validateVercelEnvironmentContract
 } from "@/lib/vercel-environment-contract";
@@ -198,35 +202,290 @@ describe("Vercel hosted environment metadata contract", () => {
       .toThrow(new RegExp(`${key}.*readable`, "i"));
   });
 
-  it("requires the application HMAC only for an independently enabled intake release", () => {
+  it("requires the application HMAC and Turnstile secret only for an independently enabled intake release", () => {
     expect(() => validateVercelEnvironmentContract(metadata(), {
       expectedBetaApplicationsEnabled: true
     })).toThrow(new RegExp(`missing.*${betaApplicationSensitiveEnvironmentName}`, "i"));
+    expect(() => validateVercelEnvironmentContract(metadata(), {
+      expectedBetaApplicationsEnabled: true
+    })).toThrow(new RegExp(`missing.*${turnstileSensitiveEnvironmentName}`, "i"));
 
     const enabled = metadata({}, true);
     expect(validateVercelEnvironmentContract(enabled, {
       expectedBetaApplicationsEnabled: true
     })).toEqual({
       readableSettings: requiredReadableProductionEnvironmentNames.length + canonicalAliasNames.length,
-      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 1
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 2
     });
     expect(() => validateVercelEnvironmentContract(metadata({
       [betaApplicationSensitiveEnvironmentName]: { type: "encrypted" }
     }, true), { expectedBetaApplicationsEnabled: true })).toThrow(
       new RegExp(`${betaApplicationSensitiveEnvironmentName}.*sensitive`, "i")
     );
+    expect(() => validateVercelEnvironmentContract(metadata({
+      [turnstileSensitiveEnvironmentName]: { type: "encrypted" }
+    }, true), { expectedBetaApplicationsEnabled: true })).toThrow(
+      new RegExp(`${turnstileSensitiveEnvironmentName}.*sensitive`, "i")
+    );
   });
 
-  it("allows app-off releases while protecting a pre-provisioned application HMAC", () => {
+  it("allows app-off releases while protecting pre-provisioned intake secrets", () => {
     expect(validateVercelEnvironmentContract(metadata())).toMatchObject({
       sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length
     });
     expect(() => validateVercelEnvironmentContract(metadata({
       [betaApplicationSensitiveEnvironmentName]: { type: "encrypted" }
     }, true))).toThrow(new RegExp(`${betaApplicationSensitiveEnvironmentName}.*sensitive`, "i"));
+    expect(() => validateVercelEnvironmentContract(metadata({
+      [turnstileSensitiveEnvironmentName]: { type: "encrypted" }
+    }, true))).toThrow(new RegExp(`${turnstileSensitiveEnvironmentName}.*sensitive`, "i"));
     expect(validateVercelEnvironmentContract(metadata({}, true))).toMatchObject({
-      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 1
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 2
     });
+  });
+
+  it("admits the optional readable Sentry DSN in both profiles and keeps the auth token workflow-only", () => {
+    expect(forbiddenWorkflowOnlyEnvironmentNames).toContain("SENTRY_AUTH_TOKEN");
+
+    const demoWithDsn = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    demoWithDsn.envs.push({
+      key: optionalSentryReadableEnvironmentName,
+      type: "encrypted",
+      target: ["production"]
+    });
+    expect(validateVercelEnvironmentContract(demoWithDsn, { profile: "public-demo" })).toEqual({
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + 1 + canonicalAliasNames.length,
+      sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length
+    });
+
+    const demoSensitiveDsn = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    demoSensitiveDsn.envs.push({
+      key: optionalSentryReadableEnvironmentName,
+      type: "sensitive",
+      target: ["production"]
+    });
+    expect(() => validateVercelEnvironmentContract(demoSensitiveDsn, { profile: "public-demo" }))
+      .toThrow(new RegExp(`${optionalSentryReadableEnvironmentName}.*readable`, "i"));
+
+    const hostedWithDsn = metadata() as { envs: Array<Record<string, unknown>> };
+    hostedWithDsn.envs.push({
+      key: optionalSentryReadableEnvironmentName,
+      type: "plain",
+      target: ["production"]
+    });
+    expect(validateVercelEnvironmentContract(hostedWithDsn)).toMatchObject({
+      readableSettings: requiredReadableProductionEnvironmentNames.length + 1 + canonicalAliasNames.length
+    });
+
+    const demoAuthToken = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    demoAuthToken.envs.push({ key: "SENTRY_AUTH_TOKEN", type: "sensitive", target: ["production"] });
+    expect(() => validateVercelEnvironmentContract(demoAuthToken, { profile: "public-demo" }))
+      .toThrow(/forbidden workflow-only setting SENTRY_AUTH_TOKEN/i);
+  });
+
+  it("admits the optional demo Turnstile settings with their exact readable/Sensitive split", () => {
+    expect(publicDemoReadableProductionEnvironmentNames).toContain("DATABASE_POOL_MAX");
+
+    const enabled = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    enabled.envs.push(
+      { key: publicDemoTurnstileModeEnvironmentName, type: "encrypted", target: ["production"] },
+      { key: publicDemoTurnstileSiteKeyEnvironmentName, type: "plain", target: ["production"] },
+      { key: turnstileSensitiveEnvironmentName, type: "sensitive", target: ["production"] }
+    );
+    expect(validateVercelEnvironmentContract(enabled, { profile: "public-demo" })).toEqual({
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + 2 + canonicalAliasNames.length,
+      sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length + 1
+    });
+
+    const readableSecret = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    readableSecret.envs.push({
+      key: turnstileSensitiveEnvironmentName,
+      type: "encrypted",
+      target: ["production"]
+    });
+    expect(() => validateVercelEnvironmentContract(readableSecret, { profile: "public-demo" }))
+      .toThrow(new RegExp(`${turnstileSensitiveEnvironmentName}.*sensitive`, "i"));
+
+    const sensitiveMode = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    sensitiveMode.envs.push({
+      key: publicDemoTurnstileModeEnvironmentName,
+      type: "sensitive",
+      target: ["production"]
+    });
+    expect(() => validateVercelEnvironmentContract(sensitiveMode, { profile: "public-demo" }))
+      .toThrow(new RegExp(`${publicDemoTurnstileModeEnvironmentName}.*readable`, "i"));
+
+    // The hosted profile does not admit the demo widget settings.
+    const hostedMode = metadata() as { envs: Array<Record<string, unknown>> };
+    hostedMode.envs.push({
+      key: publicDemoTurnstileModeEnvironmentName,
+      type: "encrypted",
+      target: ["production"]
+    });
+    expect(validateVercelEnvironmentContract(hostedMode)).toMatchObject({
+      readableSettings: requiredReadableProductionEnvironmentNames.length + canonicalAliasNames.length
+    });
+  });
+
+  it.each(["shadow", "required"] as const)(
+    "enforces mode-implies-secret when the pulled demo Turnstile mode is %s",
+    (mode) => {
+      // An enabled rung with a site key but no siteverify secret must fail the
+      // contract instead of throwing on the first landing render.
+      const secretless = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+      secretless.envs.push(
+        { key: publicDemoTurnstileModeEnvironmentName, type: "encrypted", target: ["production"] },
+        { key: publicDemoTurnstileSiteKeyEnvironmentName, type: "plain", target: ["production"] }
+      );
+      expect(() => validateVercelEnvironmentContract(secretless, {
+        profile: "public-demo",
+        publicDemoTurnstileMode: mode
+      })).toThrow(new RegExp(
+        `${publicDemoTurnstileModeEnvironmentName} is ${mode}.*${turnstileSensitiveEnvironmentName}`
+      ));
+
+      // An enabled rung with a secret but no public widget site key fails too.
+      const keyless = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+      keyless.envs.push(
+        { key: publicDemoTurnstileModeEnvironmentName, type: "encrypted", target: ["production"] },
+        { key: turnstileSensitiveEnvironmentName, type: "sensitive", target: ["production"] }
+      );
+      expect(() => validateVercelEnvironmentContract(keyless, {
+        profile: "public-demo",
+        publicDemoTurnstileMode: mode
+      })).toThrow(new RegExp(
+        `${publicDemoTurnstileModeEnvironmentName} is ${mode}.*${publicDemoTurnstileSiteKeyEnvironmentName}`
+      ));
+
+      // The complete ladder passes with its exact readable/Sensitive split.
+      const complete = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+      complete.envs.push(
+        { key: publicDemoTurnstileModeEnvironmentName, type: "encrypted", target: ["production"] },
+        { key: publicDemoTurnstileSiteKeyEnvironmentName, type: "plain", target: ["production"] },
+        { key: turnstileSensitiveEnvironmentName, type: "sensitive", target: ["production"] }
+      );
+      expect(validateVercelEnvironmentContract(complete, {
+        profile: "public-demo",
+        publicDemoTurnstileMode: mode
+      })).toEqual({
+        readableSettings: publicDemoReadableProductionEnvironmentNames.length + 2 + canonicalAliasNames.length,
+        sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length + 1
+      });
+    }
+  );
+
+  it("keeps the demo Turnstile ladder optional while the pulled mode is off", () => {
+    // Mode off (or an absent option) never requires the ladder entries.
+    expect(validateVercelEnvironmentContract(publicDemoMetadata(), {
+      profile: "public-demo",
+      publicDemoTurnstileMode: "off"
+    })).toEqual({
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + canonicalAliasNames.length,
+      sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length
+    });
+    expect(validateVercelEnvironmentContract(publicDemoMetadata(), {
+      profile: "public-demo"
+    })).toEqual({
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + canonicalAliasNames.length,
+      sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length
+    });
+
+    // A pre-provisioned secret without an enabled mode stays allowed.
+    const preProvisioned = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    preProvisioned.envs.push({
+      key: turnstileSensitiveEnvironmentName,
+      type: "sensitive",
+      target: ["production"]
+    });
+    expect(validateVercelEnvironmentContract(preProvisioned, {
+      profile: "public-demo",
+      publicDemoTurnstileMode: "off"
+    })).toEqual({
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + canonicalAliasNames.length,
+      sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length + 1
+    });
+
+    // The option is a public-demo concept and fails closed elsewhere.
+    expect(() => validateVercelEnvironmentContract(metadata(), {
+      publicDemoTurnstileMode: "shadow"
+    })).toThrow(/public-demo profile/i);
+    expect(() => validateVercelEnvironmentContract(publicDemoMetadata(), {
+      profile: "public-demo",
+      publicDemoTurnstileMode: "enabled" as never
+    })).toThrow(/off, shadow, or required/i);
+  });
+
+  it("parses the pulled demo Turnstile mode and fails closed on unknown rungs", () => {
+    expect(validatePulledVercelEnvironmentContract(
+      `${publicDemoTurnstileModeEnvironmentName}=shadow\n`
+    )).toEqual({ settings: 1, demoTurnstileMode: "shadow" });
+    expect(validatePulledVercelEnvironmentContract(
+      `${publicDemoTurnstileModeEnvironmentName}="required"\n`
+    )).toEqual({ settings: 1, demoTurnstileMode: "required" });
+    expect(validatePulledVercelEnvironmentContract(
+      `${publicDemoTurnstileModeEnvironmentName}='off'\n`
+    )).toEqual({ settings: 1, demoTurnstileMode: "off" });
+    expect(validatePulledVercelEnvironmentContract("AUTH_SECRET=value\n"))
+      .toEqual({ settings: 1, demoTurnstileMode: "off" });
+    expect(() => validatePulledVercelEnvironmentContract(
+      `${publicDemoTurnstileModeEnvironmentName}=enabled\n`
+    )).toThrow(/must be exactly off, shadow, or required/i);
+    expect(() => validatePulledVercelEnvironmentContract(
+      `${publicDemoTurnstileModeEnvironmentName}=\n`
+    )).toThrow(/must be exactly off, shadow, or required/i);
+  });
+
+  it("fails the validation script when an enabled pulled mode lacks the siteverify secret", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "kinresolve-demo-turnstile-ladder-"));
+    scratchDirectories.push(directory);
+    const metadataPath = path.join(directory, "metadata.json");
+    const completeMetadataPath = path.join(directory, "complete-metadata.json");
+    const pulledEnvironmentPath = path.join(directory, "production.env");
+
+    const secretless = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    secretless.envs.push(
+      { key: publicDemoTurnstileModeEnvironmentName, type: "encrypted", target: ["production"] },
+      { key: publicDemoTurnstileSiteKeyEnvironmentName, type: "plain", target: ["production"] }
+    );
+    await writeFile(metadataPath, JSON.stringify(secretless), "utf8");
+    const complete = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    complete.envs.push(
+      { key: publicDemoTurnstileModeEnvironmentName, type: "encrypted", target: ["production"] },
+      { key: publicDemoTurnstileSiteKeyEnvironmentName, type: "plain", target: ["production"] },
+      { key: turnstileSensitiveEnvironmentName, type: "sensitive", target: ["production"] }
+    );
+    await writeFile(completeMetadataPath, JSON.stringify(complete), "utf8");
+    await writeFile(
+      pulledEnvironmentPath,
+      [
+        ...publicDemoReadableProductionEnvironmentNames.map((name) => `${name}=readable`),
+        `${publicDemoTurnstileModeEnvironmentName}=shadow`,
+        `${publicDemoTurnstileSiteKeyEnvironmentName}=widget-site-key`,
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const run = (candidateMetadataPath: string) => spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      path.join(process.cwd(), "scripts", "validate-vercel-environment.mjs"),
+      candidateMetadataPath,
+      pulledEnvironmentPath
+    ], {
+      encoding: "utf8",
+      cwd: process.cwd(),
+      env: { ...process.env, EXPECTED_VERCEL_ENVIRONMENT_PROFILE: "public-demo" }
+    });
+
+    const rejected = run(metadataPath);
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toMatch(new RegExp(
+      `${publicDemoTurnstileModeEnvironmentName} is shadow.*${turnstileSensitiveEnvironmentName}`
+    ));
+
+    const accepted = run(completeMetadataPath);
+    expect(accepted.status, accepted.stderr).toBe(0);
+    expect(accepted.stdout).toMatch(/verified.*readable.*sensitive/i);
   });
 
   it.each(forbiddenWorkflowOnlyEnvironmentNames)(
@@ -260,7 +519,8 @@ describe("Vercel hosted environment metadata contract", () => {
     ].join("\n");
 
     expect(validatePulledVercelEnvironmentContract(contents)).toEqual({
-      settings: requiredSensitiveProductionEnvironmentNames.length + 1
+      settings: requiredSensitiveProductionEnvironmentNames.length + 1,
+      demoTurnstileMode: "off"
     });
   });
 
@@ -373,7 +633,7 @@ type Override = Partial<{
 
 function metadata(
   overrides: Record<string, Override> = {},
-  includeBetaApplicationSecret = false,
+  includeIntakeSecrets = false,
   aliasNames: readonly string[] = canonicalAliasNames
 ) {
   return {
@@ -384,11 +644,16 @@ function metadata(
         target: ["production"],
         ...overrides[key]
       })),
-      ...(includeBetaApplicationSecret ? [{
+      ...(includeIntakeSecrets ? [{
         key: betaApplicationSensitiveEnvironmentName,
         type: "sensitive",
         target: ["production"],
         ...overrides[betaApplicationSensitiveEnvironmentName]
+      }, {
+        key: turnstileSensitiveEnvironmentName,
+        type: "sensitive",
+        target: ["production"],
+        ...overrides[turnstileSensitiveEnvironmentName]
       }] : []),
       ...[...requiredReadableProductionEnvironmentNames, ...aliasNames].map((key) => ({
         key,
