@@ -1,6 +1,6 @@
-// This module is executed directly by scripts/migrate.mjs under Node's type
-// stripping, so it must only use erasable TypeScript syntax and must not
-// import other project modules.
+// This module is executed directly by scripts/migrate.mjs and
+// scripts/migrate-production.mjs under Node's type stripping, so it must only
+// use erasable TypeScript syntax and must not import other project modules.
 
 // Node's dual-stack connect failure is an AggregateError whose own message is
 // the empty string and whose cause codes sit in the nested errors array, so a
@@ -44,8 +44,8 @@ function findConnectionFailureCode(error: unknown, depth = 0): string | undefine
   return undefined;
 }
 
-// Names the database target without echoing DATABASE_URL credentials.
-function describeDatabaseTarget(databaseUrl: string | undefined): string {
+// Names the database target without echoing connection-string credentials.
+function describeDatabaseTarget(databaseUrl: string | undefined, variableName: string): string {
   if (databaseUrl) {
     try {
       const parsed = new URL(databaseUrl);
@@ -55,27 +55,31 @@ function describeDatabaseTarget(databaseUrl: string | undefined): string {
       // Unparseable URLs fall through to the generic description.
     }
   }
-  return "the database configured in DATABASE_URL";
+  return `the database configured in ${variableName}`;
 }
 
-export function describeMigrationFailure(error: unknown, databaseUrl?: string): string {
-  const target = describeDatabaseTarget(databaseUrl);
+export function describeMigrationFailure(
+  error: unknown,
+  databaseUrl?: string,
+  variableName = "DATABASE_URL"
+): string {
+  const target = describeDatabaseTarget(databaseUrl, variableName);
   const connectionCode = findConnectionFailureCode(error);
   const connectionTimedOut =
     error instanceof Error && error.message.includes("timeout exceeded when trying to connect");
   if (connectionCode || connectionTimedOut) {
     return (
-      `Cannot reach DATABASE_URL at ${target} (${connectionCode ?? "connection timeout"}). ` +
-      "Start Postgres (docker compose up -d postgres) or fix DATABASE_URL."
+      `Cannot reach ${variableName} at ${target} (${connectionCode ?? "connection timeout"}). ` +
+      `Start Postgres (docker compose up -d postgres) or fix ${variableName}.`
     );
   }
 
   const sqlState = readErrorCode(error);
   if (sqlState === "3D000") {
-    return `Database missing at ${target} — create it (or fix DATABASE_URL), then rerun npm run db:migrate.`;
+    return `Database missing at ${target} — create it (or fix ${variableName}), then rerun npm run db:migrate.`;
   }
   if (sqlState === "28P01" || sqlState === "28000") {
-    return `Database authentication failed for ${target} — check the DATABASE_URL credentials.`;
+    return `Database authentication failed for ${target} — check the ${variableName} credentials.`;
   }
 
   const message = error instanceof Error ? error.message.trim() : String(error).trim();
