@@ -65,12 +65,15 @@ describe("public demo marketing conversion", () => {
     const headerActions = header.slice(header.indexOf('className="header-actions"'), header.indexOf('className="mobile-menu"'));
 
     expect(site).toMatch(/href:\s*["']\/method["'],\s*label:\s*["']Method["']/);
-    expect(desktop).toMatch(/navigation\.slice\(0,\s*2\)/);
+    expect(desktop).toMatch(/navigation\.slice\(0,\s*3\)/);
     expect(desktop).toMatch(/<details className=["']desktop-nav-more["']>[\s\S]*<summary>More/);
-    expect(desktop).toMatch(/navigation\.slice\(2\)/);
+    expect(desktop).toMatch(/navigation\.slice\(3\)/);
     expect(desktop).toMatch(/href=\{site\.github\}/);
+    expect(site.indexOf('label: "Method"')).toBeLessThan(site.indexOf('label: "Pricing"'));
+    expect(site.indexOf('label: "Pricing"')).toBeLessThan(site.indexOf('label: "Developers"'));
     expect(site.indexOf('label: "Developers"')).toBeLessThan(site.indexOf('label: "Open source"'));
-    expect(site.indexOf('label: "Open source"')).toBeLessThan(site.indexOf('label: "About"'));
+    expect(site.indexOf('label: "Open source"')).toBeLessThan(site.indexOf('label: "Roadmap"'));
+    expect(site.indexOf('label: "Roadmap"')).toBeLessThan(site.indexOf('label: "About"'));
     expect(site.indexOf('label: "About"')).toBeLessThan(site.indexOf('label: "Privacy"'));
     expect(mobile).toMatch(/navigation\.map/);
     expect(mobile).toMatch(/href=\{site\.github\}/);

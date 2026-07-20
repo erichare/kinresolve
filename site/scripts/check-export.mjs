@@ -74,7 +74,7 @@ for (const file of htmlFiles) {
   }
 }
 
-const requiredRoutes = ["index.html", "product/index.html", "method/index.html", "developers/index.html", "privacy/index.html", "open-source/index.html", "about/index.html", "beta/index.html", "beta/thanks/index.html", "challenge/index.html", "openapi/kinresolve-v1.yaml", "icon.png", "manifest.webmanifest", "robots.txt", "sitemap.xml"];
+const requiredRoutes = ["index.html", "product/index.html", "method/index.html", "pricing/index.html", "roadmap/index.html", "developers/index.html", "privacy/index.html", "open-source/index.html", "about/index.html", "beta/index.html", "beta/thanks/index.html", "challenge/index.html", "openapi/kinresolve-v1.yaml", "icon.png", "manifest.webmanifest", "robots.txt", "sitemap.xml"];
 for (const route of requiredRoutes) {
   if (!existsSync(join(outputRoot, route))) problems.push(`Missing required export: ${route}`);
 }
@@ -196,8 +196,10 @@ const pageUrls = new Map([
   ["developers/index.html", "https://kinresolve.com/developers/"],
   ["method/index.html", "https://kinresolve.com/method/"],
   ["open-source/index.html", "https://kinresolve.com/open-source/"],
+  ["pricing/index.html", "https://kinresolve.com/pricing/"],
   ["privacy/index.html", "https://kinresolve.com/privacy/"],
-  ["product/index.html", "https://kinresolve.com/product/"]
+  ["product/index.html", "https://kinresolve.com/product/"],
+  ["roadmap/index.html", "https://kinresolve.com/roadmap/"]
 ]);
 for (const [page, expectedUrl] of pageUrls) {
   const html = readFileSync(join(outputRoot, page), "utf8");
@@ -356,6 +358,37 @@ if (!product.includes(expectedReleaseClaims.mediaBoundary)) {
 const method = readFileSync(join(outputRoot, "method/index.html"), "utf8");
 if (!method.includes(expectedReleaseClaims.methodBoundary)) {
   problems.push(`Method page is missing its ${marketingReleaseMode} hosted-access boundary.`);
+}
+
+const pricing = readFileSync(join(outputRoot, "pricing/index.html"), "utf8");
+for (const [description, claim] of [
+  ["hosted-beta cost boundary", "Free during the beta"],
+  ["pre-billing notice commitment", "hosted plans will be announced before anything costs money"],
+  ["beta-participant notice commitment", "beta participants get clear notice first"],
+  ["self-hosted license commitment", "AGPL-3.0-only"],
+  ["demo expiry disclosure", "expires after 24 hours"],
+  ["no-payment-step disclosure", "no billing or payment-information step"]
+]) {
+  if (!pricing.includes(claim)) problems.push(`Pricing page is missing its ${description}: ${claim}`);
+}
+const pricingVisibleMarkup = pricing.replace(/<script[\s\S]*?<\/script>/g, "");
+if (/[$€£]\s?\d/.test(pricingVisibleMarkup) || /\d+\s?(?:\/|per\s+)(?:month|mo\b|year|yr\b|user|seat)/i.test(pricingVisibleMarkup)) {
+  problems.push("Pricing page must not contain a price before hosted pricing is announced.");
+}
+
+const roadmap = readFileSync(join(outputRoot, "roadmap/index.html"), "utf8");
+for (const [description, claim] of [
+  ["trust-model framing", "The roadmap is part of the trust model."],
+  ["availability discipline line", "In progress is not the same as available"],
+  ["canonical repository roadmap link", `href="https://github.com/erichare/kinresolve/blob/main/ROADMAP.md"`],
+  ["plans directory link", `href="https://github.com/erichare/kinresolve/tree/main/plans"`]
+]) {
+  if (!roadmap.includes(claim)) problems.push(`Roadmap page is missing its ${description}: ${claim}`);
+}
+for (const sectionLabel of ["Shipped", "In progress", "Next", "Exploring", "Not planned yet"]) {
+  if (!roadmap.includes(sectionLabel)) {
+    problems.push(`Roadmap page is missing its ${sectionLabel} section.`);
+  }
 }
 const manifest = readFileSync(join(outputRoot, "manifest.webmanifest"), "utf8");
 if (!manifest.includes('"src":"/icon.png"')) problems.push("Manifest is missing the generated favicon.");
