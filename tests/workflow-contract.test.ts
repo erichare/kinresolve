@@ -92,10 +92,15 @@ describe("product CI workflow contract", () => {
     const contents = await workflow("ci.yml");
     const staticJob = job(contents, "static", "database");
     const workflowLint = staticJob.indexOf("Lint workflow definitions");
+    const dependencyInstall = staticJob.indexOf("npm ci");
 
     expect(workflowLint).toBeGreaterThan(0);
-    expect(workflowLint).toBeGreaterThan(staticJob.indexOf("npm ci"));
+    expect(dependencyInstall).toBeGreaterThan(0);
+    expect(workflowLint).toBeGreaterThan(dependencyInstall);
     expect(workflowLint).toBeLessThan(staticJob.indexOf("Unit tests"));
+    expect(staticJob).toContain(
+      "https://github.com/rhysd/actionlint/releases/download/",
+    );
     expect(staticJob).toMatch(/actionlint_version="\d+\.\d+\.\d+"/);
     expect(staticJob).toMatch(/expected_sha256="[0-9a-f]{64}"/);
     expect(staticJob).toContain('test "$actual_sha256" = "$expected_sha256"');
