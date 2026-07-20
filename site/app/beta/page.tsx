@@ -20,8 +20,8 @@ const faqs = [
   [
     "When will I get access?",
     betaStatus.hostedLive
-      ? "Invitations are issued privately to approved participants. Applying records interest but does not create an account, guarantee access, or place you in an automatic queue. Cohorts remain deliberately small."
-      : "Invitations have not started. Applying records interest but does not create an account, guarantee access, or place you in an automatic queue. Cohorts will remain deliberately small after the launch gates pass."
+      ? "Invitations are issued privately to approved participants, and cohorts remain deliberately small."
+      : "Invitations have not started, and cohorts will remain deliberately small once they do."
   ],
   [
     `What file can ${betaStatus.hostedLive ? "the pilot" : "the proposed pilot"} accept?`,
@@ -42,8 +42,8 @@ const faqs = [
   [
     "What am I agreeing to when I apply?",
     betaStatus.hostedLive
-      ? "Only to receive beta communications. Applying is not acceptance of beta participation terms. An invitation presents the approved, published participation terms, privacy notice, and cohort boundary for explicit acceptance."
-      : "Only to receive beta communications. Applying is not acceptance of beta participation terms. An invitation can be accepted only after the approved participation terms, privacy notice, and cohort boundary are published and presented for explicit acceptance."
+      ? "Only to receive beta communications. An invitation presents the approved, published participation terms, privacy notice, and cohort boundary for explicit acceptance."
+      : "Only to receive beta communications. An invitation can be accepted only after the approved participation terms, privacy notice, and cohort boundary are published and presented for explicit acceptance."
   ],
   [
     "Can I self-host?",
@@ -80,7 +80,6 @@ export default function BetaPage() {
       <PageHero
         eyebrow={betaStatus.badge}
         lead={`${betaStatus.summary} We’re prioritizing family historians and genealogists with rigorous source, GEDCOM, and case workflows—and the patience to give detailed feedback.`}
-        note="Applying does not create an account, accept participation terms, or authorize family-data submission."
         primary="Start the application"
         primaryHref="#apply"
         title="Help shape a more rigorous genealogy research workspace."
@@ -93,7 +92,7 @@ export default function BetaPage() {
         </div>
         <div className="fit-cards">
           <article><strong>Bring</strong><p>An unresolved question and a workflow you know well. Do not send records with the application.</p></article>
-          <article><strong>Expect</strong><p>{betaStatus.headline} {betaStatus.rollout} Applying does not guarantee access.</p></article>
+          <article><strong>Expect</strong><p>{betaStatus.headline} {betaStatus.rollout}</p></article>
           <article><strong>Protect</strong><p>Living people and sensitive data. The application itself should contain no family records.</p></article>
         </div>
       </section>
@@ -125,11 +124,11 @@ export default function BetaPage() {
       <section className="shell section privacy-roadmap">
         <div className="section-heading">
           <span className="eyebrow">From application to archive</span>
-          <h2>An application is not an invitation—and an invitation is not permission to skip the gates.</h2>
+          <h2>Four steps, each with its own gate.</h2>
         </div>
         <ol>
           <li><strong>Apply without records</strong><span>Send only the fixed contact and workflow fields shown below. There is no free-text field or file upload.</span></li>
-          <li><strong>Private selection</strong><span>A founder reviews fit and capacity. There is no automatic account creation or guaranteed placement.</span></li>
+          <li><strong>Private selection</strong><span>A founder reviews fit and capacity.</span></li>
           <li><strong>Review exact documents</strong><span>Before account creation, an invite presents the approved participation terms, privacy notice, and cohort boundary for explicit acceptance.</span></li>
           <li><strong>Start synthetic</strong><span>Use fictional Hartwell–Mercer data first. Real family data remains prohibited until every real-data gate is approved and evidenced.</span></li>
         </ol>
@@ -141,7 +140,7 @@ export default function BetaPage() {
             <span className="eyebrow">Beta interest</span>
             <h2>Tell us about the work you want to test.</h2>
             <p>{betaApplicationMode === "application" ? "The active no-JavaScript form posts fixed, minimal fields to the product application endpoint. The marketing site remains static and does not store the submission." : `The fallback intake opens a prepared email addressed to ${site.betaEmail}. The marketing site does not store your submission.`}</p>
-            <p>Submitting consents only to beta communications. It does not accept participation terms or authorize Kin Resolve to receive family records. Read the current <Link href="/privacy">data-practices disclosure</Link> before applying.</p>
+            <p>Submitting consents only to beta communications. It does not accept participation terms, create an account, guarantee access, place you in a queue, or authorize Kin Resolve to receive family records. Read the current <Link href="/privacy">data-practices disclosure</Link> before applying.</p>
             <div className="application-boundary">
               <strong>Please do not submit</strong>
               <span>GEDCOM files, DNA results, relatives’ or other living people’s names or details, source images, credentials, or private family details.</span>

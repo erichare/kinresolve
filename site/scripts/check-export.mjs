@@ -65,7 +65,8 @@ for (const file of htmlFiles) {
     "a working beta",
     "available in the current beta",
     "private beta in development",
-    "hosted access is rolling out"
+    "hosted access is rolling out",
+    "hosted access begins only after the launch gates pass"
   ]) {
     if (html.toLowerCase().includes(forbiddenClaim)) {
       problems.push(`${file}: contains stale hosted-beta claim ${forbiddenClaim}`);
@@ -86,12 +87,12 @@ for (const metadata of ["og:image", "twitter:image", "canonical", "rel=\"icon\""
 const releaseClaims = {
   prelaunch: {
     headline: "Private beta applications are open.",
-    rollout: "Invitations have not started; hosted access begins only after the launch gates pass.",
+    rollout: "Invitations have not started.",
     productBoundary: "Hosted invitations have not started, and the API preview is not yet available.",
     privacyApi: "The hosted API remains unavailable until its release, edge-limit, canary, and revocation gates pass.",
     privacyLegal: "The approved participation terms, privacy notice, and cohort boundary have not been published.",
     developerBoundary: "The contract is implemented in source. Hosted access stays disabled until the SHA-bound staging, edge-rate-limit, production, and revocation gates pass",
-    methodBoundary: "Hosted access remains a proposed, gated cohort.",
+    methodBoundary: "Invitations have not started.",
     cohortContract: "Proposed cohort-one contract",
     mediaBoundary: "This is proof of the source product—not a claim that hosted invitations or the API are already live."
   },
@@ -102,7 +103,7 @@ const releaseClaims = {
     privacyApi: "The hosted API is not available in this release.",
     privacyLegal: "The approved participation terms, privacy notice, and cohort boundary are published as exact versioned documents",
     developerBoundary: "The hosted private beta is live for approved participants, but API v1 is not available in this release.",
-    methodBoundary: "Hosted access is live only for approved private-beta participants.",
+    methodBoundary: "Access is invitation-only for approved participants; the hosted API is not available in this release.",
     cohortContract: "Hosted cohort-one contract",
     mediaBoundary: "Hosted availability is limited to approved private-beta participants, and the API is not available in this release."
   },
@@ -113,7 +114,7 @@ const releaseClaims = {
     privacyApi: "API v1 is available only to approved private-beta participants for archives they own",
     privacyLegal: "The approved participation terms, privacy notice, and cohort boundary are published as exact versioned documents",
     developerBoundary: "API v1 is available only to approved private-beta participants for archives they own.",
-    methodBoundary: "Hosted access is live only for approved private-beta participants.",
+    methodBoundary: "Access remains invitation-only; API v1 is available only to approved participants for archives they own.",
     cohortContract: "Hosted cohort-one contract",
     mediaBoundary: "Hosted private-beta and API access are limited to approved participants and archives they own."
   }
@@ -271,9 +272,20 @@ for (const [description, pattern] of [
   ["real-data publishing exclusion", /real-data public publishing[\s\S]*disabled for cohort one/i],
   ["support posture", /one-business-day support acknowledgement target[\s\S]*not an uptime or response-time SLA/i],
   ["communications-only consent", /consents only to beta communications[\s\S]*does not accept participation terms/i],
+  ["consolidated application boundary", /does not accept participation terms, create an account, guarantee access, place you in a queue/i],
   ["synthetic-first boundary", /Start synthetic[\s\S]*Real family data remains prohibited until every real-data gate/i]
 ]) {
   if (!pattern.test(beta)) problems.push(`Beta page is missing its ${description}.`);
+}
+for (const retiredHedge of [
+  "Applying does not guarantee access",
+  "place you in an automatic queue",
+  "An application is not an invitation",
+  "Applying is not acceptance of beta participation terms"
+]) {
+  if (beta.includes(retiredHedge)) {
+    problems.push(`Beta page repeats a hedge outside its single application boundary: ${retiredHedge}`);
+  }
 }
 const applicationMode = process.env.KINRESOLVE_MARKETING_BETA_APPLICATION_MODE === "application";
 if (applicationMode) {

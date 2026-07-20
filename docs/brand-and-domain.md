@@ -1,6 +1,6 @@
 # Kin Resolve brand and domain contract
 
-Last updated: 2026-07-16
+Last updated: 2026-07-20
 
 This document keeps the public name, URLs, claims, and legacy technical identifiers consistent while the product moves from KinSleuth to Kin Resolve.
 
@@ -39,6 +39,10 @@ rehearsal gates are tracked in [`public-demo-runbook.md`](public-demo-runbook.md
 private-beta launch gates pass.
 
 ## Public claims contract
+
+Copy discipline: visitor-facing pages carry one status line each, sourced from the shared
+status modules; the full claims discipline lives in this document, not in repeated
+on-page qualifiers.
 
 Safe current claims must distinguish implemented source capabilities from hosted availability:
 

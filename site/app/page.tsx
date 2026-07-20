@@ -33,9 +33,9 @@ const capabilities = [
   ["GEDCOM integrity", "Preview imports, review re-import changes, preserve raw records, and export the archive again."],
   ["Research cases", "Keep evidence, hypotheses, confidence, and next actions attached to the question they support."],
   ["Source workspace", "Search source records and transcripts alongside the people and cases that depend on them."],
-  ["DNA match triage in source", `The source product can score and review CSV-imported matches as research leads. Hosted DNA is excluded from ${betaStatus.hostedLive ? "the first hosted cohort" : "the proposed first cohort"}.`],
+  ["DNA match triage in source", "The source product can score and review CSV-imported matches as research leads. Hosted DNA is excluded from cohort one."],
   ["Quality checks", "Surface date conflicts, privacy risks, source gaps, and profiles that are not ready to share."],
-  ["Optional analysis in source", `Use deterministic checks alone in ${betaStatus.hostedLive ? "the hosted cohort" : "the proposed hosted cohort"}. Operator-configured external AI exists in source but is excluded from cohort one.`]
+  ["Optional analysis in source", "Deterministic checks run without an AI provider. Operator-configured external AI exists in source but is excluded from cohort one."]
 ] as const;
 
 export default function HomePage() {
@@ -141,7 +141,7 @@ export default function HomePage() {
           <div className="section-heading centered-heading" data-beta-status-surface="home">
             <span className="eyebrow">{betaStatus.badge}</span>
             <h2>Built for the work behind the tree.</h2>
-            <p>{betaStatus.headline} {betaStatus.rollout} The source product already contains the research tools below; the hosted cohort {betaStatus.hostedLive ? "operates" : "will start"} with a narrower, explicit boundary.</p>
+            <p>{betaStatus.headline} {betaStatus.rollout} The source product already contains the research tools below; cohort one runs with a narrower, explicit boundary.</p>
           </div>
           <div className="capability-grid">
             {capabilities.map(([title, body], index) => (
@@ -189,7 +189,7 @@ export default function HomePage() {
             <article className="face-card face-private">
               <span className="face-kicker">Private workspace</span>
               <h3>Keep the unfinished work private.</h3>
-              <p>The source product keeps imported people, sources, DNA matches, cases, notes, and analysis runs behind authenticated workspace access. {betaStatus.hostedLive ? "The hosted cohort" : "The proposed hosted cohort"} excludes DNA and external AI.</p>
+              <p>The source product keeps imported people, sources, DNA matches, cases, notes, and analysis runs behind authenticated workspace access. Cohort one excludes DNA and external AI.</p>
               <ul><li>Research cases and hypotheses</li><li>DNA match triage</li><li>Source transcripts and notes</li></ul>
             </article>
             <article className="face-card face-public">
@@ -204,7 +204,7 @@ export default function HomePage() {
 
       <section className="shell section status-section">
         <div className="section-heading heading-row">
-          <div><span className="eyebrow">Build in public</span><h2>{betaStatus.headline}</h2><p>{betaStatus.rollout}</p></div>
+          <div><span className="eyebrow">Build in public</span><h2>Where the work stands.</h2><p>Implemented source capabilities and the cohort-one boundary, tracked in the open.</p></div>
           <a className="arrow-link" href={site.github}>Follow the roadmap <span aria-hidden="true">↗</span></a>
         </div>
         <div className="status-grid">
