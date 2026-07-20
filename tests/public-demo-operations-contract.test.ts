@@ -159,6 +159,42 @@ describe("public demo operational boundary", () => {
     expect(publicDemoRelease).not.toContain('if (!process.env[name]?.trim())');
   });
 
+  it("admits only a well-formed optional Sentry DSN and keeps upload credentials workflow-only", () => {
+    const vercelRelease = readRepositoryFile(".github/workflows/vercel-release.yml");
+
+    // The expected-value block validates the optional readable DSN's shape,
+    // because the build derives its CSP connect-src origin from it.
+    expect(publicDemoRelease).toContain("const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;");
+    expect(publicDemoRelease).toContain(
+      "/^https:\\/\\/[a-f0-9]+@o[0-9]+\\.ingest(?:\\.[a-z]{2})?\\.sentry\\.io\\/[0-9]+$/.test(sentryDsn)"
+    );
+
+    // Source-map upload credentials ride only on the artifact build steps.
+    const demoBuild = stepBlock(
+      publicDemoRelease,
+      "Build the immutable public demo artifact",
+      "Deploy the unaliased public demo candidate"
+    );
+    const stagingBuild = stepBlock(
+      vercelRelease,
+      "Build the staging production artifact",
+      "Deploy the immutable staging candidate"
+    );
+    const productionBuild = stepBlock(
+      vercelRelease,
+      "Build the production artifact before database mutation",
+      "Deploy the immutable production candidate"
+    );
+    for (const build of [demoBuild, stagingBuild, productionBuild]) {
+      expect(build).toContain("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}");
+      expect(build).toContain("SENTRY_ORG: ${{ vars.SENTRY_ORG }}");
+      expect(build).toContain("SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}");
+      expect(build).toContain("vercel build --prod");
+    }
+    // The auth token never becomes a runtime Vercel setting.
+    expect(publicDemoRelease.split("SENTRY_AUTH_TOKEN").length - 1).toBe(2);
+  });
+
   it("fails closed unless the dedicated AI Gateway key retains the approved $50 hard budget", () => {
     const gatewayValidation = publicDemoRelease.indexOf(
       "scripts/validate-public-demo-ai-gateway-key.mjs"

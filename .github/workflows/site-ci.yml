@@ -55,6 +55,9 @@ jobs:
       KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ matrix.application-mode }}
       KINRESOLVE_MARKETING_DEMO_MODE: ${{ matrix.demo-mode }}
       KINRESOLVE_MARKETING_ANALYTICS: ${{ matrix.analytics-mode || 'off' }}
+      # Cloudflare's documented always-passing dummy widget key: application-mode
+      # builds fail without a site key, and CI must never embed the real one.
+      KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
     defaults:
       run:
         working-directory: site

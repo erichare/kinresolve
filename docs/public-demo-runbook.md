@@ -46,6 +46,8 @@ Require reviewers and no deployment wait timer. Configure these secrets:
 - `KINRESOLVE_OBSERVABILITY_PROBE_SECRET`
 - `MIGRATION_DATABASE_URL`
 - `PUBLIC_DEMO_RUNTIME_DATABASE_URL`
+- `SENTRY_AUTH_TOKEN` (optional; workflow-only source-map upload — never a
+  Vercel setting)
 - `VERCEL_AUTOMATION_BYPASS_SECRET`
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
@@ -60,6 +62,8 @@ Configure these readable variables:
 - `MARKETING_VERCEL_PROJECT_ID`
 - `PRODUCTION_DATABASE_IDENTITY`
 - `PRODUCTION_VERCEL_PROJECT_ID`
+- `SENTRY_ORG` and `SENTRY_PROJECT` (optional; set together with
+  `SENTRY_AUTH_TOKEN` or source-map upload stays disabled)
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
 
@@ -88,7 +92,11 @@ contract validated in `.github/workflows/public-demo-release.yml`, including the
 database identity, `datasetMode=demo`, public-demo origin, disabled API v1/uploads/accounts,
 the aggregate analytics mode (`KINRESOLVE_PUBLIC_DEMO_ANALYTICS=plausible`; cookieless
 Plausible page and fixed-event counts, no identifier or record content), and the
-server-only AI, cookie, privacy-HMAC, cron, canary, and health-probe secrets.
+server-only AI, cookie, privacy-HMAC, cron, canary, and health-probe secrets. One
+optional readable setting is allowed: `NEXT_PUBLIC_SENTRY_DSN`, the public Sentry
+ingest identifier for aggressively scrubbed error events (no headers, cookies, query
+strings, bodies, or user identity; tracing and replay disabled). `SENTRY_AUTH_TOKEN`
+remains workflow-only and is rejected as a Vercel setting.
 
 ## First holding cutover
 

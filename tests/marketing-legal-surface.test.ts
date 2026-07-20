@@ -177,6 +177,61 @@ describe("private-beta marketing and legal surface", () => {
     expect(csp).toMatch(/connect-src [^;]*https:\/\/plausible\.io/);
   });
 
+  it("protects the native intake with a declarative Turnstile widget that preserves the no-JS form contract", async () => {
+    const [turnstile, betaForm, exportCheck, siteVercel, siteCi, siteDeploy, release] = await Promise.all([
+      readFile("site/lib/turnstile.ts", "utf8"),
+      readFile("site/components/beta-form.tsx", "utf8"),
+      readFile(files.exportCheck, "utf8"),
+      readFile("site/vercel.json", "utf8"),
+      readFile(".github/workflows/site-ci.yml", "utf8"),
+      readFile(".github/workflows/site-deploy.yml", "utf8"),
+      readFile(".github/workflows/vercel-release.yml", "utf8")
+    ]);
+
+    // An application-mode build without a widget site key must fail closed.
+    expect(turnstile).toContain(
+      "KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY must be set when the beta intake mode is application."
+    );
+    expect(turnstile).toContain('betaApplicationMode === "application" && marketingTurnstileSiteKey === undefined');
+
+    // Declarative widget: the challenge script injects the optional token
+    // input; a no-JS visitor still submits the plain cross-origin form POST.
+    expect(betaForm).toContain('src="https://challenges.cloudflare.com/turnstile/v0/api.js"');
+    expect(betaForm).toContain('className="cf-turnstile"');
+    expect(betaForm).toContain('data-action="beta-application"');
+    expect(betaForm).toContain("data-sitekey={marketingTurnstileSiteKey}");
+    expect(betaForm).toContain("applicationMode && marketingTurnstileSiteKey");
+    expect(betaForm).not.toContain('name="cf-turnstile-response"');
+
+    // check-export pins the widget per intake mode in lockstep.
+    expect(exportCheck).toContain("Beta application mode is missing the declarative Turnstile challenge script.");
+    expect(exportCheck).toContain("Beta application mode is missing its configured Turnstile widget.");
+    expect(exportCheck).toContain("The Turnstile token input must be widget-injected, never prerendered.");
+    expect(exportCheck).toContain("Beta mail fallback must not load the Turnstile challenge widget.");
+
+    // The static site CSP admits the challenge script and its iframe only.
+    const csp = (JSON.parse(siteVercel) as {
+      headers: Array<{ headers: Array<{ key: string; value: string }> }>;
+    }).headers[0].headers.find(({ key }) => key === "Content-Security-Policy")?.value ?? "";
+    expect(csp).toMatch(/script-src [^;]*https:\/\/challenges\.cloudflare\.com/);
+    expect(csp).toMatch(/frame-src https:\/\/challenges\.cloudflare\.com/);
+    expect(csp).not.toMatch(/connect-src [^;]*challenges\.cloudflare\.com/);
+
+    // Application-mode builds receive a site key in every workflow: the
+    // documented always-passing dummy in CI and proof builds, the repository
+    // variable for real deploys.
+    expect(siteCi).toContain("KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: 1x00000000000000000000AA");
+    expect(siteDeploy).toContain(
+      "KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: ${{ vars.KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY }}"
+    );
+    expect(release).toContain(
+      "KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: ${{ vars.KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY }}"
+    );
+    expect(release).toContain(
+      'KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY="${KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}"'
+    );
+  });
+
   it("gates the demo-pulse counter behind the live demo mode and the stats-endpoint contract", async () => {
     const [pulse, home, product, privacy, exportCheck, siteVercel] = await Promise.all([
       readFile("site/components/demo-pulse.tsx", "utf8"),

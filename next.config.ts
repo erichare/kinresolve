@@ -1,3 +1,4 @@
+import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const buildReleaseCommitSha = validatedBuildReleaseCommitSha();
@@ -53,6 +54,12 @@ function securityHeaders(): Array<{ key: string; value: string }> {
   if (storageOrigin) {
     connectSources.push(storageOrigin);
   }
+  // Sentry error events go only to the exact ingest origin the configured DSN
+  // names; without a DSN, no Sentry origin enters the policy at all.
+  const sentryOrigin = sentryIngestOrigin();
+  if (sentryOrigin) {
+    connectSources.push(sentryOrigin);
+  }
 
   const contentSecurityPolicy = [
     "default-src 'self'",
@@ -89,6 +96,17 @@ function securityHeaders(): Array<{ key: string; value: string }> {
   ];
 }
 
+function sentryIngestOrigin(): string | undefined {
+  const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN?.trim();
+  if (!dsn) return undefined;
+  try {
+    const url = new URL(dsn);
+    return url.protocol === "https:" ? url.origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function configuredStorageOrigin(): string | undefined {
   const endpoint = process.env.S3_PUBLIC_ENDPOINT?.trim() || process.env.S3_ENDPOINT?.trim();
   if (!endpoint) return undefined;
@@ -119,4 +137,32 @@ function hostedBuild(): boolean {
     || (process.env.VERCEL?.trim() === "1" && process.env.NODE_ENV === "production");
 }
 
-export default nextConfig;
+// Source-map upload is workflow-only: the release workflows provide the
+// SENTRY_* build credentials, and every other build — self-hosted, local, and
+// CI — exports the identical untouched configuration with `output:
+// "standalone"` preserved. Uploaded source maps are deleted from the build
+// output so deployments never serve them.
+function sentrySourceMapUploadConfigured(): boolean {
+  return Boolean(
+    process.env.SENTRY_AUTH_TOKEN?.trim()
+    && process.env.SENTRY_ORG?.trim()
+    && process.env.SENTRY_PROJECT?.trim()
+  );
+}
+
+export default sentrySourceMapUploadConfigured()
+  ? withSentryConfig(nextConfig, {
+    authToken: process.env.SENTRY_AUTH_TOKEN,
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    silent: true,
+    sourcemaps: { deleteSourcemapsAfterUpload: true },
+    // Error tracking is best effort: a failed source-map upload must never
+    // fail a release build.
+    errorHandler: (error) => {
+      console.warn(`Sentry source-map upload failed: ${error.message}`);
+    },
+    telemetry: false,
+    widenClientFileUpload: false
+  })
+  : nextConfig;

@@ -63,6 +63,40 @@ describe("application security headers", () => {
     );
   });
 
+  it("allows only the exact DSN-derived Sentry ingest origin, and only when a DSN is configured", async () => {
+    stubPrivateHostedEnvironment();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv(
+      "NEXT_PUBLIC_SENTRY_DSN",
+      "https://abc123def456@o4507000000000000.ingest.us.sentry.io/4507000000000001"
+    );
+
+    const rules = await nextConfig.headers?.();
+    const headers = Object.fromEntries((rules?.[0]?.headers ?? []).map(({ key, value }) => [key, value]));
+    expect(headers["Content-Security-Policy"]).toMatch(
+      /connect-src 'self' [^;]*https:\/\/o4507000000000000\.ingest\.us\.sentry\.io/
+    );
+    // Only the origin enters the policy — never the DSN key or project path.
+    expect(headers["Content-Security-Policy"]).not.toContain("abc123def456");
+    expect(headers["Content-Security-Policy"]).not.toContain("4507000000000001");
+  });
+
+  it("adds no Sentry origin without a DSN and ignores a malformed or non-https DSN", async () => {
+    stubPrivateHostedEnvironment();
+    vi.stubEnv("NODE_ENV", "production");
+
+    const withoutDsn = await nextConfig.headers?.();
+    expect(withoutDsn?.[0]?.headers.find(({ key }) => key === "Content-Security-Policy")?.value)
+      .not.toContain("sentry.io");
+
+    for (const malformed of ["not-a-url", "http://abc@o1.ingest.sentry.io/2"]) {
+      vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", malformed);
+      const rules = await nextConfig.headers?.();
+      expect(rules?.[0]?.headers.find(({ key }) => key === "Content-Security-Policy")?.value)
+        .not.toContain("sentry.io");
+    }
+  });
+
   it("rejects an invalid hosted analytics mode instead of guessing a policy", async () => {
     stubPrivateHostedEnvironment();
     vi.stubEnv("NODE_ENV", "production");

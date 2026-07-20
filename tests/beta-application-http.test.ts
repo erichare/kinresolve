@@ -2,15 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   betaApplicationMaximumBodyBytes,
+  betaApplicationRateLanes,
+  betaApplicationTurnstileAction,
+  betaApplicationTurnstileField,
+  betaApplicationTurnstileHostname,
   handleBetaApplicationPost,
   readBetaApplicationForm
 } from "@/lib/beta-application-http";
 import type { ConsumeDurableAuthRateLimitInput } from "@/lib/durable-auth-rate-limit";
 import type { NormalizedBetaApplication } from "@/lib/beta-applications";
+import type { TurnstileVerdict } from "@/lib/turnstile-verify";
 
 const environment = {
   KINRESOLVE_BETA_APPLICATIONS_ENABLED: "true",
   KINRESOLVE_BETA_APPLICATION_HMAC_SECRET: "a".repeat(32),
+  KINRESOLVE_TURNSTILE_SECRET_KEY: "t".repeat(35),
   VERCEL: "1"
 };
 
@@ -103,6 +109,124 @@ describe("beta application native-form request parser", () => {
     encoded({ ...validFields(), name: "%FF" }).replace(/%25FF/g, "%FF")
   ])("rejects duplicate, unknown, missing, or malformed fields", async (body) => {
     await expect(readBetaApplicationForm(request(body))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("admits the optional widget-injected Turnstile token exactly once", async () => {
+    const withToken = await readBetaApplicationForm(request(
+      encoded({ ...validFields(), [betaApplicationTurnstileField]: "widget-token" })
+    ));
+    expect(withToken.get(betaApplicationTurnstileField)).toBe("widget-token");
+
+    // A no-JS submission carries no token field at all and stays valid.
+    const withoutToken = await readBetaApplicationForm(request());
+    expect(withoutToken.get(betaApplicationTurnstileField)).toBeNull();
+
+    await expect(readBetaApplicationForm(request(
+      `${encoded({ ...validFields(), [betaApplicationTurnstileField]: "one" })}&${betaApplicationTurnstileField}=two`
+    ))).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("beta application Turnstile rate lanes", () => {
+  function laneProbe(verdict?: TurnstileVerdict) {
+    const calls: ConsumeDurableAuthRateLimitInput[] = [];
+    const consume = vi.fn(async (input: ConsumeDurableAuthRateLimitInput) => {
+      calls.push(input);
+      return { allowed: true, remaining: 1, retryAfterSeconds: 0 };
+    });
+    const captureError = vi.fn(async () => ({}) as never);
+    const submit = vi.fn(async () => ({ applicationId: crypto.randomUUID(), duplicate: false }));
+    const verifyTurnstile = vi.fn(async () => verdict ?? ({ outcome: "verified" } as const));
+    return { calls, captureError, consume, submit, verifyTurnstile };
+  }
+
+  function laneOf(calls: ConsumeDurableAuthRateLimitInput[]) {
+    return {
+      email: {
+        maximumRequests: calls[1]?.maximumRequests,
+        windowSeconds: calls[1]?.windowSeconds
+      },
+      network: {
+        maximumRequests: calls[0]?.maximumRequests,
+        windowSeconds: calls[0]?.windowSeconds
+      }
+    };
+  }
+
+  it("pins the standard and strict lane budgets", () => {
+    expect(betaApplicationRateLanes).toEqual({
+      standard: {
+        email: { maximumRequests: 5, windowSeconds: 86_400 },
+        network: { maximumRequests: 20, windowSeconds: 3_600 }
+      },
+      strict: {
+        email: { maximumRequests: 2, windowSeconds: 86_400 },
+        network: { maximumRequests: 3, windowSeconds: 3_600 }
+      }
+    });
+  });
+
+  it("keeps token-free no-JS submissions working on the strict lanes without calling siteverify", async () => {
+    const probe = laneProbe();
+    const response = await handleBetaApplicationPost(request(), { ...probe, environment });
+    expect(response.status).toBe(303);
+    expect(probe.verifyTurnstile).not.toHaveBeenCalled();
+    expect(probe.captureError).not.toHaveBeenCalled();
+    expect(laneOf(probe.calls)).toEqual(betaApplicationRateLanes.strict);
+    expect(probe.submit).toHaveBeenCalledOnce();
+  });
+
+  it("unlocks the standard lanes only for a verified token bound to our action and hostname", async () => {
+    const probe = laneProbe({ outcome: "verified" });
+    const response = await handleBetaApplicationPost(request(
+      encoded({ ...validFields(), [betaApplicationTurnstileField]: "verified-token" })
+    ), { ...probe, environment });
+    expect(response.status).toBe(303);
+    expect(probe.verifyTurnstile).toHaveBeenCalledWith({
+      expectedAction: betaApplicationTurnstileAction,
+      expectedHostname: betaApplicationTurnstileHostname,
+      secretKey: environment.KINRESOLVE_TURNSTILE_SECRET_KEY,
+      token: "verified-token"
+    });
+    expect(laneOf(probe.calls)).toEqual(betaApplicationRateLanes.standard);
+    expect(probe.captureError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a rejected token on the strict lanes instead of refusing the applicant", async () => {
+    const probe = laneProbe({ outcome: "rejected" });
+    const response = await handleBetaApplicationPost(request(
+      encoded({ ...validFields(), [betaApplicationTurnstileField]: "expired-token" })
+    ), { ...probe, environment });
+    expect(response.status).toBe(303);
+    expect(laneOf(probe.calls)).toEqual(betaApplicationRateLanes.strict);
+    expect(probe.captureError).not.toHaveBeenCalled();
+    expect(probe.submit).toHaveBeenCalledOnce();
+  });
+
+  it("captures a siteverify outage as an operational error and stays on the strict lanes", async () => {
+    const outage = new Error("siteverify timed out");
+    const probe = laneProbe({ error: outage, outcome: "unavailable" });
+    const response = await handleBetaApplicationPost(request(
+      encoded({ ...validFields(), [betaApplicationTurnstileField]: "unverifiable-token" })
+    ), { ...probe, environment });
+    expect(response.status).toBe(303);
+    expect(laneOf(probe.calls)).toEqual(betaApplicationRateLanes.strict);
+    expect(probe.captureError).toHaveBeenCalledWith({
+      event: "api_error",
+      route: "/api/public/beta-applications",
+      severity: "warning",
+      statusClass: "2xx"
+    }, outage);
+    expect(probe.submit).toHaveBeenCalledOnce();
+  });
+
+  it("never lets an operational-capture failure change the applicant outcome", async () => {
+    const probe = laneProbe({ error: new Error("outage"), outcome: "unavailable" });
+    probe.captureError.mockRejectedValueOnce(new Error("tracker offline"));
+    const response = await handleBetaApplicationPost(request(
+      encoded({ ...validFields(), [betaApplicationTurnstileField]: "unverifiable-token" })
+    ), { ...probe, environment });
+    expect(response.status).toBe(303);
   });
 });
 

@@ -7,10 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   betaApplicationSensitiveEnvironmentName,
   forbiddenWorkflowOnlyEnvironmentNames,
+  optionalSentryReadableEnvironmentName,
   publicDemoReadableProductionEnvironmentNames,
   publicDemoSensitiveProductionEnvironmentNames,
   requiredReadableProductionEnvironmentNames,
   requiredSensitiveProductionEnvironmentNames,
+  turnstileSensitiveEnvironmentName,
   validatePulledVercelEnvironmentContract,
   validateVercelEnvironmentContract
 } from "@/lib/vercel-environment-contract";
@@ -120,35 +122,85 @@ describe("Vercel hosted environment metadata contract", () => {
       .toThrow(new RegExp(`${key}.*readable`, "i"));
   });
 
-  it("requires the application HMAC only for an independently enabled intake release", () => {
+  it("requires the application HMAC and Turnstile secret only for an independently enabled intake release", () => {
     expect(() => validateVercelEnvironmentContract(metadata(), {
       expectedBetaApplicationsEnabled: true
     })).toThrow(new RegExp(`missing.*${betaApplicationSensitiveEnvironmentName}`, "i"));
+    expect(() => validateVercelEnvironmentContract(metadata(), {
+      expectedBetaApplicationsEnabled: true
+    })).toThrow(new RegExp(`missing.*${turnstileSensitiveEnvironmentName}`, "i"));
 
     const enabled = metadata({}, true);
     expect(validateVercelEnvironmentContract(enabled, {
       expectedBetaApplicationsEnabled: true
     })).toEqual({
       readableSettings: requiredReadableProductionEnvironmentNames.length,
-      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 1
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 2
     });
     expect(() => validateVercelEnvironmentContract(metadata({
       [betaApplicationSensitiveEnvironmentName]: { type: "encrypted" }
     }, true), { expectedBetaApplicationsEnabled: true })).toThrow(
       new RegExp(`${betaApplicationSensitiveEnvironmentName}.*sensitive`, "i")
     );
+    expect(() => validateVercelEnvironmentContract(metadata({
+      [turnstileSensitiveEnvironmentName]: { type: "encrypted" }
+    }, true), { expectedBetaApplicationsEnabled: true })).toThrow(
+      new RegExp(`${turnstileSensitiveEnvironmentName}.*sensitive`, "i")
+    );
   });
 
-  it("allows app-off releases while protecting a pre-provisioned application HMAC", () => {
+  it("allows app-off releases while protecting pre-provisioned intake secrets", () => {
     expect(validateVercelEnvironmentContract(metadata())).toMatchObject({
       sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length
     });
     expect(() => validateVercelEnvironmentContract(metadata({
       [betaApplicationSensitiveEnvironmentName]: { type: "encrypted" }
     }, true))).toThrow(new RegExp(`${betaApplicationSensitiveEnvironmentName}.*sensitive`, "i"));
+    expect(() => validateVercelEnvironmentContract(metadata({
+      [turnstileSensitiveEnvironmentName]: { type: "encrypted" }
+    }, true))).toThrow(new RegExp(`${turnstileSensitiveEnvironmentName}.*sensitive`, "i"));
     expect(validateVercelEnvironmentContract(metadata({}, true))).toMatchObject({
-      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 1
+      sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 2
     });
+  });
+
+  it("admits the optional readable Sentry DSN in both profiles and keeps the auth token workflow-only", () => {
+    expect(forbiddenWorkflowOnlyEnvironmentNames).toContain("SENTRY_AUTH_TOKEN");
+
+    const demoWithDsn = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    demoWithDsn.envs.push({
+      key: optionalSentryReadableEnvironmentName,
+      type: "encrypted",
+      target: ["production"]
+    });
+    expect(validateVercelEnvironmentContract(demoWithDsn, { profile: "public-demo" })).toEqual({
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + 1,
+      sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length
+    });
+
+    const demoSensitiveDsn = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    demoSensitiveDsn.envs.push({
+      key: optionalSentryReadableEnvironmentName,
+      type: "sensitive",
+      target: ["production"]
+    });
+    expect(() => validateVercelEnvironmentContract(demoSensitiveDsn, { profile: "public-demo" }))
+      .toThrow(new RegExp(`${optionalSentryReadableEnvironmentName}.*readable`, "i"));
+
+    const hostedWithDsn = metadata() as { envs: Array<Record<string, unknown>> };
+    hostedWithDsn.envs.push({
+      key: optionalSentryReadableEnvironmentName,
+      type: "plain",
+      target: ["production"]
+    });
+    expect(validateVercelEnvironmentContract(hostedWithDsn)).toMatchObject({
+      readableSettings: requiredReadableProductionEnvironmentNames.length + 1
+    });
+
+    const demoAuthToken = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    demoAuthToken.envs.push({ key: "SENTRY_AUTH_TOKEN", type: "sensitive", target: ["production"] });
+    expect(() => validateVercelEnvironmentContract(demoAuthToken, { profile: "public-demo" }))
+      .toThrow(/forbidden workflow-only setting SENTRY_AUTH_TOKEN/i);
   });
 
   it.each(forbiddenWorkflowOnlyEnvironmentNames)(
@@ -294,7 +346,7 @@ type Override = Partial<{
   value: string;
 }>;
 
-function metadata(overrides: Record<string, Override> = {}, includeBetaApplicationSecret = false) {
+function metadata(overrides: Record<string, Override> = {}, includeIntakeSecrets = false) {
   return {
     envs: [
       ...requiredSensitiveProductionEnvironmentNames.map((key) => ({
@@ -303,11 +355,16 @@ function metadata(overrides: Record<string, Override> = {}, includeBetaApplicati
         target: ["production"],
         ...overrides[key]
       })),
-      ...(includeBetaApplicationSecret ? [{
+      ...(includeIntakeSecrets ? [{
         key: betaApplicationSensitiveEnvironmentName,
         type: "sensitive",
         target: ["production"],
         ...overrides[betaApplicationSensitiveEnvironmentName]
+      }, {
+        key: turnstileSensitiveEnvironmentName,
+        type: "sensitive",
+        target: ["production"],
+        ...overrides[turnstileSensitiveEnvironmentName]
       }] : []),
       ...requiredReadableProductionEnvironmentNames.map((key) => ({
         key,

@@ -16,6 +16,16 @@ export const requiredSensitiveProductionEnvironmentNames = [
 export const betaApplicationSensitiveEnvironmentName =
   "KINRESOLVE_BETA_APPLICATION_HMAC_SECRET" as const;
 
+// The Turnstile siteverify secret protects the beta intake, so it follows the
+// same conditional pattern: required (and Sensitive) whenever beta
+// applications are enabled, and still Sensitive if configured ahead of time.
+export const turnstileSensitiveEnvironmentName =
+  "KINRESOLVE_TURNSTILE_SECRET_KEY" as const;
+
+// Optional error tracking: the Sentry DSN is a public client identifier, so
+// it stays readable; it may be absent entirely for releases without Sentry.
+export const optionalSentryReadableEnvironmentName = "NEXT_PUBLIC_SENTRY_DSN" as const;
+
 export const requiredReadableProductionEnvironmentNames = [
   "APP_BASE_URL",
   "DATABASE_AUTO_MIGRATE",
@@ -117,6 +127,7 @@ export const forbiddenWorkflowOnlyEnvironmentNames = [
   "RECOVERY_TARGET_RUNTIME_DATABASE_URL",
   "RECOVERY_TARGET_SUPABASE_ACCESS_TOKEN",
   "RELEASE_FENCE_DATABASE_URL",
+  "SENTRY_AUTH_TOKEN",
   "SUPABASE_ACCESS_TOKEN",
   "SUPABASE_DB_PASSWORD",
   "SUPABASE_SERVICE_ROLE_KEY",
@@ -160,7 +171,11 @@ export function validateVercelEnvironmentContract(
   const requiredSensitiveNames: readonly string[] = profile === "public-demo"
     ? publicDemoSensitiveProductionEnvironmentNames
     : expectedBetaApplicationsEnabled
-      ? [...requiredSensitiveProductionEnvironmentNames, betaApplicationSensitiveEnvironmentName]
+      ? [
+        ...requiredSensitiveProductionEnvironmentNames,
+        betaApplicationSensitiveEnvironmentName,
+        turnstileSensitiveEnvironmentName
+      ]
       : requiredSensitiveProductionEnvironmentNames;
   const requiredReadableNames: readonly string[] = profile === "public-demo"
     ? publicDemoReadableProductionEnvironmentNames
@@ -169,9 +184,13 @@ export function validateVercelEnvironmentContract(
     ...requiredSensitiveNames,
     ...requiredReadableNames
   ]);
+  const optionalSensitiveNames: readonly string[] = profile === "hosted-beta"
+    ? [betaApplicationSensitiveEnvironmentName, turnstileSensitiveEnvironmentName]
+    : [];
   const inspectedNames = new Set<string>([
     ...requiredNames,
-    ...(profile === "hosted-beta" ? [betaApplicationSensitiveEnvironmentName] : [])
+    ...optionalSensitiveNames,
+    optionalSentryReadableEnvironmentName
   ]);
   const entries = parseEntries(value);
   const requiredEntries = new Map<string, EnvironmentMetadata>();
@@ -201,12 +220,7 @@ export function validateVercelEnvironmentContract(
     throw new Error(`Vercel environment metadata is missing required production settings: ${missing.join(", ")}.`);
   }
 
-  for (const name of [
-    ...requiredSensitiveNames,
-    ...(profile === "hosted-beta" && requiredEntries.has(betaApplicationSensitiveEnvironmentName)
-      ? [betaApplicationSensitiveEnvironmentName]
-      : [])
-  ]) {
+  for (const name of [...requiredSensitiveNames, ...optionalSensitiveNames]) {
     const entry = requiredEntries.get(name);
     if (!entry) continue;
     validateProductionOnly(entry);
@@ -215,7 +229,13 @@ export function validateVercelEnvironmentContract(
     }
   }
 
-  for (const name of requiredReadableNames) {
+  const configuredReadableNames = [
+    ...requiredReadableNames,
+    ...(requiredEntries.has(optionalSentryReadableEnvironmentName)
+      ? [optionalSentryReadableEnvironmentName]
+      : [])
+  ];
+  for (const name of configuredReadableNames) {
     const entry = requiredEntries.get(name)!;
     validateProductionOnly(entry);
     if (entry.type === "sensitive") {
@@ -227,13 +247,11 @@ export function validateVercelEnvironmentContract(
   }
 
   return {
-    readableSettings: requiredReadableNames.length,
+    readableSettings: configuredReadableNames.length,
     sensitiveSettings: requiredSensitiveNames.length
-      + Number(
-        profile === "hosted-beta"
-        && !expectedBetaApplicationsEnabled
-        && requiredEntries.has(betaApplicationSensitiveEnvironmentName)
-      )
+      + optionalSensitiveNames.filter(
+        (name) => !requiredNames.has(name) && requiredEntries.has(name)
+      ).length
   };
 }
 

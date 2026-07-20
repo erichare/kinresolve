@@ -489,7 +489,23 @@ if (applicationMode) {
   if (!/stores these application fields for up to 90 days/i.test(beta)) {
     problems.push("Beta application mode is missing its truthful storage disclosure.");
   }
+  // The Turnstile widget is declarative: the challenge script injects the
+  // optional token input, and a no-JS visitor still submits the plain form.
+  if (!/<script[^>]*src="https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js"[^>]*><\/script>/.test(beta)) {
+    problems.push("Beta application mode is missing the declarative Turnstile challenge script.");
+  }
+  if (!beta.includes('class="cf-turnstile"')
+    || !beta.includes('data-action="beta-application"')
+    || !/data-sitekey="[0-9A-Za-z_-]{1,128}"/.test(beta)) {
+    problems.push("Beta application mode is missing its configured Turnstile widget.");
+  }
+  if (beta.includes('name="cf-turnstile-response"')) {
+    problems.push("The Turnstile token input must be widget-injected, never prerendered.");
+  }
 } else {
+  if (beta.includes("challenges.cloudflare.com") || beta.includes("cf-turnstile")) {
+    problems.push("Beta mail fallback must not load the Turnstile challenge widget.");
+  }
   if (!beta.includes(`action="mailto:beta@kinresolve.com`)) {
     problems.push("Beta mail fallback is missing its configured mailto destination.");
   }
