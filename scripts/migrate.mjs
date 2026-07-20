@@ -3,9 +3,10 @@
 // Run via `npm run db:migrate`; requires Node 22.6+ for TypeScript stripping.
 import { Pool } from "pg";
 
-const [{ runPendingMigrations }, { getDatabaseConnectionString }] = await Promise.all([
+const [{ runPendingMigrations }, { getDatabaseConnectionString }, { describeMigrationFailure }] = await Promise.all([
   import(new URL("../lib/migrations.ts", import.meta.url).href),
-  import(new URL("../lib/connection-string.ts", import.meta.url).href)
+  import(new URL("../lib/connection-string.ts", import.meta.url).href),
+  import(new URL("../lib/migration-failure.ts", import.meta.url).href)
 ]);
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -27,7 +28,7 @@ try {
       : `No pending migrations; ${result.alreadyApplied.length} already recorded.`
   );
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(describeMigrationFailure(error, databaseUrl));
   process.exitCode = 1;
 } finally {
   await pool.end();
