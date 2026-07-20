@@ -162,7 +162,8 @@ describe("public demo indexing boundary", () => {
         "/forgot-password",
         "/reset-password",
         "/verify-email",
-        "/resend-verification"
+        "/resend-verification",
+        "/kinresolve"
       ])
     );
 

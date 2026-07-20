@@ -847,7 +847,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
-          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
         run: |
           set -euo pipefail
           node --env-file=.vercel/.env.production.local --import tsx \
@@ -942,7 +942,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_TIMEOUT_MS: "60000"
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
-          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ""
         run: npm run test:staging-smoke
 
@@ -1021,7 +1021,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
-          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
         run: |
           set -euo pipefail
           complete=""
@@ -1213,7 +1213,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ needs.staging.outputs.database_identity }}
-          KINSLEUTH_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}
         run: >-
           node --env-file=.vercel/.env.production.local --import tsx
           scripts/browser-canary-state.ts cleanup staging

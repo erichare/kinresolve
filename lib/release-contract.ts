@@ -2,6 +2,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { loadApprovedBetaLegalManifest } from "./beta-legal-manifest.ts";
+import {
+  allowSignupsEnvironmentAlias,
+  archiveIdEnvironmentAlias,
+  describeEnvironmentAliasPair,
+  environmentAliasPairs,
+  readAliasedEnvironmentSetting
+} from "./environment-aliases.ts";
 import { requiredReadableProductionEnvironmentNames } from "./vercel-environment-contract.ts";
 import { databaseIdentityPattern } from "./database-attestation.ts";
 import { validateOperatorPublicKeyConfiguration } from "./operator-signature.ts";
@@ -112,7 +119,12 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
     throw new Error("The linked Vercel project framework must be nextjs.");
   }
 
-  const missing = requiredProductionSettings.filter((name) => !input.productionEnvironment[name]?.trim());
+  const missing = [
+    ...requiredProductionSettings.filter((name) => !input.productionEnvironment[name]?.trim()),
+    ...environmentAliasPairs
+      .filter((pair) => !readAliasedEnvironmentSetting(pair, input.productionEnvironment)?.trim())
+      .map((pair) => describeEnvironmentAliasPair(pair))
+  ];
   if (missing.length > 0) {
     throw new Error(`Missing required production settings: ${missing.join(", ")}.`);
   }
@@ -132,8 +144,11 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   if (environment.KINRESOLVE_OBJECT_STORAGE_BACKEND !== "vercel-blob") {
     throw new Error("KINRESOLVE_OBJECT_STORAGE_BACKEND must be exactly vercel-blob for production releases.");
   }
-  if (environment.KINSLEUTH_ALLOW_SIGNUPS !== "false") {
-    throw new Error("KINSLEUTH_ALLOW_SIGNUPS must be exactly false for production releases.");
+  const allowSignups = readAliasedEnvironmentSetting(allowSignupsEnvironmentAlias, input.productionEnvironment);
+  if (allowSignups !== "false") {
+    throw new Error(
+      `${describeEnvironmentAliasPair(allowSignupsEnvironmentAlias)} must be exactly false for production releases.`
+    );
   }
   if (environment.KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER !== "resend") {
     throw new Error("KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER must be exactly resend for production releases.");
@@ -170,11 +185,17 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   if (input.expectedDatasetMode !== undefined && datasetMode !== input.expectedDatasetMode) {
     throw new Error("KINRESOLVE_DATASET_MODE must match the expected release cell dataset mode.");
   }
-  if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(environment.KINSLEUTH_ARCHIVE_ID)) {
-    throw new Error("KINSLEUTH_ARCHIVE_ID must be a safe lowercase archive identifier of at most 63 characters.");
+  const archiveId = readAliasedEnvironmentSetting(archiveIdEnvironmentAlias, input.productionEnvironment) ?? "";
+  if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(archiveId)) {
+    throw new Error(
+      `${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)} `
+      + "must be a safe lowercase archive identifier of at most 63 characters."
+    );
   }
-  if (input.expectedArchiveId !== undefined && environment.KINSLEUTH_ARCHIVE_ID !== input.expectedArchiveId) {
-    throw new Error("KINSLEUTH_ARCHIVE_ID must match the expected release cell archive.");
+  if (input.expectedArchiveId !== undefined && archiveId !== input.expectedArchiveId) {
+    throw new Error(
+      `${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)} must match the expected release cell archive.`
+    );
   }
   if (environment.KINRESOLVE_GUIDED_RESEARCH_ENABLED !== "true") {
     throw new Error("KINRESOLVE_GUIDED_RESEARCH_ENABLED must be exactly true for the private beta release.");
@@ -260,7 +281,7 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
     version: input.packageVersion,
     appOrigin: appUrl.origin,
     datasetMode,
-    archiveId: environment.KINSLEUTH_ARCHIVE_ID,
+    archiveId,
     databaseIdentity: environment.KINRESOLVE_DATABASE_IDENTITY,
     objectStorageIdentity: environment.KINRESOLVE_OBJECT_STORAGE_IDENTITY,
     scheduledWritesEnabled,

@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 
 import {
+  allowSignupsEnvironmentAlias,
+  archiveIdEnvironmentAlias,
+  describeEnvironmentAliasPair,
+  readAllowSignupsSetting,
+  readArchiveIdSetting
+} from "../lib/environment-aliases.ts";
+import {
   identityCanaryMutationAcknowledgement,
   resolveInsecureLoopbackProductionCanaryProfile
 } from "../lib/insecure-loopback-canary.ts";
@@ -65,8 +72,7 @@ const exactHostedSettings: Readonly<Record<string, string>> = Object.freeze({
   KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true",
   KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
   KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
-  KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false",
-  KINSLEUTH_ALLOW_SIGNUPS: "false"
+  KINRESOLVE_SCHEDULED_WRITES_ENABLED: "false"
 });
 
 const forbiddenProviderSettings = [
@@ -99,6 +105,14 @@ export function resolveIdentityBrowserCanaryConfiguration(
       throw new Error(`The disposable identity canary requires exact ${name}.`);
     }
   }
+  if (readAllowSignupsSetting(environment) !== "false") {
+    throw new Error(
+      `The disposable identity canary requires exact ${describeEnvironmentAliasPair(allowSignupsEnvironmentAlias)}.`
+    );
+  }
+  // Read (and mismatch-check) the aliased archive setting before the loopback
+  // profile check so a mismatched pair fails with its precise error.
+  const archiveId = readArchiveIdSetting(environment)?.trim();
   for (const name of forbiddenProviderSettings) {
     if (environment[name]?.trim()) {
       throw new Error("The disposable identity canary refuses provider or deployment credentials.");
@@ -119,7 +133,11 @@ export function resolveIdentityBrowserCanaryConfiguration(
 
   const databaseUrl = required(environment, "DATABASE_URL");
   const databaseName = parseDisposableDatabaseUrl(databaseUrl);
-  const archiveId = required(environment, "KINSLEUTH_ARCHIVE_ID");
+  if (!archiveId) {
+    throw new Error(
+      `The disposable identity canary requires ${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)}.`
+    );
+  }
   if (archiveId !== identityBrowserCanaryArchiveId) {
     throw new Error("The disposable identity canary archive binding is invalid.");
   }

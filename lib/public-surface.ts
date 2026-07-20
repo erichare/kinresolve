@@ -1,3 +1,4 @@
+import { readArchiveIdSetting } from "./environment-aliases";
 import { resolveHostedCapabilities } from "./hosted-capabilities";
 import {
   publicDemoCanonicalArchiveId,
@@ -6,8 +7,8 @@ import {
 
 type Environment = Record<string, string | undefined>;
 
-const publicArchiveRoots = new Set(["/", "/family", "/people", "/places", "/stories", "/kinsleuth"]);
-const publicArchivePrefixes = ["/family/", "/people/", "/places/", "/stories/", "/kinsleuth/"];
+const publicArchiveRoots = new Set(["/", "/family", "/people", "/places", "/stories", "/kinresolve"]);
+const publicArchivePrefixes = ["/family/", "/people/", "/places/", "/stories/", "/kinresolve/"];
 
 export const privateWorkspaceLoginPath = "/login?next=/app";
 
@@ -28,5 +29,5 @@ export function resolvePublicArchiveId(environment: Environment = process.env): 
     return publicDemoCanonicalArchiveId;
   }
 
-  return environment.KINSLEUTH_ARCHIVE_ID?.trim() || "archive-default";
+  return readArchiveIdSetting(environment)?.trim() || "archive-default";
 }

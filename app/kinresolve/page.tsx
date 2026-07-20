@@ -31,7 +31,7 @@ export default function KinResolveProductPage() {
     redirect(privateWorkspaceLoginPath);
   }
   return (
-    <PublicShell active="/kinsleuth">
+    <PublicShell active="/kinresolve">
       <div className="page-wrap">
         <section className="product-hero section">
           <div className="product-hero-layout">

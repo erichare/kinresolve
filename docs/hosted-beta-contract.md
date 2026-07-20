@@ -61,7 +61,7 @@ Approval must record the approver, date, and any deviation here before a policy-
 
 All seven values must be present together in a hosted deployment. They are recommended settings pending owner and counsel sign-off; this table does not approve production enablement.
 
-`KINSLEUTH_ALLOW_SIGNUPS` must be exactly `false` for every hosted release. Hosted accounts are provisioned through the controlled invitation path; `/setup` and open self-registration are unavailable.
+`KINRESOLVE_ALLOW_SIGNUPS` (legacy name `KINSLEUTH_ALLOW_SIGNUPS`, accepted during the rename compatibility window) must be exactly `false` for every hosted release. Hosted accounts are provisioned through the controlled invitation path; `/setup` and open self-registration are unavailable.
 
 | Capability flag | Cohort-one value | Enforced boundary |
 | --- | --- | --- |
