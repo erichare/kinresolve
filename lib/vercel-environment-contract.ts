@@ -26,6 +26,14 @@ export const turnstileSensitiveEnvironmentName =
 // it stays readable; it may be absent entirely for releases without Sentry.
 export const optionalSentryReadableEnvironmentName = "NEXT_PUBLIC_SENTRY_DSN" as const;
 
+// Demo Turnstile ladder (off | shadow | required): the mode and the public
+// widget site key stay readable so the release workflow can validate their
+// exact posture, and the siteverify secret reuses KINRESOLVE_TURNSTILE_SECRET_KEY
+// as an optional Sensitive credential in the demo cell.
+export const publicDemoTurnstileModeEnvironmentName = "KINRESOLVE_DEMO_TURNSTILE_MODE" as const;
+export const publicDemoTurnstileSiteKeyEnvironmentName =
+  "NEXT_PUBLIC_KINRESOLVE_DEMO_TURNSTILE_SITE_KEY" as const;
+
 export const requiredReadableProductionEnvironmentNames = [
   "APP_BASE_URL",
   "DATABASE_AUTO_MIGRATE",
@@ -78,6 +86,7 @@ export const publicDemoReadableProductionEnvironmentNames = [
   "AI_CHAT_MODEL",
   "APP_BASE_URL",
   "DATABASE_AUTO_MIGRATE",
+  "DATABASE_POOL_MAX",
   "KINSLEUTH_ARCHIVE_ID",
   "KINSLEUTH_ALLOW_SIGNUPS",
   "KINRESOLVE_API_V1_ENABLED",
@@ -186,11 +195,18 @@ export function validateVercelEnvironmentContract(
   ]);
   const optionalSensitiveNames: readonly string[] = profile === "hosted-beta"
     ? [betaApplicationSensitiveEnvironmentName, turnstileSensitiveEnvironmentName]
-    : [];
+    : [turnstileSensitiveEnvironmentName];
+  const optionalReadableNames: readonly string[] = profile === "public-demo"
+    ? [
+      optionalSentryReadableEnvironmentName,
+      publicDemoTurnstileModeEnvironmentName,
+      publicDemoTurnstileSiteKeyEnvironmentName
+    ]
+    : [optionalSentryReadableEnvironmentName];
   const inspectedNames = new Set<string>([
     ...requiredNames,
     ...optionalSensitiveNames,
-    optionalSentryReadableEnvironmentName
+    ...optionalReadableNames
   ]);
   const entries = parseEntries(value);
   const requiredEntries = new Map<string, EnvironmentMetadata>();
@@ -231,9 +247,9 @@ export function validateVercelEnvironmentContract(
 
   const configuredReadableNames = [
     ...requiredReadableNames,
-    ...(requiredEntries.has(optionalSentryReadableEnvironmentName)
-      ? [optionalSentryReadableEnvironmentName]
-      : [])
+    ...optionalReadableNames.filter(
+      (name) => !requiredNames.has(name) && requiredEntries.has(name)
+    )
   ];
   for (const name of configuredReadableNames) {
     const entry = requiredEntries.get(name)!;

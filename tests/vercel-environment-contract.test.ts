@@ -10,6 +10,8 @@ import {
   optionalSentryReadableEnvironmentName,
   publicDemoReadableProductionEnvironmentNames,
   publicDemoSensitiveProductionEnvironmentNames,
+  publicDemoTurnstileModeEnvironmentName,
+  publicDemoTurnstileSiteKeyEnvironmentName,
   requiredReadableProductionEnvironmentNames,
   requiredSensitiveProductionEnvironmentNames,
   turnstileSensitiveEnvironmentName,
@@ -201,6 +203,50 @@ describe("Vercel hosted environment metadata contract", () => {
     demoAuthToken.envs.push({ key: "SENTRY_AUTH_TOKEN", type: "sensitive", target: ["production"] });
     expect(() => validateVercelEnvironmentContract(demoAuthToken, { profile: "public-demo" }))
       .toThrow(/forbidden workflow-only setting SENTRY_AUTH_TOKEN/i);
+  });
+
+  it("admits the optional demo Turnstile settings with their exact readable/Sensitive split", () => {
+    expect(publicDemoReadableProductionEnvironmentNames).toContain("DATABASE_POOL_MAX");
+
+    const enabled = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    enabled.envs.push(
+      { key: publicDemoTurnstileModeEnvironmentName, type: "encrypted", target: ["production"] },
+      { key: publicDemoTurnstileSiteKeyEnvironmentName, type: "plain", target: ["production"] },
+      { key: turnstileSensitiveEnvironmentName, type: "sensitive", target: ["production"] }
+    );
+    expect(validateVercelEnvironmentContract(enabled, { profile: "public-demo" })).toEqual({
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + 2,
+      sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length + 1
+    });
+
+    const readableSecret = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    readableSecret.envs.push({
+      key: turnstileSensitiveEnvironmentName,
+      type: "encrypted",
+      target: ["production"]
+    });
+    expect(() => validateVercelEnvironmentContract(readableSecret, { profile: "public-demo" }))
+      .toThrow(new RegExp(`${turnstileSensitiveEnvironmentName}.*sensitive`, "i"));
+
+    const sensitiveMode = publicDemoMetadata() as { envs: Array<Record<string, unknown>> };
+    sensitiveMode.envs.push({
+      key: publicDemoTurnstileModeEnvironmentName,
+      type: "sensitive",
+      target: ["production"]
+    });
+    expect(() => validateVercelEnvironmentContract(sensitiveMode, { profile: "public-demo" }))
+      .toThrow(new RegExp(`${publicDemoTurnstileModeEnvironmentName}.*readable`, "i"));
+
+    // The hosted profile does not admit the demo widget settings.
+    const hostedMode = metadata() as { envs: Array<Record<string, unknown>> };
+    hostedMode.envs.push({
+      key: publicDemoTurnstileModeEnvironmentName,
+      type: "encrypted",
+      target: ["production"]
+    });
+    expect(validateVercelEnvironmentContract(hostedMode)).toMatchObject({
+      readableSettings: requiredReadableProductionEnvironmentNames.length
+    });
   });
 
   it.each(forbiddenWorkflowOnlyEnvironmentNames)(

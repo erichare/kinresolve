@@ -92,11 +92,21 @@ contract validated in `.github/workflows/public-demo-release.yml`, including the
 database identity, `datasetMode=demo`, public-demo origin, disabled API v1/uploads/accounts,
 the aggregate analytics mode (`KINRESOLVE_PUBLIC_DEMO_ANALYTICS=plausible`; cookieless
 Plausible page and fixed-event counts, no identifier or record content), and the
-server-only AI, cookie, privacy-HMAC, cron, canary, and health-probe secrets. One
-optional readable setting is allowed: `NEXT_PUBLIC_SENTRY_DSN`, the public Sentry
-ingest identifier for aggressively scrubbed error events (no headers, cookies, query
-strings, bodies, or user identity; tracing and replay disabled). `SENTRY_AUTH_TOKEN`
-remains workflow-only and is rejected as a Vercel setting.
+server-only AI, cookie, privacy-HMAC, cron, canary, and health-probe secrets, and the
+deliberate connection-pool bound (`DATABASE_POOL_MAX=10`, sized against the Supabase
+session-pooler limits of the dedicated demo database so a landing spike saturates the
+demo's own pool before it can exhaust the pooler). Optional readable settings are
+allowed for launch hardening: `NEXT_PUBLIC_SENTRY_DSN`, the public Sentry ingest
+identifier for aggressively scrubbed error events (no headers, cookies, query
+strings, bodies, or user identity; tracing and replay disabled);
+`KINRESOLVE_DEMO_TURNSTILE_MODE` (`off`, `shadow`, or `required` — launch ladder:
+`shadow` soaks for at least a week before `required`); and
+`NEXT_PUBLIC_KINRESOLVE_DEMO_TURNSTILE_SITE_KEY`, the public widget key required by
+any enabled Turnstile rung. The matching siteverify secret
+`KINRESOLVE_TURNSTILE_SECRET_KEY` is an optional Sensitive setting. Authorized
+canaries, the load test, and the spike test bypass the Turnstile challenge through
+the canary header, so monitoring never depends on Cloudflare availability.
+`SENTRY_AUTH_TOKEN` remains workflow-only and is rejected as a Vercel setting.
 
 ## First holding cutover
 
@@ -207,6 +217,16 @@ The demo database is rebuildable synthetic state. Fixture/source RPO is zero, vi
 progress is disposable, and the recovery objective is a clean reprovision within 30
 minutes. Time and record one destroy/reprovision exercise.
 
+## Landing-view sampling
+
+`landing_viewed` database events are sampled: one in ten non-canary landing renders
+records an event, so a front-page traffic spike cannot turn every page view into a
+durable write. When reading the KPI funnel, multiply landing counts by 10 before
+comparing them with the unsampled `session_started`, `outcome_completed`, and
+`capacity_rejected` events. Canary traffic remains fully excluded from the sample by
+the canary header, and Plausible page counts (when enabled) stay unsampled, so the
+two sources are reconciled with the same factor.
+
 ## Monitoring and incident response
 
 `.github/workflows/public-demo-monitoring.yml` checks landing, health, and family bodies
@@ -246,6 +266,13 @@ On failure:
       the database funnel (the canary header and `is_canary` session flag) and Plausible
       (the browser canary sets the `plausible_ignore` localStorage flag before any
       navigation).
+- [ ] The launch-scale spike gate (`scripts/public-demo-spike-test.mjs`) passed against
+      the launch candidate: 200 concurrent landing requests with p95 under 2 seconds,
+      over-capacity session starts fast-429 in under 1 second, zero 5xx responses,
+      and healthy post-run protected diagnostics.
+- [ ] Demo session Turnstile completed at least a one-week `shadow` soak and was
+      flipped to `required` (or a signed deferral is recorded), with the canary bypass
+      verified in monitoring.
 - [ ] Five unfamiliar testers each complete the research outcome without assistance in
       under two minutes.
 - [ ] Two or three attributable tester quotes are captured during the five-tester gate,

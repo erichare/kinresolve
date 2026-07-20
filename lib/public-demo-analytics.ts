@@ -28,3 +28,15 @@ export function publicDemoAnalyticsScriptEnabled(
 ): boolean {
   return publicDemoAnalyticsMode(environment) === "plausible" && publicDemoEnabled(environment);
 }
+
+// Landing-view sampling: one in ten non-canary landings records a durable
+// landing_viewed event, so a front-page traffic spike cannot turn every page
+// render into a database write. Funnel readers multiply landing counts by 10;
+// see "Landing-view sampling" in docs/public-demo-runbook.md.
+export const publicDemoLandingEventSampleRate = 0.1;
+
+export function samplePublicDemoLandingEvent(
+  random: () => number = Math.random
+): boolean {
+  return random() < publicDemoLandingEventSampleRate;
+}

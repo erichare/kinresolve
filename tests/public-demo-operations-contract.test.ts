@@ -156,6 +156,21 @@ describe("public demo operational boundary", () => {
     );
     expect(publicDemoRelease).toContain('AI_CHAT_MODEL: "openai/gpt-5-mini"');
     expect(publicDemoRelease).toContain('KINRESOLVE_PUBLIC_DEMO_ANALYTICS: "plausible"');
+    // The deliberate demo connection-pool bound, sized against the Supabase
+    // pooler limits of the dedicated demo database.
+    expect(publicDemoRelease).toContain('DATABASE_POOL_MAX: "10"');
+    // The demo Turnstile ladder is validated by shape: a known rung, and any
+    // enabled rung must carry a well-formed public widget key.
+    expect(publicDemoRelease).toContain(
+      "const turnstileMode = process.env.KINRESOLVE_DEMO_TURNSTILE_MODE;"
+    );
+    expect(publicDemoRelease).toContain("/^(?:off|shadow|required)$/.test(turnstileMode)");
+    expect(publicDemoRelease).toContain(
+      "process.env.NEXT_PUBLIC_KINRESOLVE_DEMO_TURNSTILE_SITE_KEY"
+    );
+    expect(publicDemoRelease).toContain(
+      'if ((turnstileMode === "shadow" || turnstileMode === "required") && turnstileSiteKey === undefined)'
+    );
     expect(publicDemoRelease).not.toContain('if (!process.env[name]?.trim())');
   });
 

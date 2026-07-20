@@ -106,6 +106,36 @@ describe("application security headers", () => {
       /KINRESOLVE_PUBLIC_DEMO_ANALYTICS must be exactly off or plausible\./
     );
   });
+
+  it("admits the Turnstile challenge origins only for hosted builds with an enabled demo mode", async () => {
+    stubPrivateHostedEnvironment();
+    vi.stubEnv("NODE_ENV", "production");
+
+    const withoutTurnstile = await nextConfig.headers?.();
+    const strictCsp = withoutTurnstile?.[0]?.headers
+      .find(({ key }) => key === "Content-Security-Policy")?.value ?? "";
+    expect(strictCsp).not.toContain("challenges.cloudflare.com");
+    expect(strictCsp).not.toContain("frame-src");
+
+    for (const mode of ["shadow", "required"]) {
+      vi.stubEnv("KINRESOLVE_DEMO_TURNSTILE_MODE", mode);
+      const rules = await nextConfig.headers?.();
+      const csp = rules?.[0]?.headers.find(({ key }) => key === "Content-Security-Policy")?.value ?? "";
+      expect(csp).toMatch(/script-src [^;]*https:\/\/challenges\.cloudflare\.com/);
+      expect(csp).toContain("frame-src 'self' https://challenges.cloudflare.com");
+    }
+
+    vi.stubEnv("KINRESOLVE_DEMO_TURNSTILE_MODE", "on");
+    await expect(nextConfig.headers?.()).rejects.toThrow(
+      /KINRESOLVE_DEMO_TURNSTILE_MODE must be exactly off, shadow, or required\./
+    );
+
+    vi.stubEnv("KINRESOLVE_DEMO_TURNSTILE_MODE", "required");
+    vi.stubEnv("KINRESOLVE_DEPLOYMENT_MODE", "self-hosted");
+    const selfHosted = await nextConfig.headers?.();
+    expect(selfHosted?.[0]?.headers.find(({ key }) => key === "Content-Security-Policy")?.value)
+      .not.toContain("challenges.cloudflare.com");
+  });
 });
 
 function stubPrivateHostedEnvironment(): void {
