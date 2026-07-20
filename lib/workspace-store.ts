@@ -1021,7 +1021,7 @@ export async function recordCaseTaskOutcome(
   taskId: string,
   input: RecordCaseTaskOutcomeInput,
   options: WorkspaceStoreOptions = {}
-): Promise<{ case: ResearchCase; task: ResearchTask; hypothesis?: ResearchHypothesis }> {
+): Promise<{ applied: boolean; case: ResearchCase; task: ResearchTask; hypothesis?: ResearchHypothesis }> {
   validateOutcomeInput(input);
 
   return withArchiveMutation(options, async (client, archiveId) => {
@@ -1040,7 +1040,7 @@ export async function recordCaseTaskOutcome(
         throw guidedResearchError("IDEMPOTENCY_CONFLICT", "request id was already used for a different outcome");
       }
       const existingHypothesis = assertSameOutcomeDecisionReplay(researchCase, taskId, input);
-      return { case: researchCase, task: currentTask, hypothesis: existingHypothesis };
+      return { applied: false, case: researchCase, task: currentTask, hypothesis: existingHypothesis };
     }
 
     if (currentTask.updatedAt !== input.expectedTaskUpdatedAt) {
@@ -1114,7 +1114,7 @@ export async function recordCaseTaskOutcome(
           )
         : researchCase.hypotheses
     };
-    return { case: updatedCase, task, hypothesis: updatedHypothesis };
+    return { applied: true, case: updatedCase, task, hypothesis: updatedHypothesis };
   });
 }
 

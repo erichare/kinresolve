@@ -338,7 +338,11 @@ describeIfDatabase("guided research store", () => {
     const outcomes = records(storedTask.outcomes, "task outcomes");
     const decisions = records(storedHypothesis.decisions, "hypothesis decisions");
 
-    expect(retry).toEqual(first);
+    const { applied: firstApplied, ...firstRest } = record(first, "first outcome result");
+    const { applied: retryApplied, ...retryRest } = record(retry, "replayed outcome result");
+    expect(firstApplied).toBe(true);
+    expect(retryApplied).toBe(false);
+    expect(retryRest).toEqual(firstRest);
     expect(storedTask.status).toBe("done");
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]).toMatchObject({

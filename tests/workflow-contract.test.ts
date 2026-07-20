@@ -88,6 +88,25 @@ describe("product CI workflow contract", () => {
     );
   });
 
+  it("lints every workflow definition with a checksummed pinned actionlint before unit tests", async () => {
+    const contents = await workflow("ci.yml");
+    const staticJob = job(contents, "static", "database");
+    const workflowLint = staticJob.indexOf("Lint workflow definitions");
+    const dependencyInstall = staticJob.indexOf("npm ci");
+
+    expect(workflowLint).toBeGreaterThan(0);
+    expect(dependencyInstall).toBeGreaterThan(0);
+    expect(workflowLint).toBeGreaterThan(dependencyInstall);
+    expect(workflowLint).toBeLessThan(staticJob.indexOf("Unit tests"));
+    expect(staticJob).toContain(
+      "https://github.com/rhysd/actionlint/releases/download/",
+    );
+    expect(staticJob).toMatch(/actionlint_version="\d+\.\d+\.\d+"/);
+    expect(staticJob).toMatch(/expected_sha256="[0-9a-f]{64}"/);
+    expect(staticJob).toContain('test "$actual_sha256" = "$expected_sha256"');
+    expect(staticJob).toContain("-config-file .github/actionlint.yaml");
+  });
+
   it("validates the Vercel deployment bypass guard in the release-contract job before installation", async () => {
     const contents = await workflow("ci.yml");
     const releaseContract = job(contents, "release-contract", "gate");
@@ -1343,15 +1362,19 @@ describe("marketing workflow release and intake modes", () => {
     };
     expect(ci).toContain("release-mode: [prelaunch, application, api-launch]");
     expect(ci).toContain("application-mode: [mailto, application]");
+    expect(ci).toContain("demo-mode: [pending, live]");
     expect(ci).toContain("KINRESOLVE_MARKETING_RELEASE_MODE: ${{ matrix.release-mode }}");
     expect(ci).toContain("KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ matrix.application-mode }}");
+    expect(ci).toContain("KINRESOLVE_MARKETING_DEMO_MODE: ${{ matrix.demo-mode }}");
     expect(ci).toContain("KINRESOLVE_MARKETING_ANALYTICS: ${{ matrix.analytics-mode || 'off' }}");
     expect(ci).toContain("analytics-mode: plausible");
     expect(ci).toContain('scripts/launch-media-text.mjs');
     expect(deploy).toMatch(/beta_application_mode:[\s\S]*?default: mailto[\s\S]*?- mailto[\s\S]*?- application/);
+    expect(deploy).toMatch(/demo_mode:[\s\S]*?default: pending[\s\S]*?- pending[\s\S]*?- live/);
     expect(deploy).toContain(
       "KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ inputs.beta_application_mode }}"
     );
+    expect(deploy).toContain("KINRESOLVE_MARKETING_DEMO_MODE: ${{ inputs.demo_mode }}");
     expect(deploy).toContain("KINRESOLVE_MARKETING_RELEASE_MODE: prelaunch");
     expect(deploy).toContain("if: inputs.production && inputs.beta_application_mode == 'application'");
     expect(deploy).toContain("Production application-mode activation requires the product release workflow evidence gate.");
