@@ -25,18 +25,25 @@ interface EvaluatePath {
 const evaluateToday: readonly EvaluatePath[] = [
   {
     title: "The passenger mystery",
-    body: "Open a disposable synthetic workspace and work the Hartwell–Mercer passenger question with the real product tools. The workspace expires after 24 hours, and nothing you try is kept.",
-    href: site.demoUrl,
-    action: "Open the demo",
+    body: demoLive
+      ? "Open a disposable synthetic workspace and work the Hartwell–Mercer passenger question with the real product tools. The workspace expires after 24 hours, and nothing you try is kept."
+      : "The demo opens a disposable synthetic workspace for working the Hartwell–Mercer passenger question with the real product tools. It is staged behind its own launch checks, and this page will link it the moment it is live.",
+    href: demoLive ? site.demoUrl : "/roadmap",
+    action: demoLive ? "Open the demo" : "Follow the demo launch",
     status: demoLive
       ? { tone: "live", label: "Live · no signup" }
       : { tone: "pending", label: "Launch pending" }
   },
   {
     title: "A read-only family archive",
-    body: "Browse the published face of the fictional archive—the ancestor profiles, stories, and sources a careful researcher chose to share.",
-    href: `${site.demoUrl}/family`,
-    action: "Browse the archive"
+    body: demoLive
+      ? "Browse the published face of the fictional archive—the ancestor profiles, stories, and sources a careful researcher chose to share."
+      : "The published face of the fictional archive—the ancestor profiles, stories, and sources a careful researcher chose to share—opens together with the demo.",
+    href: demoLive ? `${site.demoUrl}/family` : "/roadmap",
+    action: demoLive ? "Browse the archive" : "Follow the demo launch",
+    status: demoLive
+      ? { tone: "live", label: "Live · no signup" }
+      : { tone: "pending", label: "Launch pending" }
   },
   {
     title: "The research-instincts challenge",
@@ -119,9 +126,11 @@ export default function BetaPage() {
 
       <section className="shell section evaluate-section" aria-labelledby="evaluate-today-title">
         <div className="section-heading">
-          <span className="eyebrow">What you can use today</span>
+          <span className="eyebrow">{demoLive ? "What you can use today" : "What you can evaluate today"}</span>
           <h2 id="evaluate-today-title">You don’t need an invitation to evaluate Kin Resolve.</h2>
-          <p>Every surface below is public, free, and built entirely from fictional Hartwell–Mercer records—judge the product before you apply.</p>
+          <p>{demoLive
+            ? "Every surface below is public, free, and built entirely from fictional Hartwell–Mercer records—judge the product before you apply."
+            : "The research-instincts challenge is live in your browser now; the demo workspace and family archive are staged behind their own launch checks. Everything is free and built entirely from fictional Hartwell–Mercer records—judge the product before you apply."}</p>
         </div>
         <div className="evaluate-grid">
           {evaluateToday.map((path) => (

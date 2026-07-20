@@ -27,8 +27,10 @@ Merged and tested in the public source.
 - **Deterministic quality and privacy checks** — date-conflict, coverage-gap, and
   living-person checks that run with no AI provider configured. See the
   [feature tour](README.md#feature-tour).
-- **Private object storage and durable background jobs** — archive-namespaced private
-  storage plus Postgres-leased jobs with retries, cancellation, and redacted errors. See
+- **Private data-source artifact storage and durable background jobs** —
+  archive-namespaced private storage for data-source artifacts plus Postgres-leased jobs
+  with retries, cancellation, and redacted errors; legacy general source-file attachments
+  still target local disk and need the same backend before production use. See
   [docs/persistence.md](docs/persistence.md) and
   [docs/data-source-integrations.md](docs/data-source-integrations.md).
 - **Private guided research loop** — a deterministic next-step case guide with durable

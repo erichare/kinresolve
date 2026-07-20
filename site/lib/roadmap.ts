@@ -40,8 +40,8 @@ export const roadmapSections = [
         detail: "Date-conflict, coverage-gap, and living-person checks that run with no AI provider configured."
       },
       {
-        title: "Private object storage and durable background jobs",
-        detail: "Archive-namespaced private storage plus Postgres-leased jobs with retries, cancellation, and redacted errors."
+        title: "Private data-source artifact storage and durable background jobs",
+        detail: "Archive-namespaced private storage for data-source artifacts plus Postgres-leased jobs with retries, cancellation, and redacted errors. Legacy general source-file attachments still target local disk and need the same backend before production use."
       },
       {
         title: "Private guided research loop",

@@ -82,8 +82,11 @@ describe("public demo marketing conversion", () => {
 
     expect(beta).toContain('import { demoLive } from "@/lib/demo-status"');
     expect(beta).toContain("You don’t need an invitation to evaluate Kin Resolve.");
-    expect(beta).toContain("href: site.demoUrl");
-    expect(beta).toContain("href: `${site.demoUrl}/family`");
+    expect(beta).toContain('href: demoLive ? site.demoUrl : "/roadmap"');
+    expect(beta).toContain('href: demoLive ? `${site.demoUrl}/family` : "/roadmap"');
+    expect(beta).toContain('action: demoLive ? "Open the demo" : "Follow the demo launch"');
+    expect(beta).toContain('action: demoLive ? "Browse the archive" : "Follow the demo launch"');
+    expect(beta).toContain('{demoLive ? "What you can use today" : "What you can evaluate today"}');
     expect(beta).toContain('href: "/challenge"');
     expect(beta).toMatch(
       /status: demoLive\s*\?\s*\{ tone: "live", label: "Live · no signup" \}\s*:\s*\{ tone: "pending", label: "Launch pending" \}/

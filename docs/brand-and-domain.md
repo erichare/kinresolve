@@ -52,7 +52,7 @@ on-page qualifiers.
 
 Safe current claims must distinguish implemented source capabilities from hosted availability:
 
-- Private beta applications are open; invitations have not started, and hosted access begins only after the launch gates pass.
+- Private beta applications are open; invitations have not started.
 - The source product implements a private, single-archive genealogy research workspace.
 - The source product implements GEDCOM preview, reviewable refresh/apply/rollback, and GEDCOM 5.5.1 export.
 - The source product implements people/source search, research cases, evidence, hypotheses, tasks, deterministic checks, private object storage, and durable background jobs.

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CtaStrip } from "@/components/cta-strip";
 import { PageHero } from "@/components/page-hero";
 import { pageMetadata } from "@/lib/metadata";
+import { site } from "@/lib/site";
 
 export const metadata = pageMetadata({
   title: "About",
@@ -42,7 +43,7 @@ export default function AboutPage() {
         <div><p>Security, storage portability, tenancy, privacy controls, and evidence grounding are not invisible chores. They determine whether the product deserves real family data.</p><p>Design notes, implementation, tests, and production-readiness work live alongside the source—summarized on the <Link href="/roadmap">public roadmap</Link>—so the gap between a claim and the current code can be examined.</p><Link className="button button-secondary" href="/roadmap">Follow the roadmap</Link></div>
       </section>
 
-      <div className="shell section"><CtaStrip eyebrow="Shape the next chapter" title="Bring your research process to the private beta." /></div>
+      <div className="shell section"><CtaStrip eyebrow="Shape the next chapter" primaryHref="/beta" primaryLabel="Apply for the private beta" secondaryHref={site.github} secondaryLabel="View on GitHub" title="Bring your research process to the private beta." /></div>
     </>
   );
 }

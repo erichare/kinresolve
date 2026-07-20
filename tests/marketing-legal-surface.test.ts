@@ -56,6 +56,9 @@ describe("private-beta marketing and legal surface", () => {
     expect(() => parseMarketingReleaseMode("")).toThrow(/must be exactly prelaunch, application, or api-launch/);
     expect(() => parseMarketingReleaseMode("application ")).toThrow(/must be exactly prelaunch, application, or api-launch/);
     expect(publicCopy).not.toMatch(/Hosted access is rolling out in small invitation cohorts/i);
+    expect(publicCopy).not.toContain("hosted access begins only after the launch gates pass");
+    expect(publicCopy).toContain("Private beta applications are open. Invitations have not started.");
+    expect(publicCopy).toContain("Private beta applications are open; invitations have not started.");
 
     const exportCheck = await readFile(files.exportCheck, "utf8");
     expect(exportCheck).toContain("hosted access is rolling out");
