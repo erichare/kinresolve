@@ -5,6 +5,9 @@ const outputRoot = resolve("out");
 const marketingReleaseMode = parseMarketingReleaseMode(
   process.env.KINRESOLVE_MARKETING_RELEASE_MODE
 );
+const marketingAnalyticsMode = parseMarketingAnalyticsMode(
+  process.env.KINRESOLVE_MARKETING_ANALYTICS
+);
 
 function parseMarketingReleaseMode(value) {
   if (value === undefined || value === "prelaunch") return "prelaunch";
@@ -12,6 +15,12 @@ function parseMarketingReleaseMode(value) {
   throw new Error(
     "KINRESOLVE_MARKETING_RELEASE_MODE must be exactly prelaunch, application, or api-launch."
   );
+}
+
+function parseMarketingAnalyticsMode(value) {
+  if (value === undefined || value === "off") return "off";
+  if (value === "plausible") return "plausible";
+  throw new Error("KINRESOLVE_MARKETING_ANALYTICS must be exactly off or plausible.");
 }
 
 if (!existsSync(outputRoot)) {
@@ -63,6 +72,27 @@ for (const file of htmlFiles) {
     if (html.toLowerCase().includes(forbiddenClaim)) {
       problems.push(`${file}: contains stale hosted-beta claim ${forbiddenClaim}`);
     }
+  }
+}
+
+const plausibleScriptPattern =
+  /<script[^>]*src="https:\/\/plausible\.io\/js\/script\.outbound-links\.js"[^>]*><\/script>/;
+for (const file of htmlFiles) {
+  const html = readFileSync(file, "utf8");
+  if (marketingAnalyticsMode === "plausible") {
+    const scriptTag = html.match(plausibleScriptPattern)?.[0];
+    if (!scriptTag) {
+      problems.push(`${file}: is missing the Plausible analytics script for plausible mode.`);
+      continue;
+    }
+    if (!scriptTag.includes('data-domain="kinresolve.com"')) {
+      problems.push(`${file}: Plausible script is missing data-domain="kinresolve.com".`);
+    }
+    if (!/\bdefer(?:=""|\b)/.test(scriptTag)) {
+      problems.push(`${file}: Plausible script must load with defer.`);
+    }
+  } else if (html.includes("plausible.io")) {
+    problems.push(`${file}: contains a plausible.io reference while analytics mode is off.`);
   }
 }
 
@@ -290,6 +320,20 @@ for (const [description, claim] of [
 ]) {
   if (!privacy.includes(claim)) {
     problems.push(`Privacy page is missing its ${marketingReleaseMode} ${description}: ${claim}`);
+  }
+}
+
+const analyticsClaims = {
+  off: "No visitor analytics script loads in this release.",
+  plausible: "Aggregate visitor analytics run on Plausible—cookieless, EU-hosted, and script-gated."
+};
+if (!privacy.includes(analyticsClaims[marketingAnalyticsMode])) {
+  problems.push(`Privacy page is missing its ${marketingAnalyticsMode} analytics disclosure.`);
+}
+for (const [mode, claim] of Object.entries(analyticsClaims)) {
+  if (mode === marketingAnalyticsMode) continue;
+  if (privacy.includes(claim)) {
+    problems.push(`Privacy page for ${marketingAnalyticsMode} analytics contains the ${mode} disclosure.`);
   }
 }
 
