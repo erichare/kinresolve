@@ -157,16 +157,27 @@ for (const [mode, claims] of Object.entries(releaseClaims)) {
 const demoClaims = {
   pending: {
     heroCtaLabel: "Try Kin Resolve",
-    heroSourceNote: "Source available under AGPL-3.0-only."
+    heroSourceNote: "Source available under AGPL-3.0-only.",
+    betaDemoCardStatus: 'data-demo-card-status="pending"',
+    betaTryAnswer: "staged behind its own launch checks"
   },
   live: {
     heroCtaLabel: "Solve the passenger mystery",
     heroCtaNote: "No signup · about 2 minutes · every record is fictional.",
-    heroStatusLine: "The public demo is live. The hosted workspace remains an invitation-only private beta."
+    heroStatusLine: "The public demo is live. The hosted workspace remains an invitation-only private beta.",
+    editorialDemoLink: "Work this mystery in the demo",
+    betaDemoCardStatus: 'data-demo-card-status="live"',
+    betaTryAnswer: "Yes—today, without applying."
   }
 };
+const betaDemoSurface = readFileSync(join(outputRoot, "beta/index.html"), "utf8");
 if (marketingDemoMode === "live") {
-  for (const claim of [demoClaims.live.heroCtaLabel, demoClaims.live.heroCtaNote, demoClaims.live.heroStatusLine]) {
+  for (const claim of [
+    demoClaims.live.heroCtaLabel,
+    demoClaims.live.heroCtaNote,
+    demoClaims.live.heroStatusLine,
+    demoClaims.live.editorialDemoLink
+  ]) {
     if (!home.includes(claim)) problems.push(`Homepage is missing the live demo claim: ${claim}`);
   }
   for (const [description, replaced] of [
@@ -177,14 +188,67 @@ if (marketingDemoMode === "live") {
       problems.push(`Live-demo homepage still contains the ${description}: ${replaced}`);
     }
   }
+  for (const [description, claim] of [
+    ["live demo-card status", demoClaims.live.betaDemoCardStatus],
+    ["live try-it answer", demoClaims.live.betaTryAnswer]
+  ]) {
+    if (!betaDemoSurface.includes(claim)) {
+      problems.push(`Beta page is missing the ${description}: ${claim}`);
+    }
+  }
+  for (const [description, replaced] of [
+    ["pending demo-card status", demoClaims.pending.betaDemoCardStatus],
+    ["pending try-it answer", demoClaims.pending.betaTryAnswer]
+  ]) {
+    if (htmlCorpus.includes(replaced)) {
+      problems.push(`Live-demo export still contains the ${description}: ${replaced}`);
+    }
+  }
 } else {
   for (const claim of [demoClaims.pending.heroCtaLabel, demoClaims.pending.heroSourceNote]) {
     if (!home.includes(claim)) problems.push(`Homepage is missing the pending demo copy: ${claim}`);
   }
-  for (const claim of [demoClaims.live.heroCtaLabel, demoClaims.live.heroCtaNote, demoClaims.live.heroStatusLine]) {
+  for (const [description, claim] of [
+    ["pending demo-card status", demoClaims.pending.betaDemoCardStatus],
+    ["pending try-it answer", demoClaims.pending.betaTryAnswer]
+  ]) {
+    if (!betaDemoSurface.includes(claim)) {
+      problems.push(`Beta page is missing the ${description}: ${claim}`);
+    }
+  }
+  for (const claim of [
+    demoClaims.live.heroCtaLabel,
+    demoClaims.live.heroCtaNote,
+    demoClaims.live.heroStatusLine,
+    demoClaims.live.editorialDemoLink,
+    demoClaims.live.betaDemoCardStatus,
+    demoClaims.live.betaTryAnswer
+  ]) {
     if (htmlCorpus.includes(claim)) {
       problems.push(`Static export for the ${marketingDemoMode} demo mode contains live-demo claim: ${claim}`);
     }
+  }
+  if (htmlCorpus.includes("data-social-proof-surface")) {
+    problems.push("Social-proof strip must never render while the demo launch is pending.");
+  }
+}
+
+for (const [description, claim] of [
+  ["pricing-intent strip link", 'href="/pricing/"'],
+  ["pricing-intent strip label", "Read the pricing intent"],
+  ["roadmap status link", 'href="/roadmap/"'],
+  ["repository status link", "Browse the source"]
+]) {
+  if (!home.includes(claim)) problems.push(`Homepage is missing its ${description}: ${claim}`);
+}
+for (const [description, claim] of [
+  ["no-invitation evaluation framing", "need an invitation to evaluate Kin Resolve"],
+  ["read-only family archive link", 'href="https://demo.kinresolve.com/family"'],
+  ["research-instincts challenge link", 'href="/challenge/"'],
+  ["pricing FAQ link", 'href="/pricing/"']
+]) {
+  if (!betaDemoSurface.includes(claim)) {
+    problems.push(`Beta page is missing its ${description}: ${claim}`);
   }
 }
 

@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { BetaForm } from "@/components/beta-form";
 import { PageHero } from "@/components/page-hero";
 import { betaStatus } from "@/lib/beta-status";
 import { betaApplicationMode } from "@/lib/beta-application-mode";
+import { demoLive } from "@/lib/demo-status";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
@@ -12,24 +14,58 @@ export const metadata = pageMetadata({
   path: "/beta/"
 });
 
-const faqs = [
+interface EvaluatePath {
+  title: string;
+  body: string;
+  href: string;
+  action: string;
+  status?: { tone: "live" | "pending"; label: string };
+}
+
+const evaluateToday: readonly EvaluatePath[] = [
+  {
+    title: "The passenger mystery",
+    body: "Open a disposable synthetic workspace and work the Hartwell–Mercer passenger question with the real product tools. The workspace expires after 24 hours, and nothing you try is kept.",
+    href: site.demoUrl,
+    action: "Open the demo",
+    status: demoLive
+      ? { tone: "live", label: "Live · no signup" }
+      : { tone: "pending", label: "Launch pending" }
+  },
+  {
+    title: "A read-only family archive",
+    body: "Browse the published face of the fictional archive—the ancestor profiles, stories, and sources a careful researcher chose to share.",
+    href: `${site.demoUrl}/family`,
+    action: "Browse the archive"
+  },
+  {
+    title: "The research-instincts challenge",
+    body: "Work five immersive cases across thirty synthetic records in your browser. No account and no workspace—just the records and your judgment.",
+    href: "/challenge",
+    action: "Test your instincts"
+  }
+];
+
+const faqs: readonly [string, ReactNode][] = [
+  [
+    "Can I just try it?",
+    demoLive ? (
+      <>
+        Yes—today, without applying. The <a href={site.demoUrl}>public demo</a> opens a disposable synthetic workspace with no signup, and the <Link href="/challenge">research-instincts challenge</Link> runs in the browser with no account at all.
+      </>
+    ) : (
+      <>
+        The <Link href="/challenge">research-instincts challenge</Link> runs in the browser now, with no account. The public demo workspace is staged behind its own launch checks and this page will link it the moment it is live.
+      </>
+    )
+  ],
   [
     "Is the beta free?",
     `${betaStatus.hostedLive ? "The first" : "The proposed first"} 30-day pilot is free and has no billing or payment-information step. The invitation states the exact participation terms before an account is created.`
   ],
   [
-    "When will I get access?",
-    betaStatus.hostedLive
-      ? "Invitations are issued privately to approved participants, and cohorts remain deliberately small."
-      : "Invitations have not started, and cohorts will remain deliberately small once they do."
-  ],
-  [
     `What file can ${betaStatus.hostedLive ? "the pilot" : "the proposed pilot"} accept?`,
     "Plain .ged or .gedcom only, initially limited to 10 MiB (10,485,760 bytes) and 40,000 people. Source work is limited to metadata, links, and pasted text or transcripts."
-  ],
-  [
-    "Can I upload family data?",
-    "Not when applying. Every participant starts with synthetic records. One isolated plain-GEDCOM pilot may accept real family data only after the legal, restore, deletion, recovery, and security gates pass."
   ],
   [
     "Can I use DNA, external AI, media, or public publishing?",
@@ -40,16 +76,12 @@ const faqs = [
     "Founder-operated onboarding and a one-business-day support acknowledgement target, with weekly check-ins and announced maintenance. This is a target, not an uptime or response-time SLA."
   ],
   [
-    "What am I agreeing to when I apply?",
-    betaStatus.hostedLive
-      ? "Only to receive beta communications. An invitation presents the approved, published participation terms, privacy notice, and cohort boundary for explicit acceptance."
-      : "Only to receive beta communications. An invitation can be accepted only after the approved participation terms, privacy notice, and cohort boundary are published and presented for explicit acceptance."
-  ],
-  [
-    "Can I self-host?",
-    "The AGPL source is available now. The current Compose path is suitable for development and beta evaluation while production hardening continues."
+    "What will hosted plans cost?",
+    <>
+      Nothing has a price yet. Hosted plans will be announced before anything costs money, beta participants get clear notice first, and self-hosting stays free under the AGPL. The <Link href="/pricing">pricing page</Link> states the full intent.
+    </>
   ]
-] as const;
+];
 
 const cohortIncluded = [
   "An invitation-only private archive for one researcher or trusted household",
@@ -84,6 +116,30 @@ export default function BetaPage() {
         primaryHref="#apply"
         title="Help shape a more rigorous genealogy research workspace."
       />
+
+      <section className="shell section evaluate-section" aria-labelledby="evaluate-today-title">
+        <div className="section-heading">
+          <span className="eyebrow">What you can use today</span>
+          <h2 id="evaluate-today-title">You don’t need an invitation to evaluate Kin Resolve.</h2>
+          <p>Every surface below is public, free, and built entirely from fictional Hartwell–Mercer records—judge the product before you apply.</p>
+        </div>
+        <div className="evaluate-grid">
+          {evaluateToday.map((path) => (
+            <article className="evaluate-card" key={path.title}>
+              {path.status && (
+                <span className={`demo-status-pill ${path.status.tone}`} data-demo-card-status={path.status.tone}>
+                  {path.status.label}
+                </span>
+              )}
+              <h3>{path.title}</h3>
+              <p>{path.body}</p>
+              {path.href.startsWith("http")
+                ? <a className="arrow-link" href={path.href}>{path.action} <span aria-hidden="true">↗</span></a>
+                : <Link className="arrow-link" href={path.href}>{path.action} <span aria-hidden="true">→</span></Link>}
+            </article>
+          ))}
+        </div>
+      </section>
 
       <section className="shell section beta-fit-grid" data-beta-status-surface="beta">
         <div>
@@ -121,16 +177,13 @@ export default function BetaPage() {
         </div>
       </section>
 
-      <section className="shell section privacy-roadmap">
-        <div className="section-heading">
-          <span className="eyebrow">From application to archive</span>
-          <h2>Four steps, each with its own gate.</h2>
-        </div>
-        <ol>
-          <li><strong>Apply without records</strong><span>Send only the fixed contact and workflow fields shown below. There is no free-text field or file upload.</span></li>
-          <li><strong>Private selection</strong><span>A founder reviews fit and capacity.</span></li>
-          <li><strong>Review exact documents</strong><span>Before account creation, an invite presents the approved participation terms, privacy notice, and cohort boundary for explicit acceptance.</span></li>
-          <li><strong>Start synthetic</strong><span>Use fictional Hartwell–Mercer data first. Real family data remains prohibited until every real-data gate is approved and evidenced.</span></li>
+      <section className="shell section application-path" aria-label="From application to archive">
+        <span className="eyebrow">From application to archive</span>
+        <ol className="steps-inline">
+          <li><strong>Apply without records.</strong> Only the fixed contact and workflow fields below—no free text and no file upload.</li>
+          <li><strong>Private selection.</strong> A founder reviews fit and capacity.</li>
+          <li><strong>Review exact documents.</strong> An invitation presents the approved participation terms, privacy notice, and cohort boundary for explicit acceptance.</li>
+          <li><strong>Start synthetic.</strong> Fictional Hartwell–Mercer records come first; real family data remains prohibited until every real-data gate is approved and evidenced.</li>
         </ol>
       </section>
 
