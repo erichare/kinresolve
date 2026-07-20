@@ -3,6 +3,7 @@
 // Run via `npm run db:migrate:production`; requires Node 22.6+ for TypeScript stripping.
 import { Pool } from "pg";
 
+import { describeMigrationFailure } from "../lib/migration-failure.ts";
 import { runPendingMigrations } from "../lib/migrations.ts";
 import { runProductionMigrations } from "../lib/production-migration.ts";
 import { loadReleasePolicy } from "../lib/release-policy.ts";
@@ -17,6 +18,6 @@ try {
     log: (message) => console.log(message)
   });
 } catch (error) {
-  console.error(error instanceof Error ? error.message : "Production migration failed.");
+  console.error(describeMigrationFailure(error, process.env.MIGRATION_DATABASE_URL, "MIGRATION_DATABASE_URL"));
   process.exitCode = 1;
 }
