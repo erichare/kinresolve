@@ -105,7 +105,11 @@ export const POST = withDemoGuestCapability("demo:guide", async (request, guest,
         },
         archiveOptions
       );
-      await recordDemoEventSafely({ sessionId: guest.sessionId, eventName: "outcome_completed" });
+      if (result.applied) {
+        // Idempotent replays of the same record_outcome request must not
+        // re-count in the event stream or the durable stats counter.
+        await recordDemoEventSafely({ sessionId: guest.sessionId, eventName: "outcome_completed" });
+      }
       return NextResponse.json({
         task: result.task,
         next: "hypothesis_decision",

@@ -32,5 +32,8 @@ function publicStatsHeaders(): HeadersInit {
 }
 
 function notFound(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json({ error: "Not found" }, {
+    status: 404,
+    headers: { "cache-control": "private, no-store", "x-robots-tag": "noindex" }
+  });
 }

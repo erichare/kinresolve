@@ -70,6 +70,7 @@ describe("public demo command routes", () => {
       }]
     });
     mocks.recordCaseTaskOutcome.mockResolvedValue({
+      applied: true,
       task: { id: "task-compare-signatures", status: "done" }
     });
     mocks.updateCaseHypothesis.mockResolvedValue({
@@ -108,6 +109,26 @@ describe("public demo command routes", () => {
       sessionId: "session-demo",
       eventName: "outcome_completed"
     });
+  });
+
+  it("does not record another outcome event when the same outcome request is replayed", async () => {
+    mocks.recordCaseTaskOutcome.mockResolvedValue({
+      applied: false,
+      task: { id: "task-compare-signatures", status: "done" }
+    });
+
+    const { POST } = await import("@/app/api/demo/cases/[caseId]/guide/route");
+    const response = await POST(
+      jsonRequest("/api/demo/cases/case-mercer-march-identity/guide", {
+        command: "record_outcome",
+        outcome: "found"
+      }),
+      { params: Promise.resolve({ caseId: "case-mercer-march-identity" }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.recordCaseTaskOutcome).toHaveBeenCalledOnce();
+    expect(mocks.recordPublicDemoEvent).not.toHaveBeenCalled();
   });
 
   it("rejects unknown guide fields instead of persisting visitor prose", async () => {

@@ -31,6 +31,8 @@ describe("public demo stats route", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "Not found" });
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
     expect(mocks.readPublicDemoStats).not.toHaveBeenCalled();
   });
 

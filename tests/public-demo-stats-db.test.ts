@@ -9,6 +9,8 @@ import {
   readPublicDemoStats,
   recordPublicDemoEvent
 } from "@/lib/public-demo-session-store";
+import { addCaseTask, createCase, recordCaseTaskOutcome } from "@/lib/workspace-store";
+import { provisionTestArchive } from "@/tests/helpers/provision-test-archive";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIfDatabase = databaseUrl ? describe : describe.skip;
@@ -17,6 +19,7 @@ const now = new Date("2026-07-18T12:00:00.000Z");
 describeIfDatabase("public demo stats database contract", () => {
   let pool: Pool;
   const sessionIds: string[] = [];
+  const archiveIds: string[] = [];
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: databaseUrl, max: 3 });
@@ -30,6 +33,9 @@ describeIfDatabase("public demo stats database contract", () => {
         "DELETE FROM public.public_demo_sessions WHERE id = ANY($1::uuid[])",
         [sessionIds.splice(0)]
       );
+    }
+    if (archiveIds.length > 0) {
+      await pool.query("DELETE FROM public.archives WHERE id = ANY($1)", [archiveIds.splice(0)]);
     }
   });
 
@@ -85,7 +91,61 @@ describeIfDatabase("public demo stats database contract", () => {
     expect(after.updated_at.getTime()).toBeGreaterThanOrEqual(now.getTime());
     const view = await readPublicDemoStats({ databaseUrl });
     expect(view.mysteriesSolved).toBe(Number(after.total));
-    expect(new Date(view.since).getTime()).toBeLessThanOrEqual(Date.now());
+    // Compare against the database clock so runner-vs-DB clock skew cannot flake this.
+    const databaseNow = await pool.query<{ now: Date }>("SELECT now() AS now");
+    expect(new Date(view.since).getTime()).toBeLessThanOrEqual(databaseNow.rows[0]!.now.getTime());
+  });
+
+  it("counts a replayed outcome request exactly once in the events and the durable counter", async () => {
+    const sessionId = await insertSession(false);
+    const archiveId = `test-stats-${randomUUID()}`;
+    archiveIds.push(archiveId);
+    const storeOptions = { databaseUrl, archiveId };
+    await provisionTestArchive(storeOptions);
+    const researchCase = await createCase(
+      {
+        id: "case-replay-count",
+        title: "Replay counting test",
+        question: "Does an idempotent replay count twice?"
+      },
+      storeOptions
+    );
+    const createdTask = await addCaseTask(
+      researchCase.id,
+      { id: "task-replay-count", title: "Compare the signatures" },
+      storeOptions
+    );
+    const before = await statsRow();
+
+    const outcomeInput = {
+      requestId: `request-${randomUUID()}`,
+      expectedTaskUpdatedAt: createdTask.task.updatedAt!,
+      outcome: "found" as const,
+      note: "The fictional signatures share the assigned features.",
+      actorId: `demo:${sessionId}`,
+      actorName: "Demo Guest"
+    };
+    // Mirror the guide route contract: outcome telemetry is recorded only
+    // for newly applied outcomes, never for idempotent replays.
+    const first = await recordCaseTaskOutcome(researchCase.id, createdTask.task.id, outcomeInput, storeOptions);
+    if (first.applied) {
+      await recordPublicDemoEvent({ sessionId, eventName: "outcome_completed", now }, { databaseUrl });
+    }
+    const replay = await recordCaseTaskOutcome(researchCase.id, createdTask.task.id, outcomeInput, storeOptions);
+    if (replay.applied) {
+      await recordPublicDemoEvent({ sessionId, eventName: "outcome_completed", now }, { databaseUrl });
+    }
+
+    expect(first.applied).toBe(true);
+    expect(replay.applied).toBe(false);
+    const after = await statsRow();
+    expect(BigInt(after.total)).toBe(BigInt(before.total) + 1n);
+    const events = await pool.query(
+      `SELECT 1 FROM public.public_demo_events
+       WHERE session_id = $1::uuid AND event_name = 'outcome_completed'`,
+      [sessionId]
+    );
+    expect(events.rows).toHaveLength(1);
   });
 
   it("does not count canary-excluded outcome events or non-outcome events", async () => {
