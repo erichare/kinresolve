@@ -802,7 +802,7 @@ async function validateAnonymousAndPublicBoundary(
 ): Promise<void> {
   await assertProtectedPageDenied(context, configuration, "/app");
   await assertPrivateApiStatus(context, 401, configuration);
-  for (const pathname of ["/", "/people", "/places", "/stories", "/kinsleuth"]) {
+  for (const pathname of ["/", "/people", "/places", "/stories", "/kinresolve"]) {
     const response = await context.request.get(pathname, { maxRedirects: 0, timeout: configuration.timeoutMs });
     if (![302, 303, 307, 308].includes(response.status())) throw new Error();
     const location = response.headers().location;

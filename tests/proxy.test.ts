@@ -237,7 +237,7 @@ describe("private workspace proxy", () => {
     expect(authMocks.getSessionContext).not.toHaveBeenCalled();
   });
 
-  it.each(["/", "/people", "/people/ada", "/places", "/stories", "/kinsleuth"])(
+  it.each(["/", "/people", "/people/ada", "/places", "/stories", "/kinresolve"])(
     "redirects the disabled hosted public archive route %s before database access",
     async (pathname) => {
       stubPrivateHostedEnvironment();

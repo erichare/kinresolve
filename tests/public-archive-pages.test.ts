@@ -8,7 +8,7 @@ describe("disabled public archive page boundary", () => {
     ["app/people/[slug]/page.tsx", "await params"],
     ["app/places/page.tsx", "resolvePublicArchiveId()"],
     ["app/stories/page.tsx", "return ("],
-    ["app/kinsleuth/page.tsx", "return ("]
+    ["app/kinresolve/page.tsx", "return ("]
   ] as const)("guards %s before route work", async (file, workMarker) => {
     const source = await readFile(file, "utf8");
     const guard = "if (!publicArchiveEnabled())";

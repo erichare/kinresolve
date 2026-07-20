@@ -15,7 +15,7 @@ function PublicLinks({ active, className, demoMode, label }: { active?: string; 
     { href: "/people", label: "People" },
     { href: "/places", label: "Places" },
     { href: "/stories", label: "Stories" },
-    { href: "/kinsleuth", label: "Product" }
+    { href: "/kinresolve", label: "Product" }
   ];
   return (
     <nav className={className} aria-label={label}>

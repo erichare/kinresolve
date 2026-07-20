@@ -7,8 +7,8 @@ import {
 
 type Environment = Record<string, string | undefined>;
 
-const publicArchiveRoots = new Set(["/", "/family", "/people", "/places", "/stories", "/kinsleuth"]);
-const publicArchivePrefixes = ["/family/", "/people/", "/places/", "/stories/", "/kinsleuth/"];
+const publicArchiveRoots = new Set(["/", "/family", "/people", "/places", "/stories", "/kinresolve"]);
+const publicArchivePrefixes = ["/family/", "/people/", "/places/", "/stories/", "/kinresolve/"];
 
 export const privateWorkspaceLoginPath = "/login?next=/app";
 

@@ -6,6 +6,17 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe("legacy product route redirect", () => {
+  it("permanently redirects /kinsleuth to /kinresolve as the first configured redirect", async () => {
+    const redirects = await nextConfig.redirects?.();
+    expect(redirects?.[0]).toEqual({
+      source: "/kinsleuth/:path*",
+      destination: "/kinresolve/:path*",
+      permanent: true
+    });
+  });
+});
+
 describe("application security headers", () => {
   it("sets the production browser perimeter and private crawler header", async () => {
     stubPrivateHostedEnvironment();

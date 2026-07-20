@@ -373,6 +373,14 @@ describe("stable release workflow contract", () => {
     expect(staging).toContain("staging-browser-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(staging).toContain("KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}");
     expect(staging).toContain("steps.staging-browser-promotion-marker.outputs.attempted == 'true'");
+    // The canary plumbing uses the canonical KINRESOLVE_ARCHIVE_ID name; the
+    // dual-read scripts still accept a legacy value from the pulled cell file.
+    expect(staging).toContain(
+      "KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}"
+    );
+    expect(staging).not.toContain("KINSLEUTH_ARCHIVE_ID:");
+    expect(finalizer).toContain("KINRESOLVE_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}");
+    expect(finalizer).not.toContain("KINSLEUTH_ARCHIVE_ID:");
 
     expect(finalizer).toContain("timeout-minutes: 20");
     expect(finalizer).toContain("if: ${{ always() && needs.staging.result != 'skipped' }}");

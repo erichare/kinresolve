@@ -15,7 +15,7 @@ const privateHostedEnvironment = {
 } as const;
 
 describe("public surface policy", () => {
-  it.each(["/", "/people", "/people/ada", "/places", "/stories", "/kinsleuth"])(
+  it.each(["/", "/people", "/people/ada", "/places", "/stories", "/kinresolve"])(
     "classifies %s as an archive surface",
     (pathname) => expect(isPublicArchivePath(pathname)).toBe(true)
   );
@@ -24,6 +24,11 @@ describe("public surface policy", () => {
     "does not overmatch %s",
     (pathname) => expect(isPublicArchivePath(pathname)).toBe(false)
   );
+
+  it("retires /kinsleuth from the public surface; the framework redirect answers it", () => {
+    expect(isPublicArchivePath("/kinsleuth")).toBe(false);
+    expect(isPublicArchivePath("/kinsleuth/anything")).toBe(false);
+  });
 
   it("fails closed when hosted capability configuration is disabled or invalid", () => {
     expect(publicArchiveEnabled(privateHostedEnvironment)).toBe(false);
