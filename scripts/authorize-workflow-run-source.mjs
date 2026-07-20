@@ -68,8 +68,17 @@ function list(value) {
 }
 
 function optional(name) {
-  const value = process.env[name]?.trim();
-  return value ? value : undefined;
+  if (!(name in process.env)) return undefined;
+  const value = (process.env[name] ?? "").trim();
+  if (value === "") {
+    throw new Error(
+      `${name} is set but empty. In GitHub Actions an env mapping from a missing or deleted `
+        + `repository variable renders as an empty string, so an empty ${name} is treated as a `
+        + "misconfiguration, not as an unconfigured check. Remove the env mapping entirely to "
+        + "skip this check."
+    );
+  }
+  return value;
 }
 
 function required(name) {

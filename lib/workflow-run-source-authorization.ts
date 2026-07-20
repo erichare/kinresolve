@@ -22,11 +22,15 @@
  *   public-demo) and derives the matching `safety_environment` output.
  * - `productionBackupCleanup` -> .github/workflows/production-backup-cleanup.yml
  *   Source: production-backup.yml. Adoption must add
- *   `expectedSourceWorkflowId` from vars.PRODUCTION_BACKUP_WORKFLOW_ID.
+ *   `expectedSourceWorkflowId` from vars.PRODUCTION_BACKUP_WORKFLOW_ID; the
+ *   profile sets `requiresExpectedSourceWorkflowId` so a config that omits
+ *   the pin is rejected at validation time.
  *   The live handler checks no workflow name and no display title.
  * - `recoveryCleanup` -> .github/workflows/recovery-cleanup.yml
  *   Source: recovery-evidence.yml. Adoption must add
- *   `expectedSourceWorkflowId` from vars.RECOVERY_EVIDENCE_WORKFLOW_ID.
+ *   `expectedSourceWorkflowId` from vars.RECOVERY_EVIDENCE_WORKFLOW_ID; the
+ *   profile sets `requiresExpectedSourceWorkflowId` so a config that omits
+ *   the pin is rejected at validation time.
  *   The live handler checks no workflow name and no display title.
  *
  * Every profile still requires `currentRepository` (from GITHUB_REPOSITORY)
@@ -46,10 +50,25 @@ export const workflowRunFailureConclusions = Object.freeze([
 
 export const workflowRunDispatchEvents = Object.freeze(["workflow_dispatch"] as const);
 
-export const reservedWorkflowRunOutputNames = Object.freeze([
+/**
+ * Placeholder names bound to validated event fields inside display title
+ * templates. These are always emitted as outputs.
+ */
+export const builtinWorkflowRunPlaceholderNames = Object.freeze([
   "run_id",
   "run_attempt",
   "head_sha"
+] as const);
+
+/**
+ * Every output name the CLI writes to GITHUB_OUTPUT itself. Config-defined
+ * captures and fixed outputs must not shadow any of these: a duplicate
+ * `authorized=` line in GITHUB_OUTPUT would let the later (config-controlled)
+ * assignment win over the CLI's authorization verdict.
+ */
+export const reservedWorkflowRunOutputNames = Object.freeze([
+  "authorized",
+  ...builtinWorkflowRunPlaceholderNames
 ] as const);
 
 export type WorkflowRunDisplayTitleTemplate = Readonly<{
@@ -63,6 +82,12 @@ export type WorkflowRunSourceAuthorizationConfig = Readonly<{
   expectedSourceWorkflowPath: string;
   expectedSourceWorkflowName?: string;
   expectedSourceWorkflowId?: string;
+  /**
+   * When true the config is rejected unless `expectedSourceWorkflowId` is
+   * present. Profiles whose live handlers pin the numeric workflow ID set
+   * this so an adopter cannot spread the profile and silently drop the pin.
+   */
+  requiresExpectedSourceWorkflowId?: boolean;
   allowedSourceEvents: readonly string[];
   allowedSourceConclusions: readonly string[];
   requiredHeadBranch: string;
@@ -157,19 +182,22 @@ export const workflowRunSourceAuthorizationProfiles: Readonly<
   }),
   productionBackupCleanup: Object.freeze({
     expectedSourceWorkflowPath: ".github/workflows/production-backup.yml",
+    requiresExpectedSourceWorkflowId: true,
     allowedSourceEvents: workflowRunDispatchEvents,
     allowedSourceConclusions: workflowRunFailureConclusions,
     requiredHeadBranch: "main"
   }),
   recoveryCleanup: Object.freeze({
     expectedSourceWorkflowPath: ".github/workflows/recovery-evidence.yml",
+    requiresExpectedSourceWorkflowId: true,
     allowedSourceEvents: workflowRunDispatchEvents,
     allowedSourceConclusions: workflowRunFailureConclusions,
     requiredHeadBranch: "main"
   })
 });
 
-const builtinPlaceholderNames = new Set<string>(reservedWorkflowRunOutputNames);
+const builtinPlaceholderNames = new Set<string>(builtinWorkflowRunPlaceholderNames);
+const reservedOutputNames = new Set<string>(reservedWorkflowRunOutputNames);
 const placeholderNamePattern = /^[a-z][a-z0-9_]{0,63}$/;
 const outputValuePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const tokenNamePattern = /^[a-z][a-z0-9_]{0,63}$/;
@@ -191,6 +219,7 @@ const requiredConfigKeys = Object.freeze([
 const optionalConfigKeys = Object.freeze([
   "expectedSourceWorkflowName",
   "expectedSourceWorkflowId",
+  "requiresExpectedSourceWorkflowId",
   "displayTitleTemplates"
 ] as const);
 
@@ -241,6 +270,18 @@ function normalizeConfig(value: unknown): NormalizedConfig {
   if (presentKeys.some((key) => !allowedKeys.has(key))
       || requiredConfigKeys.some((key) => config[key] === undefined)) {
     throw new Error("The authorization config contains unexpected or missing fields.");
+  }
+  if (config.requiresExpectedSourceWorkflowId !== undefined
+      && typeof config.requiresExpectedSourceWorkflowId !== "boolean") {
+    throw new Error(
+      "The authorization config requiresExpectedSourceWorkflowId flag is malformed."
+    );
+  }
+  if (config.requiresExpectedSourceWorkflowId === true
+      && config.expectedSourceWorkflowId === undefined) {
+    throw new Error(
+      "The authorization config requires an expected source workflow ID but none was provided."
+    );
   }
   return Object.freeze({
     currentRepository: repository(config.currentRepository, "The authorization config repository"),
@@ -393,6 +434,9 @@ function parseTemplateEntry(value: unknown): ParsedDisplayTitleTemplate {
   if (new Set(captureNames).size !== captureNames.length) {
     throw new Error("A display title template capture is duplicated.");
   }
+  if (captureNames.some((name) => reservedOutputNames.has(name))) {
+    throw new Error("A display title template capture shadows a reserved output name.");
+  }
   const captures = parseCaptures(entry.captures, captureNames);
   const outputs = parseFixedOutputs(entry.outputs, captureNames);
   const segments = placeholders.map((segment): TemplateSegment => {
@@ -486,7 +530,7 @@ function parseFixedOutputs(
   for (const key of keys) {
     const entry = outputs[key];
     if (!placeholderNamePattern.test(key)
-        || builtinPlaceholderNames.has(key)
+        || reservedOutputNames.has(key)
         || captureNames.includes(key)
         || typeof entry !== "string"
         || !outputValuePattern.test(entry)) {

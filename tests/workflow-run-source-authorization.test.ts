@@ -579,6 +579,62 @@ describe("authorization config fail-closed validation", () => {
       "unexpected or missing fields"
     );
   });
+
+  it.each([
+    ["productionBackupCleanup", backupRun()],
+    ["recoveryCleanup", recoveryRun()]
+  ] as const)(
+    "rejects the %s profile when the mandatory expected workflow id is omitted",
+    (profile, run) => {
+      rejection(
+        workflowRunEvent(run),
+        {
+          ...workflowRunSourceAuthorizationProfiles[profile],
+          currentRepository: repository
+        },
+        "requires an expected source workflow ID"
+      );
+    }
+  );
+
+  it("rejects a non-boolean requiresExpectedSourceWorkflowId flag", () => {
+    rejection(
+      workflowRunEvent(backupRun()),
+      {
+        ...backupCleanupConfig,
+        requiresExpectedSourceWorkflowId: "true"
+      } as unknown as WorkflowRunSourceAuthorizationConfig,
+      "requiresExpectedSourceWorkflowId"
+    );
+  });
+
+  it("rejects a template output that shadows the authorized verdict output", () => {
+    rejection(
+      workflowRunEvent(releaseRun()),
+      {
+        ...releaseContainmentConfig,
+        displayTitleTemplates: [{
+          template: "Kin Resolve beta release run {run_id} attempt {run_attempt}",
+          outputs: { authorized: "true" }
+        }]
+      },
+      "output"
+    );
+  });
+
+  it("rejects a template capture that shadows the authorized verdict output", () => {
+    rejection(
+      workflowRunEvent(releaseRun()),
+      {
+        ...releaseContainmentConfig,
+        displayTitleTemplates: [{
+          template: "Kin Resolve beta release {authorized} run {run_id} attempt {run_attempt}",
+          captures: { authorized: ["true"] }
+        }]
+      },
+      "reserved output name"
+    );
+  });
 });
 
 describe("authorize-workflow-run-source CLI", () => {
@@ -611,12 +667,16 @@ describe("authorize-workflow-run-source CLI", () => {
       encoding: "utf8",
       env: {
         ...process.env,
+        // Optional checks are absent by default: only a variable that is
+        // entirely missing from the environment means "check not configured".
+        // An empty string (how GitHub Actions renders a missing repository
+        // variable) must hard-fail, which dedicated tests below assert.
+        EXPECTED_SOURCE_WORKFLOW_NAME: undefined,
+        EXPECTED_SOURCE_WORKFLOW_ID: undefined,
+        DISPLAY_TITLE_TEMPLATES: undefined,
         GITHUB_EVENT_PATH: eventPath,
         GITHUB_OUTPUT: outputPath,
         GITHUB_REPOSITORY: repository,
-        EXPECTED_SOURCE_WORKFLOW_NAME: "",
-        EXPECTED_SOURCE_WORKFLOW_ID: "",
-        DISPLAY_TITLE_TEMPLATES: "",
         ALLOWED_SOURCE_EVENTS: "workflow_dispatch",
         ALLOWED_SOURCE_CONCLUSIONS: "failure,cancelled,timed_out",
         REQUIRED_HEAD_BRANCH: "main",
@@ -703,6 +763,79 @@ describe("authorize-workflow-run-source CLI", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Workflow run source authorization failed");
     expect(result.stderr).toContain("conclusion");
+    expect(result.stdout).toBe("");
+    expect(await readFile(outputPath, "utf8")).toBe("");
+  });
+
+  it.each([
+    "EXPECTED_SOURCE_WORKFLOW_NAME",
+    "EXPECTED_SOURCE_WORKFLOW_ID",
+    "DISPLAY_TITLE_TEMPLATES"
+  ])(
+    "exits nonzero when %s is present but empty instead of skipping the check",
+    async (name) => {
+      const directory = await scratchDirectory();
+      const eventPath = path.join(directory, "event.json");
+      const outputPath = path.join(directory, "output");
+      await Promise.all([
+        writeFile(eventPath, JSON.stringify(workflowRunEvent(recoveryRun())), "utf8"),
+        writeFile(outputPath, "", "utf8")
+      ]);
+
+      const result = runCli(eventPath, outputPath, {
+        EXPECTED_SOURCE_WORKFLOW_PATH: ".github/workflows/recovery-evidence.yml",
+        EXPECTED_SOURCE_WORKFLOW_ID: "190000002",
+        [name]: ""
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Workflow run source authorization failed");
+      expect(result.stderr).toContain(`${name} is set but empty`);
+      expect(result.stdout).toBe("");
+      expect(await readFile(outputPath, "utf8")).toBe("");
+    }
+  );
+
+  it("exits nonzero when an optional variable is present but whitespace-only", async () => {
+    const directory = await scratchDirectory();
+    const eventPath = path.join(directory, "event.json");
+    const outputPath = path.join(directory, "output");
+    await Promise.all([
+      writeFile(eventPath, JSON.stringify(workflowRunEvent(recoveryRun())), "utf8"),
+      writeFile(outputPath, "", "utf8")
+    ]);
+
+    const result = runCli(eventPath, outputPath, {
+      EXPECTED_SOURCE_WORKFLOW_PATH: ".github/workflows/recovery-evidence.yml",
+      EXPECTED_SOURCE_WORKFLOW_ID: "  "
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("EXPECTED_SOURCE_WORKFLOW_ID is set but empty");
+    expect(result.stdout).toBe("");
+    expect(await readFile(outputPath, "utf8")).toBe("");
+  });
+
+  it("exits nonzero on the missing-repository-variable probe with a forged workflow id", async () => {
+    const directory = await scratchDirectory();
+    const eventPath = path.join(directory, "event.json");
+    const outputPath = path.join(directory, "output");
+    await Promise.all([
+      writeFile(
+        eventPath,
+        JSON.stringify(workflowRunEvent(recoveryRun({ workflow_id: 999999999 }))),
+        "utf8"
+      ),
+      writeFile(outputPath, "", "utf8")
+    ]);
+
+    const result = runCli(eventPath, outputPath, {
+      EXPECTED_SOURCE_WORKFLOW_PATH: ".github/workflows/recovery-evidence.yml",
+      EXPECTED_SOURCE_WORKFLOW_ID: ""
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("EXPECTED_SOURCE_WORKFLOW_ID is set but empty");
     expect(result.stdout).toBe("");
     expect(await readFile(outputPath, "utf8")).toBe("");
   });
