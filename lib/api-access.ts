@@ -93,6 +93,10 @@ export const apiRouteAccessRegistry: readonly ApiRouteAccess[] = [
     methods: { POST: register(publicAccess, "marketing-native-form") }
   },
   {
+    path: "/api/public/demo-stats",
+    methods: { GET: register(publicAccess, "read-only") }
+  },
+  {
     path: "/api/demo/sessions",
     methods: { POST: register(publicAccess, "same-origin-cookie") }
   },

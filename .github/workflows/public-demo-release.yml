@@ -425,6 +425,7 @@ jobs:
               {"table":"public_demo_generations","select":true,"insert":true,"update":true,"delete":true},
               {"table":"public_demo_ai_attempts","select":true,"insert":true,"update":true,"delete":true},
               {"table":"public_demo_events","select":true,"insert":true,"update":false,"delete":true},
+              {"table":"public_demo_stats","select":true,"insert":false,"update":true,"delete":false},
               {"table":"security_events","select":false,"insert":true,"update":false,"delete":false}
             ] and
             all(.managedTablePrivileges[];

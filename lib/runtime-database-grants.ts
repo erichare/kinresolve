@@ -65,6 +65,10 @@ export const betaOperationsRuntimeGrantContract = [
     privileges: ["SELECT", "INSERT", "DELETE"]
   },
   {
+    table: "public_demo_stats",
+    privileges: ["SELECT", "UPDATE"]
+  },
+  {
     table: "security_events",
     privileges: ["INSERT"]
   }
