@@ -1388,6 +1388,8 @@ describe("marketing workflow release and intake modes", () => {
     expect(ci).toContain("KINRESOLVE_MARKETING_RELEASE_MODE: ${{ matrix.release-mode }}");
     expect(ci).toContain("KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ matrix.application-mode }}");
     expect(ci).toContain("KINRESOLVE_MARKETING_DEMO_MODE: ${{ matrix.demo-mode }}");
+    expect(ci).toContain("KINRESOLVE_MARKETING_ANALYTICS: ${{ matrix.analytics-mode || 'off' }}");
+    expect(ci).toContain("analytics-mode: plausible");
     expect(ci).toContain('scripts/launch-media-text.mjs');
     expect(deploy).toMatch(/beta_application_mode:[\s\S]*?default: mailto[\s\S]*?- mailto[\s\S]*?- application/);
     expect(deploy).toMatch(/demo_mode:[\s\S]*?default: pending[\s\S]*?- pending[\s\S]*?- live/);

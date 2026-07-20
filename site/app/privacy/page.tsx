@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CtaStrip } from "@/components/cta-strip";
 import { PageHero } from "@/components/page-hero";
+import { marketingAnalyticsMode } from "@/lib/analytics";
 import { betaApplicationMode } from "@/lib/beta-application-mode";
 import { betaStatus } from "@/lib/beta-status";
 import { pageMetadata } from "@/lib/metadata";
@@ -166,6 +167,15 @@ export default function PrivacyPage() {
         <strong>{betaStatus.hostedLive ? "Support and security routes are active for the hosted cohort." : "Support and security routes must be safe before invitations begin."}</strong>
         <p>Participant help, export, and deletion requests {betaStatus.hostedLive ? "use" : "will use"} <a href="mailto:support@kinresolve.com">support@kinresolve.com</a>. Private vulnerability reports {betaStatus.hostedLive ? "use" : "will use"} <a href="mailto:security@kinresolve.com">security@kinresolve.com</a>. The {betaStatus.hostedLive ? "support" : "proposed support"} acknowledgement target is one business day, not an SLA.</p>
         <p>Never email family records, GEDCOM files, private screenshots, passwords, cookies, API tokens, source images, or genetic information. Arrange a separately approved private transfer only when evidence bytes are necessary.</p>
+      </section>
+
+      <section className="shell section practice-note">
+        <strong>{marketingAnalyticsMode === "plausible"
+          ? "Aggregate visitor analytics run on Plausible—cookieless, EU-hosted, and script-gated."
+          : "No visitor analytics script loads in this release."}</strong>
+        <p>{marketingAnalyticsMode === "plausible"
+          ? "This release loads Plausible Analytics to count page views, a few fixed events, and outbound-link clicks in aggregate. Outbound-link clicks record the destination address of the public link clicked—no personal data. Plausible is cookieless and EU-hosted, sets no browser identifier, and performs no cross-site tracking. The analytics script loads only when the marketing analytics mode is explicitly enabled for a release."
+          : "The marketing analytics mode is off, so this release serves no analytics script at all. When a release enables it, the site loads Plausible Analytics—a cookieless, EU-hosted service with no cross-site tracking—to count page views, a few fixed events, and outbound-link clicks in aggregate. Outbound-link clicks record the destination address of the public link clicked—no personal data."}</p>
       </section>
 
       <section className="shell section practice-note">

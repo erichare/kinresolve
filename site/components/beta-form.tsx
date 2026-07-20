@@ -1,3 +1,5 @@
+import { BetaFormSubmitEvent } from "@/components/beta-form-submit-event";
+import { marketingAnalyticsMode } from "@/lib/analytics";
 import { betaApplicationMode } from "@/lib/beta-application-mode";
 import { site } from "@/lib/site";
 
@@ -16,6 +18,9 @@ export function BetaForm() {
       id="beta-interest-form"
       method="post"
     >
+      {marketingAnalyticsMode === "plausible"
+        ? <BetaFormSubmitEvent formId="beta-interest-form" />
+        : null}
       <input name="consent_version" type="hidden" value={consentVersion} />
       <div aria-hidden="true" className="form-honeypot">
         <label htmlFor="beta-application-website">Website</label>
