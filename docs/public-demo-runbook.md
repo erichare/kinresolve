@@ -232,5 +232,8 @@ On failure:
 - [ ] Twenty-session KPI instrumentation review confirms canaries are excluded.
 - [ ] Five unfamiliar testers each complete the research outcome without assistance in
       under two minutes.
+- [ ] Two or three attributable tester quotes are captured during the five-tester gate,
+      with written consent recorded, attributed by first name and researcher type only,
+      per [`public-demo-launch-materials.md`](public-demo-launch-materials.md).
 - [ ] Founder/legal review approves the fictional-data notice, privacy wording, feedback
       fields, and the August 13, 2026 launch (or August 20 contingency).
