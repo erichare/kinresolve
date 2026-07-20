@@ -29,6 +29,9 @@ describe("failed recovery target janitor", () => {
     expect(workflow).toContain(
       "EXPECTED_SOURCE_WORKFLOW_ID: ${{ vars.RECOVERY_EVIDENCE_WORKFLOW_ID }}"
     );
+    expect(workflow).toContain(
+      'REQUIRE_EXPECTED_SOURCE_WORKFLOW_ID: "true"'
+    );
     expect(workflow).not.toContain("EXPECTED_SOURCE_WORKFLOW_NAME");
     expect(workflow).not.toContain("DISPLAY_TITLE_TEMPLATES");
     expect(workflow).toContain("ALLOWED_SOURCE_EVENTS: workflow_dispatch");

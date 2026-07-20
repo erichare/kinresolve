@@ -29,6 +29,9 @@ describe("independent production backup fence cleanup", () => {
     expect(cleanupWorkflow).toContain(
       "EXPECTED_SOURCE_WORKFLOW_ID: ${{ vars.PRODUCTION_BACKUP_WORKFLOW_ID }}"
     );
+    expect(cleanupWorkflow).toContain(
+      'REQUIRE_EXPECTED_SOURCE_WORKFLOW_ID: "true"'
+    );
     expect(cleanupWorkflow).not.toContain("EXPECTED_SOURCE_WORKFLOW_NAME");
     expect(cleanupWorkflow).not.toContain("DISPLAY_TITLE_TEMPLATES");
     expect(cleanupWorkflow).toContain("ALLOWED_SOURCE_EVENTS: workflow_dispatch");

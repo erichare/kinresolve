@@ -35,6 +35,7 @@ jobs:
     env:
       BACKUP_CLEANUP_LEASE_ARTIFACT_NAME: production-backup-cleanup-lease-${{ github.event.workflow_run.run_attempt }}
       EXPECTED_SOURCE_WORKFLOW_ID: ${{ vars.PRODUCTION_BACKUP_WORKFLOW_ID }}
+      REQUIRE_EXPECTED_SOURCE_WORKFLOW_ID: "true"
       SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
       SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
       SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
