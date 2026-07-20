@@ -526,6 +526,18 @@ a {
   font-size: 0.72rem;
 }
 
+.demo-pulse {
+  margin: 0;
+  color: #6b756e;
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
+}
+
+.demo-pulse strong {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
 .evidence-board {
   position: relative;
   min-height: 560px;

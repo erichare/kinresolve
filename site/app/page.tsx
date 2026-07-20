@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { CtaStrip } from "@/components/cta-strip";
+import { DemoPulse } from "@/components/demo-pulse";
 import { EvidenceBoard } from "@/components/evidence-board";
 import { betaStatus } from "@/lib/beta-status";
 import { demoLive, demoStatus } from "@/lib/demo-status";
@@ -61,6 +62,12 @@ export default function HomePage() {
       <div className="shell fiction-disclosure" role="note">
         <strong>Fictional demo universe.</strong> Every Hartwell–Mercer name, date, place, record, photograph, story, and DNA match shown on this site is invented. No real family data is used.
       </div>
+
+      {demoLive && (
+        <div className="shell" aria-live="polite">
+          <DemoPulse surface="home" />
+        </div>
+      )}
 
       {demoLive && testimonials.length > 0 && (
         <section className="section surface-section" aria-label="What early testers say" data-social-proof-surface="home">

@@ -177,6 +177,56 @@ describe("private-beta marketing and legal surface", () => {
     expect(csp).toMatch(/connect-src [^;]*https:\/\/plausible\.io/);
   });
 
+  it("gates the demo-pulse counter behind the live demo mode and the stats-endpoint contract", async () => {
+    const [pulse, home, product, privacy, exportCheck, siteVercel] = await Promise.all([
+      readFile("site/components/demo-pulse.tsx", "utf8"),
+      readFile("site/app/page.tsx", "utf8"),
+      readFile(files.product, "utf8"),
+      readFile(files.privacy, "utf8"),
+      readFile(files.exportCheck, "utf8"),
+      readFile("site/vercel.json", "utf8")
+    ]);
+
+    // The counter reads only the documented stats endpoint, hides itself on
+    // any failure, and displays nothing below the launch threshold.
+    expect(pulse).toContain('"use client"');
+    expect(pulse).toContain("${site.demoUrl}/api/public/demo-stats");
+    expect(pulse).toContain("const DISPLAY_THRESHOLD = 25;");
+    expect(pulse).toContain("const FETCH_TIMEOUT_MS = 3000;");
+    expect(pulse).toContain("controller.abort()");
+    expect(pulse).toContain("Number.isSafeInteger(solved)");
+    expect(pulse).toContain("if (!demoLive) return null;");
+    expect(pulse).toContain("mysteriesSolved === null || mysteriesSolved < DISPLAY_THRESHOLD");
+    expect(pulse).toContain('data-demo-pulse-state="idle"');
+    expect(pulse).toContain("researchers have worked the");
+    expect(pulse).not.toMatch(/mysteriesSolved\s*=\s*\d/);
+
+    // Both marketing surfaces mount the counter only while the demo is live.
+    expect(home).toMatch(/\{demoLive && \(\s*<div className="shell" aria-live="polite">\s*<DemoPulse surface="home" \/>/);
+    expect(product).toMatch(/\{demoLive && \(\s*<div aria-live="polite">\s*<DemoPulse surface="product" \/>/);
+
+    // The privacy page discloses the cross-origin fetch only when it happens.
+    expect(privacy).toContain(
+      "that request sends no identifiers or personal data, though the demo origin—like any web server it contacts—sees the requesting IP address"
+    );
+    expect(privacy).toMatch(/\{demoLive && \(\s*<p>The home and product pages also fetch one aggregate solved-mystery count/);
+
+    // check-export pins the per-mode static behavior in lockstep.
+    expect(exportCheck).toContain('demoPulseCounterPhrase = "researchers have worked the passenger mystery"');
+    expect(exportCheck).toContain("demoPulseIdleFallback = 'data-demo-pulse-state=\"idle\"'");
+    expect(exportCheck).toContain("Demo-pulse counter must never render while the demo launch is pending.");
+    expect(exportCheck).toContain("Static export must never contain a prerendered solved-mystery count");
+    expect(exportCheck).toContain("Pending-demo privacy page must not disclose a counter fetch that never happens.");
+    expect(exportCheck).toContain("demo-pulse must prerender in its hidden idle state, not with a number");
+
+    // The static CSP allows the demo-stats fetch; the enforced privacy gate is
+    // the demo-mode-gated mount, pinned by check-export per mode.
+    const csp = (JSON.parse(siteVercel) as {
+      headers: Array<{ headers: Array<{ key: string; value: string }> }>;
+    }).headers[0].headers.find(({ key }) => key === "Content-Security-Policy")?.value ?? "";
+    expect(csp).toMatch(/connect-src [^;]*https:\/\/demo\.kinresolve\.com/);
+  });
+
   it("provides separate prelaunch, launch-only, maintenance, and end-of-pilot material", async () => {
     const materials = await readFile(files.launchMaterials, "utf8");
 

@@ -221,6 +221,44 @@ const demoClaims = {
 };
 const betaDemoSurface = readFileSync(join(outputRoot, "beta/index.html"), "utf8");
 const pricingDemoSurface = readFileSync(join(outputRoot, "pricing/index.html"), "utf8");
+
+// The usage-counter contract (docs/public-demo-launch-materials.md) forbids
+// ever baking a solved-mystery number into the static export: the counter is
+// client-fetched from the live stats endpoint and hides entirely on failure.
+const demoPulseCounterPhrase = "researchers have worked the passenger mystery";
+const demoPulseIdleFallback = 'data-demo-pulse-state="idle"';
+const demoPulsePrivacyDisclosure =
+  "that request sends no identifiers or personal data, though the demo origin—like any web server it contacts—sees the requesting IP address";
+const privacySurface = readFileSync(join(outputRoot, "privacy/index.html"), "utf8");
+if (marketingDemoMode === "live") {
+  for (const [page, surface] of [
+    ["index.html", "home"],
+    ["product/index.html", "product"]
+  ]) {
+    const html = readFileSync(join(outputRoot, page), "utf8");
+    if (!html.includes(`data-demo-pulse-surface="${surface}"`)) {
+      problems.push(`${page}: is missing the demo-pulse counter mount point for ${surface}.`);
+    }
+    if (!html.includes(demoPulseIdleFallback)) {
+      problems.push(`${page}: demo-pulse must prerender in its hidden idle state, not with a number.`);
+    }
+  }
+  if (!privacySurface.includes(demoPulsePrivacyDisclosure)) {
+    problems.push("Privacy page is missing the demo-stats counter fetch disclosure.");
+  }
+} else {
+  if (htmlCorpus.includes("data-demo-pulse-surface")) {
+    problems.push("Demo-pulse counter must never render while the demo launch is pending.");
+  }
+  if (privacySurface.includes(demoPulsePrivacyDisclosure)) {
+    problems.push("Pending-demo privacy page must not disclose a counter fetch that never happens.");
+  }
+}
+if (htmlCorpus.includes(demoPulseCounterPhrase)) {
+  problems.push(
+    `Static export must never contain a prerendered solved-mystery count: ${demoPulseCounterPhrase}`
+  );
+}
 if (marketingDemoMode === "live") {
   for (const claim of [
     demoClaims.live.heroCtaLabel,
