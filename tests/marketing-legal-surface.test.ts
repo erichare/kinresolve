@@ -137,7 +137,9 @@ describe("private-beta marketing and legal surface", () => {
       "**Primary action (after the demo-live flip):** Solve the passenger mystery",
     );
     expect(materials).toContain("**Primary support line:** No signup · about 2 minutes · every record is fictional.");
-    expect(materials).toContain("**Secondary action:** Apply for the private beta");
+    expect(materials).toContain(
+      "**Secondary action (after the demo-live flip):** Apply for the private beta",
+    );
   });
 
   it("keeps demo-launch materials gated with an exact message set, counter contract, and flip checklist", async () => {
