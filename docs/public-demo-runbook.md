@@ -225,7 +225,11 @@ durable write. When reading the KPI funnel, multiply landing counts by 10 before
 comparing them with the unsampled `session_started`, `outcome_completed`, and
 `capacity_rejected` events. Canary traffic remains fully excluded from the sample by
 the canary header, and Plausible page counts (when enabled) stay unsampled, so the
-two sources are reconciled with the same factor.
+two sources are reconciled with the same factor. Spike and load runs
+(`scripts/public-demo-spike-test.mjs`, `scripts/public-demo-load-test.mjs`) deliberately
+drive over-capacity session starts and therefore inject `capacity_rejected` events that
+carry no canary attribution, at the recorded run timestamp and rejection count, so KPI
+reviews must subtract each recorded run's rejections from the funnel.
 
 ## Monitoring and incident response
 

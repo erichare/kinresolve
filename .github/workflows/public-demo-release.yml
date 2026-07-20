@@ -358,8 +358,10 @@ jobs:
           }
           // Demo Turnstile ladder: the optional mode must be a known rung,
           // and any enabled rung must carry a well-formed public widget key.
-          // The siteverify secret is a Sensitive setting validated by the
-          // environment-contract metadata step, never read here.
+          // The siteverify secret is a Sensitive setting and is never read
+          // here; the environment-contract step above already fails the
+          // release when an enabled rung lacks it (mode-implies-secret),
+          // because it feeds the pulled mode into the metadata contract.
           const turnstileMode = process.env.KINRESOLVE_DEMO_TURNSTILE_MODE;
           if (turnstileMode !== undefined && !/^(?:off|shadow|required)$/.test(turnstileMode)) {
             process.exit(1);

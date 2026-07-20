@@ -253,7 +253,10 @@ describe("private-beta marketing and legal surface", () => {
     expect(pulse).toContain("if (!demoLive) return null;");
     expect(pulse).toContain("mysteriesSolved === null || mysteriesSolved < DISPLAY_THRESHOLD");
     expect(pulse).toContain('data-demo-pulse-state="idle"');
-    expect(pulse).toContain("researchers have worked the");
+    // The copy states the metric it renders: completed outcomes (a returning
+    // visitor who resets and completes again counts twice), not unique people.
+    expect(pulse).toContain("passenger mysteries solved in");
+    expect(pulse).not.toContain("researchers have worked");
     expect(pulse).not.toMatch(/mysteriesSolved\s*=\s*\d/);
 
     // Both marketing surfaces mount the counter only while the demo is live.
@@ -267,7 +270,7 @@ describe("private-beta marketing and legal surface", () => {
     expect(privacy).toMatch(/\{demoLive && \(\s*<p>The home and product pages also fetch one aggregate solved-mystery count/);
 
     // check-export pins the per-mode static behavior in lockstep.
-    expect(exportCheck).toContain('demoPulseCounterPhrase = "researchers have worked the passenger mystery"');
+    expect(exportCheck).toContain('demoPulseCounterPhrase = "passenger mysteries solved in the live demo"');
     expect(exportCheck).toContain("demoPulseIdleFallback = 'data-demo-pulse-state=\"idle\"'");
     expect(exportCheck).toContain("Demo-pulse counter must never render while the demo launch is pending.");
     expect(exportCheck).toContain("Static export must never contain a prerendered solved-mystery count");

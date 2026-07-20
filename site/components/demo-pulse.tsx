@@ -67,8 +67,8 @@ export function DemoPulse({ surface }: DemoPulseProps) {
   }
   return (
     <p className="demo-pulse" data-demo-pulse-surface={surface} data-demo-pulse-state="live">
-      <strong>{mysteriesSolved.toLocaleString("en-US")}</strong> researchers have worked the
-      passenger mystery.
+      <strong>{mysteriesSolved.toLocaleString("en-US")}</strong> passenger mysteries solved in
+      the live demo.
     </p>
   );
 }

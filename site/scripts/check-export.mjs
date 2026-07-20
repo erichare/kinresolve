@@ -225,7 +225,7 @@ const pricingDemoSurface = readFileSync(join(outputRoot, "pricing/index.html"), 
 // The usage-counter contract (docs/public-demo-launch-materials.md) forbids
 // ever baking a solved-mystery number into the static export: the counter is
 // client-fetched from the live stats endpoint and hides entirely on failure.
-const demoPulseCounterPhrase = "researchers have worked the passenger mystery";
+const demoPulseCounterPhrase = "passenger mysteries solved in the live demo";
 const demoPulseIdleFallback = 'data-demo-pulse-state="idle"';
 const demoPulsePrivacyDisclosure =
   "that request sends no identifiers or personal data, though the demo origin—like any web server it contacts—sees the requesting IP address";

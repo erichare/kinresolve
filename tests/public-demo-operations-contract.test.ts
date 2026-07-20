@@ -160,7 +160,11 @@ describe("public demo operational boundary", () => {
     // pooler limits of the dedicated demo database.
     expect(publicDemoRelease).toContain('DATABASE_POOL_MAX: "10"');
     // The demo Turnstile ladder is validated by shape: a known rung, and any
-    // enabled rung must carry a well-formed public widget key.
+    // enabled rung must carry a well-formed public widget key. The contract
+    // step receives the pulled environment file, so its mode-implies-secret
+    // check can fail the release when an enabled rung lacks the Sensitive
+    // siteverify secret.
+    expect(publicDemoRelease).toContain(".vercel/.env.production.local");
     expect(publicDemoRelease).toContain(
       "const turnstileMode = process.env.KINRESOLVE_DEMO_TURNSTILE_MODE;"
     );

@@ -29,10 +29,16 @@ export const optionalSentryReadableEnvironmentName = "NEXT_PUBLIC_SENTRY_DSN" as
 // Demo Turnstile ladder (off | shadow | required): the mode and the public
 // widget site key stay readable so the release workflow can validate their
 // exact posture, and the siteverify secret reuses KINRESOLVE_TURNSTILE_SECRET_KEY
-// as an optional Sensitive credential in the demo cell.
+// as an optional Sensitive credential in the demo cell. Mode implies secret:
+// when the pulled mode is shadow or required, the site key and the Sensitive
+// siteverify secret must both be configured, because
+// resolvePublicDemoTurnstileConfiguration() throws on landing render without
+// them and the failure would otherwise surface only through late canaries.
 export const publicDemoTurnstileModeEnvironmentName = "KINRESOLVE_DEMO_TURNSTILE_MODE" as const;
 export const publicDemoTurnstileSiteKeyEnvironmentName =
   "NEXT_PUBLIC_KINRESOLVE_DEMO_TURNSTILE_SITE_KEY" as const;
+
+export type PublicDemoTurnstileContractMode = "off" | "shadow" | "required";
 
 export const requiredReadableProductionEnvironmentNames = [
   "APP_BASE_URL",
@@ -157,6 +163,7 @@ const forbiddenNames = new Set<string>(forbiddenWorkflowOnlyEnvironmentNames);
 export type VercelEnvironmentContractOptions = Readonly<{
   expectedBetaApplicationsEnabled?: boolean;
   profile?: "hosted-beta" | "public-demo";
+  publicDemoTurnstileMode?: PublicDemoTurnstileContractMode;
 }>;
 
 export function validateVercelEnvironmentContract(
@@ -176,6 +183,17 @@ export function validateVercelEnvironmentContract(
   }
   if (profile === "public-demo" && expectedBetaApplicationsEnabled) {
     throw new Error("The public demo environment cannot enable beta-application intake.");
+  }
+  const publicDemoTurnstileMode = options.publicDemoTurnstileMode ?? "off";
+  if (
+    publicDemoTurnstileMode !== "off"
+    && publicDemoTurnstileMode !== "shadow"
+    && publicDemoTurnstileMode !== "required"
+  ) {
+    throw new Error("The public demo Turnstile mode must be exactly off, shadow, or required.");
+  }
+  if (options.publicDemoTurnstileMode !== undefined && profile !== "public-demo") {
+    throw new Error("The public demo Turnstile mode applies only to the public-demo profile.");
   }
   const requiredSensitiveNames: readonly string[] = profile === "public-demo"
     ? publicDemoSensitiveProductionEnvironmentNames
@@ -236,6 +254,23 @@ export function validateVercelEnvironmentContract(
     throw new Error(`Vercel environment metadata is missing required production settings: ${missing.join(", ")}.`);
   }
 
+  // Mode implies secret: an enabled demo Turnstile rung without the widget
+  // site key or the Sensitive siteverify secret would pass every env gate and
+  // then throw on the first landing render, so it fails the contract here.
+  if (profile === "public-demo" && publicDemoTurnstileMode !== "off") {
+    const missingLadderNames = [
+      publicDemoTurnstileModeEnvironmentName,
+      publicDemoTurnstileSiteKeyEnvironmentName,
+      turnstileSensitiveEnvironmentName
+    ].filter((name) => !requiredEntries.has(name));
+    if (missingLadderNames.length > 0) {
+      throw new Error(
+        `${publicDemoTurnstileModeEnvironmentName} is ${publicDemoTurnstileMode}, so the public demo `
+          + `environment must also configure ${missingLadderNames.join(", ")}.`
+      );
+    }
+  }
+
   for (const name of [...requiredSensitiveNames, ...optionalSensitiveNames]) {
     const entry = requiredEntries.get(name);
     if (!entry) continue;
@@ -273,12 +308,14 @@ export function validateVercelEnvironmentContract(
 
 export function validatePulledVercelEnvironmentContract(contents: string): {
   settings: number;
+  demoTurnstileMode: PublicDemoTurnstileContractMode;
 } {
   if (typeof contents !== "string") {
     throw new Error("The pulled Vercel production environment file is invalid.");
   }
 
   const names = new Set<string>();
+  let demoTurnstileMode: PublicDemoTurnstileContractMode = "off";
   let activeQuote: "'" | '"' | undefined;
 
   for (const line of contents.split(/\r?\n/)) {
@@ -305,6 +342,9 @@ export function validatePulledVercelEnvironmentContract(contents: string): {
       throw new Error(`The pulled Vercel production environment contains duplicate ${name} assignments.`);
     }
     names.add(name);
+    if (name === publicDemoTurnstileModeEnvironmentName) {
+      demoTurnstileMode = parsePulledDemoTurnstileMode(rawValue);
+    }
 
     const value = rawValue.trimStart();
     const quote = value[0];
@@ -321,7 +361,26 @@ export function validatePulledVercelEnvironmentContract(contents: string): {
     throw new Error("The pulled Vercel production environment file could not be parsed.");
   }
 
-  return { settings: names.size };
+  return { settings: names.size, demoTurnstileMode };
+}
+
+// The pulled mode value must be a single-line, exact rung so the metadata
+// contract can enforce mode-implies-secret. Anything else fails closed with
+// the same wording the runtime parser uses, without echoing the value.
+function parsePulledDemoTurnstileMode(rawValue: string): PublicDemoTurnstileContractMode {
+  const value = rawValue.trim();
+  const quote = value[0];
+  const unquoted = (quote === "'" || quote === '"')
+    && value.length >= 2
+    && value.endsWith(quote)
+    ? value.slice(1, -1)
+    : value;
+  if (unquoted === "off" || unquoted === "shadow" || unquoted === "required") {
+    return unquoted;
+  }
+  throw new Error(
+    `The pulled ${publicDemoTurnstileModeEnvironmentName} must be exactly off, shadow, or required.`
+  );
 }
 
 function findClosingQuote(value: string, quote: "'" | '"', start: number): number {
