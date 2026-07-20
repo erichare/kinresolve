@@ -41,6 +41,25 @@ describe("browser canary configuration", () => {
     });
   });
 
+  it("accepts the canonical KINRESOLVE_ARCHIVE_ID runtime binding during the rename window", () => {
+    const { KINSLEUTH_ARCHIVE_ID: _legacy, ...withoutLegacy } = baseMutableEnvironment;
+    expect(resolveBrowserCanaryConfiguration("staging", {
+      ...withoutLegacy,
+      KINRESOLVE_ARCHIVE_ID: "archive-browser-canary"
+    })).toMatchObject({ mode: "staging", mutable: true });
+    expect(resolveBrowserCanaryConfiguration("staging", {
+      ...baseMutableEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-browser-canary"
+    })).toMatchObject({ mode: "staging", mutable: true });
+  });
+
+  it("fails closed on a mismatched canonical/legacy runtime archive pair", () => {
+    expect(() => resolveBrowserCanaryConfiguration("staging", {
+      ...baseMutableEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
+  });
+
   it("permits loopback owner bootstrap only in disposable mode", () => {
     const environment = {
       ...baseMutableEnvironment,
@@ -190,6 +209,18 @@ describe("browser canary state configuration", () => {
       archiveId: "archive-browser-canary",
       userId: "user-browser-canary"
     });
+  });
+
+  it("accepts the canonical KINRESOLVE_ARCHIVE_ID name and rejects a mismatched pair", () => {
+    const { KINSLEUTH_ARCHIVE_ID: _legacy, ...withoutLegacy } = stateEnvironment;
+    expect(resolveBrowserCanaryStateConfiguration("staging", {
+      ...withoutLegacy,
+      KINRESOLVE_ARCHIVE_ID: "archive-browser-canary"
+    })).toMatchObject({ archiveId: "archive-browser-canary" });
+    expect(() => resolveBrowserCanaryStateConfiguration("staging", {
+      ...stateEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
   });
 
   it.each([

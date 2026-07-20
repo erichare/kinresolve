@@ -1,3 +1,7 @@
+import {
+  describeEnvironmentAliasPair,
+  environmentAliasPairs
+} from "./environment-aliases.ts";
 import { hostedCapabilityEnvironmentNames } from "./hosted-capability-names.ts";
 
 export const requiredSensitiveProductionEnvironmentNames = [
@@ -47,10 +51,16 @@ export const requiredReadableProductionEnvironmentNames = [
   "KINRESOLVE_TRANSACTIONAL_EMAIL_FROM",
   "KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER",
   "KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO",
-  ...hostedCapabilityEnvironmentNames,
-  "KINSLEUTH_ALLOW_SIGNUPS",
-  "KINSLEUTH_ARCHIVE_ID"
+  ...hostedCapabilityEnvironmentNames
 ] as const;
+
+// KINRESOLVE_ARCHIVE_ID / KINRESOLVE_ALLOW_SIGNUPS and their legacy
+// KINSLEUTH_* names are validated as alias pairs: every profile requires at
+// least one readable production-only member of each pair, and both members
+// are accepted side by side during the rename compatibility window.
+const aliasedReadableEnvironmentNames = environmentAliasPairs.flatMap(
+  (pair) => [pair.canonicalName, pair.legacyName]
+);
 
 export const publicDemoSensitiveProductionEnvironmentNames = [
   "AI_API_KEY",
@@ -68,8 +78,6 @@ export const publicDemoReadableProductionEnvironmentNames = [
   "AI_CHAT_MODEL",
   "APP_BASE_URL",
   "DATABASE_AUTO_MIGRATE",
-  "KINSLEUTH_ARCHIVE_ID",
-  "KINSLEUTH_ALLOW_SIGNUPS",
   "KINRESOLVE_API_V1_ENABLED",
   "KINRESOLVE_DATABASE_IDENTITY",
   "KINRESOLVE_DATASET_MODE",
@@ -170,6 +178,7 @@ export function validateVercelEnvironmentContract(
   ]);
   const inspectedNames = new Set<string>([
     ...requiredNames,
+    ...aliasedReadableEnvironmentNames,
     ...(profile === "hosted-beta" ? [betaApplicationSensitiveEnvironmentName] : [])
   ]);
   const entries = parseEntries(value);
@@ -195,7 +204,12 @@ export function validateVercelEnvironmentContract(
     requiredEntries.set(key, parseEntry(entry, key));
   }
 
-  const missing = [...requiredNames].filter((name) => !requiredEntries.has(name));
+  const missing = [
+    ...[...requiredNames].filter((name) => !requiredEntries.has(name)),
+    ...environmentAliasPairs
+      .filter((pair) => !requiredEntries.has(pair.canonicalName) && !requiredEntries.has(pair.legacyName))
+      .map((pair) => describeEnvironmentAliasPair(pair))
+  ];
   if (missing.length > 0) {
     throw new Error(`Vercel environment metadata is missing required production settings: ${missing.join(", ")}.`);
   }
@@ -214,7 +228,10 @@ export function validateVercelEnvironmentContract(
     }
   }
 
-  for (const name of requiredReadableNames) {
+  const presentAliasedNames = aliasedReadableEnvironmentNames.filter(
+    (name) => requiredEntries.has(name)
+  );
+  for (const name of [...requiredReadableNames, ...presentAliasedNames]) {
     const entry = requiredEntries.get(name)!;
     validateProductionOnly(entry);
     if (entry.type === "sensitive") {
@@ -226,7 +243,7 @@ export function validateVercelEnvironmentContract(
   }
 
   return {
-    readableSettings: requiredReadableNames.length,
+    readableSettings: requiredReadableNames.length + presentAliasedNames.length,
     sensitiveSettings: requiredSensitiveNames.length
       + Number(
         profile === "hosted-beta"

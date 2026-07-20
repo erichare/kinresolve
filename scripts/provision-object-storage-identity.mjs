@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto";
 
+import { readArchiveIdSetting } from "../lib/environment-aliases.ts";
 import { createConfiguredArchiveObjectStorage } from "../lib/storage/object-storage.ts";
 
-const archiveId = process.env.KINSLEUTH_ARCHIVE_ID?.trim();
+const archiveId = readArchiveIdSetting()?.trim();
 if (!archiveId || !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(archiveId)) {
-  console.error("KINSLEUTH_ARCHIVE_ID is required and must be a safe release-cell archive ID.");
+  console.error(
+    "KINRESOLVE_ARCHIVE_ID (or legacy KINSLEUTH_ARCHIVE_ID) is required and must be a safe release-cell archive ID."
+  );
   process.exit(1);
 }
 

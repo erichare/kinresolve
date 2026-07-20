@@ -139,10 +139,10 @@ The essentials:
 | `DATABASE_URL` | **Required.** Postgres connection string for workspace storage |
 | `AUTH_SECRET` | Secret for account sessions (better-auth); required in production |
 | `APP_BASE_URL` | Exact canonical origin of the running app; production requires one HTTPS origin |
-| `KINSLEUTH_ARCHIVE_ID` | Archive id; set explicitly before `npm run archive:provision` |
+| `KINRESOLVE_ARCHIVE_ID` | Archive id; set explicitly before `npm run archive:provision` (legacy `KINSLEUTH_ARCHIVE_ID` still accepted during the rename compatibility window) |
 | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` | **Required for Docker Compose.** Operator-supplied credentials shared by the bundled MinIO service, app, worker, and bucket initializer |
 | `AI_BASE_URL` / `AI_API_KEY` | OpenAI-compatible provider; deterministic fallback runs without a key |
-| `KINSLEUTH_ALLOW_SIGNUPS` | Hosted releases require exactly `false`; self-hosted first-run signup remains available when no account exists |
+| `KINRESOLVE_ALLOW_SIGNUPS` | Hosted releases require exactly `false`; self-hosted first-run signup remains available when no account exists (legacy `KINSLEUTH_ALLOW_SIGNUPS` still accepted during the rename compatibility window) |
 
 Every variable is documented in [`.env.example`](.env.example); the full reference table, the hosted seven-flag manifest, and the cookie-origin/browser-mutation rules live in [docs/configuration.md](docs/configuration.md).
 

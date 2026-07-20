@@ -4,6 +4,11 @@ import {
   demoFixtureVersion,
   rotateCanonicalPublicDemoFixture
 } from "../lib/archive-provisioning";
+import {
+  archiveIdEnvironmentAlias,
+  describeEnvironmentAliasPair,
+  readArchiveIdSetting
+} from "../lib/environment-aliases";
 import { resolveDatasetConfiguration } from "../lib/hosted-config";
 import { publicDemoCanonicalArchiveId } from "../lib/public-demo-config";
 
@@ -31,7 +36,12 @@ export function resolvePublicDemoFixtureRotationRequest(
   }
 
   const databaseUrl = requiredEnvironment(environment, "DATABASE_URL");
-  const archiveId = requiredEnvironment(environment, "KINSLEUTH_ARCHIVE_ID");
+  const archiveId = readArchiveIdSetting(environment)?.trim();
+  if (!archiveId) {
+    throw new Error(
+      `${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)} is required for fixture rotation.`
+    );
+  }
   if (archiveId !== publicDemoCanonicalArchiveId) {
     throw new Error("Fixture rotation is restricted to the canonical public demo archive.");
   }

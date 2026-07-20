@@ -134,7 +134,7 @@ PR #20 landed accounts + memberships. The remaining auth phases from
 - **4.3 Email verification + password reset** 🤝 — deferred from #20 to avoid a mail
   dependency in the core; turn on once email (item 7) exists.
 - **4.4 Tenant resolution** 🤖 — resolve the archive from the authenticated principal
-  (membership) instead of `KINSLEUTH_ARCHIVE_ID`; add Postgres RLS policies as
+  (membership) instead of `KINRESOLVE_ARCHIVE_ID`; add Postgres RLS policies as
   defense-in-depth. This is the true multi-archive unlock.
 - **4.5 Durable rate limiting** 🤖 — move better-auth's per-instance limiter to
   database/Redis storage so it holds across serverless instances.

@@ -9,7 +9,7 @@ services:
       DATABASE_URL: postgres://kinresolve:kinresolve@postgres:5432/kinresolve
       KINRESOLVE_DEPLOYMENT_MODE: self-hosted
       KINRESOLVE_DATASET_MODE: demo
-      KINSLEUTH_ARCHIVE_ID: archive-default
+      KINRESOLVE_ARCHIVE_ID: archive-default
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true"
       KINRESOLVE_DESKTOP_MEDIA_ENABLED: "false"
       KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "false"
@@ -44,7 +44,7 @@ services:
       DATABASE_URL: postgres://kinresolve:kinresolve@postgres:5432/kinresolve
       KINRESOLVE_DEPLOYMENT_MODE: self-hosted
       KINRESOLVE_DATASET_MODE: demo
-      KINSLEUTH_ARCHIVE_ID: archive-default
+      KINRESOLVE_ARCHIVE_ID: archive-default
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,7 +59,7 @@ services:
       DATABASE_URL: postgres://kinresolve:kinresolve@postgres:5432/kinresolve
       KINRESOLVE_DEPLOYMENT_MODE: self-hosted
       KINRESOLVE_DATASET_MODE: demo
-      KINSLEUTH_ARCHIVE_ID: archive-default
+      KINRESOLVE_ARCHIVE_ID: archive-default
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true"
       KINRESOLVE_DESKTOP_MEDIA_ENABLED: "false"
       KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "false"

@@ -1,3 +1,4 @@
+import { readArchiveIdSetting } from "./environment-aliases";
 import { resolveHostedCapabilities } from "./hosted-capabilities";
 import {
   publicDemoCanonicalArchiveId,
@@ -28,5 +29,5 @@ export function resolvePublicArchiveId(environment: Environment = process.env): 
     return publicDemoCanonicalArchiveId;
   }
 
-  return environment.KINSLEUTH_ARCHIVE_ID?.trim() || "archive-default";
+  return readArchiveIdSetting(environment)?.trim() || "archive-default";
 }

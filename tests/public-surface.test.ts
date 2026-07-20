@@ -49,4 +49,21 @@ describe("public surface policy", () => {
     })).toBe("family-public");
     expect(resolvePublicArchiveId({ KINRESOLVE_DEPLOYMENT_MODE: "self-hosted" })).toBe("archive-default");
   });
+
+  it("accepts the canonical KINRESOLVE_ARCHIVE_ID name and fails closed on a mismatched pair", () => {
+    expect(resolvePublicArchiveId({
+      KINRESOLVE_DEPLOYMENT_MODE: "self-hosted",
+      KINRESOLVE_ARCHIVE_ID: "family-public"
+    })).toBe("family-public");
+    expect(resolvePublicArchiveId({
+      KINRESOLVE_DEPLOYMENT_MODE: "self-hosted",
+      KINRESOLVE_ARCHIVE_ID: "family-public",
+      KINSLEUTH_ARCHIVE_ID: "family-public"
+    })).toBe("family-public");
+    expect(() => resolvePublicArchiveId({
+      KINRESOLVE_DEPLOYMENT_MODE: "self-hosted",
+      KINRESOLVE_ARCHIVE_ID: "family-public",
+      KINSLEUTH_ARCHIVE_ID: "family-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
+  });
 });

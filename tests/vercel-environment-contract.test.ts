@@ -17,6 +17,11 @@ import {
 
 const scratchDirectories: string[] = [];
 
+// Rename compatibility window: each release cell must carry at least one name
+// of each alias pair; both names side by side are accepted.
+const canonicalAliasNames = ["KINRESOLVE_ARCHIVE_ID", "KINRESOLVE_ALLOW_SIGNUPS"] as const;
+const legacyAliasNames = ["KINSLEUTH_ARCHIVE_ID", "KINSLEUTH_ALLOW_SIGNUPS"] as const;
+
 afterEach(async () => {
   await Promise.all(scratchDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
@@ -26,10 +31,49 @@ describe("Vercel public demo environment metadata contract", () => {
     expect(validateVercelEnvironmentContract(publicDemoMetadata(), {
       profile: "public-demo"
     })).toEqual({
-      readableSettings: publicDemoReadableProductionEnvironmentNames.length,
+      readableSettings: publicDemoReadableProductionEnvironmentNames.length + canonicalAliasNames.length,
       sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length
     });
   });
+
+  it("accepts legacy, canonical, or paired archive/signup names in the public demo cell", () => {
+    for (const aliasNames of [
+      legacyAliasNames,
+      canonicalAliasNames,
+      [...canonicalAliasNames, ...legacyAliasNames]
+    ] as const) {
+      expect(validateVercelEnvironmentContract(publicDemoMetadata({}, aliasNames), {
+        profile: "public-demo"
+      })).toEqual({
+        readableSettings: publicDemoReadableProductionEnvironmentNames.length + aliasNames.length,
+        sensitiveSettings: publicDemoSensitiveProductionEnvironmentNames.length
+      });
+    }
+  });
+
+  it("requires at least one name of each archive/signup alias pair in the public demo cell", () => {
+    expect(() => validateVercelEnvironmentContract(publicDemoMetadata({}, []), { profile: "public-demo" }))
+      .toThrow(
+        /missing.*KINRESOLVE_ARCHIVE_ID \(or legacy KINSLEUTH_ARCHIVE_ID\), KINRESOLVE_ALLOW_SIGNUPS \(or legacy KINSLEUTH_ALLOW_SIGNUPS\)/i
+      );
+    expect(() => validateVercelEnvironmentContract(
+      publicDemoMetadata({}, ["KINRESOLVE_ARCHIVE_ID"]),
+      { profile: "public-demo" }
+    )).toThrow(/missing.*KINRESOLVE_ALLOW_SIGNUPS \(or legacy KINSLEUTH_ALLOW_SIGNUPS\)/i);
+  });
+
+  it.each([...canonicalAliasNames, ...legacyAliasNames])(
+    "keeps public demo alias setting %s readable and production-only",
+    (key) => {
+      const aliasNames = [...canonicalAliasNames, ...legacyAliasNames];
+      expect(() => validateVercelEnvironmentContract(publicDemoMetadata({
+        [key]: { type: "sensitive" }
+      }, aliasNames), { profile: "public-demo" })).toThrow(new RegExp(`${key}.*readable`, "i"));
+      expect(() => validateVercelEnvironmentContract(publicDemoMetadata({
+        [key]: { target: ["production", "preview"] }
+      }, aliasNames), { profile: "public-demo" })).toThrow(new RegExp(`${key}.*production only`, "i"));
+    }
+  );
 
   it.each(publicDemoSensitiveProductionEnvironmentNames)(
     "requires public demo credential %s to be Sensitive",
@@ -105,10 +149,44 @@ describe("Vercel public demo environment metadata contract", () => {
 describe("Vercel hosted environment metadata contract", () => {
   it("accepts production-only readable settings and unreadable Sensitive credentials", () => {
     expect(validateVercelEnvironmentContract(metadata())).toEqual({
-      readableSettings: requiredReadableProductionEnvironmentNames.length,
+      readableSettings: requiredReadableProductionEnvironmentNames.length + canonicalAliasNames.length,
       sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length
     });
   });
+
+  it("accepts legacy, canonical, or paired archive/signup names in the hosted cell", () => {
+    for (const aliasNames of [
+      legacyAliasNames,
+      canonicalAliasNames,
+      [...canonicalAliasNames, ...legacyAliasNames]
+    ] as const) {
+      expect(validateVercelEnvironmentContract(metadata({}, false, aliasNames))).toEqual({
+        readableSettings: requiredReadableProductionEnvironmentNames.length + aliasNames.length,
+        sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length
+      });
+    }
+  });
+
+  it("requires at least one name of each archive/signup alias pair in the hosted cell", () => {
+    expect(() => validateVercelEnvironmentContract(metadata({}, false, []))).toThrow(
+      /missing.*KINRESOLVE_ARCHIVE_ID \(or legacy KINSLEUTH_ARCHIVE_ID\), KINRESOLVE_ALLOW_SIGNUPS \(or legacy KINSLEUTH_ALLOW_SIGNUPS\)/i
+    );
+    expect(() => validateVercelEnvironmentContract(metadata({}, false, ["KINSLEUTH_ALLOW_SIGNUPS"])))
+      .toThrow(/missing.*KINRESOLVE_ARCHIVE_ID \(or legacy KINSLEUTH_ARCHIVE_ID\)/i);
+  });
+
+  it.each([...canonicalAliasNames, ...legacyAliasNames])(
+    "keeps hosted alias setting %s readable and production-only",
+    (key) => {
+      const aliasNames = [...canonicalAliasNames, ...legacyAliasNames];
+      expect(() => validateVercelEnvironmentContract(metadata({
+        [key]: { type: "sensitive" }
+      }, false, aliasNames))).toThrow(new RegExp(`${key}.*readable`, "i"));
+      expect(() => validateVercelEnvironmentContract(metadata({
+        [key]: { gitBranch: "main" }
+      }, false, aliasNames))).toThrow(new RegExp(`${key}.*branch`, "i"));
+    }
+  );
 
   it.each(requiredSensitiveProductionEnvironmentNames)("requires %s to use the Sensitive type", (key) => {
     expect(() => validateVercelEnvironmentContract(metadata({ [key]: { type: "encrypted" } })))
@@ -129,7 +207,7 @@ describe("Vercel hosted environment metadata contract", () => {
     expect(validateVercelEnvironmentContract(enabled, {
       expectedBetaApplicationsEnabled: true
     })).toEqual({
-      readableSettings: requiredReadableProductionEnvironmentNames.length,
+      readableSettings: requiredReadableProductionEnvironmentNames.length + canonicalAliasNames.length,
       sensitiveSettings: requiredSensitiveProductionEnvironmentNames.length + 1
     });
     expect(() => validateVercelEnvironmentContract(metadata({
@@ -227,8 +305,7 @@ describe("Vercel hosted environment metadata contract", () => {
     })).toThrow(/pagination|complete|unpaginated/i);
     expect(() => validateVercelEnvironmentContract({
       ...metadata(),
-      pagination: { count: requiredReadableProductionEnvironmentNames.length +
-        requiredSensitiveProductionEnvironmentNames.length + 1, next: null, prev: null }
+      pagination: { count: metadata().envs.length + 1, next: null, prev: null }
     })).toThrow(/pagination|complete|unpaginated/i);
   });
 
@@ -294,7 +371,11 @@ type Override = Partial<{
   value: string;
 }>;
 
-function metadata(overrides: Record<string, Override> = {}, includeBetaApplicationSecret = false) {
+function metadata(
+  overrides: Record<string, Override> = {},
+  includeBetaApplicationSecret = false,
+  aliasNames: readonly string[] = canonicalAliasNames
+) {
   return {
     envs: [
       ...requiredSensitiveProductionEnvironmentNames.map((key) => ({
@@ -309,7 +390,7 @@ function metadata(overrides: Record<string, Override> = {}, includeBetaApplicati
         target: ["production"],
         ...overrides[betaApplicationSensitiveEnvironmentName]
       }] : []),
-      ...requiredReadableProductionEnvironmentNames.map((key) => ({
+      ...[...requiredReadableProductionEnvironmentNames, ...aliasNames].map((key) => ({
         key,
         type: "encrypted",
         target: ["production"],
@@ -319,7 +400,10 @@ function metadata(overrides: Record<string, Override> = {}, includeBetaApplicati
   };
 }
 
-function publicDemoMetadata(overrides: Record<string, Override> = {}) {
+function publicDemoMetadata(
+  overrides: Record<string, Override> = {},
+  aliasNames: readonly string[] = canonicalAliasNames
+) {
   return {
     envs: [
       ...publicDemoSensitiveProductionEnvironmentNames.map((key) => ({
@@ -328,7 +412,7 @@ function publicDemoMetadata(overrides: Record<string, Override> = {}) {
         target: ["production"],
         ...overrides[key]
       })),
-      ...publicDemoReadableProductionEnvironmentNames.map((key) => ({
+      ...[...publicDemoReadableProductionEnvironmentNames, ...aliasNames].map((key) => ({
         key,
         type: "encrypted",
         target: ["production"],

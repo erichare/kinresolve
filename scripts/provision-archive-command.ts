@@ -1,6 +1,11 @@
 import { pathToFileURL } from "node:url";
 
 import { provisionArchive } from "../lib/archive-provisioning";
+import {
+  archiveIdEnvironmentAlias,
+  describeEnvironmentAliasPair,
+  readArchiveIdSetting
+} from "../lib/environment-aliases";
 import { datasetModes, resolveDatasetConfiguration, type DatasetMode } from "../lib/hosted-config";
 
 type Environment = Record<string, string | undefined>;
@@ -48,9 +53,11 @@ export async function runProvisioningCommand(
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required for archive provisioning.");
   }
-  const archiveId = environment.KINSLEUTH_ARCHIVE_ID?.trim();
+  const archiveId = readArchiveIdSetting(environment)?.trim();
   if (!archiveId) {
-    throw new Error("KINSLEUTH_ARCHIVE_ID is required for archive provisioning.");
+    throw new Error(
+      `${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)} is required for archive provisioning.`
+    );
   }
 
   const datasetMode = resolveProvisioningMode(argv, environment);
