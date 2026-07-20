@@ -133,7 +133,9 @@ describe("private-beta marketing and legal surface", () => {
     expect(materials).toMatch(/Do not publish launch-only copy until the signed launch record/i);
     expect(materials).toMatch(/Do not publish the demo-launch variant until every external gate/i);
     expect(materials).toContain("public-demo-launch-materials.md");
-    expect(materials).toContain("**Primary action:** Solve the passenger mystery");
+    expect(materials).toContain(
+      "**Primary action (after the demo-live flip):** Solve the passenger mystery",
+    );
     expect(materials).toContain("**Primary support line:** No signup · about 2 minutes · every record is fictional.");
     expect(materials).toContain("**Secondary action:** Apply for the private beta");
   });

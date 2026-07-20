@@ -58,11 +58,11 @@ set lives in [`public-demo-launch-materials.md`](public-demo-launch-materials.md
 > steps together in one private genealogy workspace—so uncertainty stays visible until
 > the evidence earns a conclusion.
 
-**Primary action:** Solve the passenger mystery (links to the public demo)
+**Primary action (after the demo-live flip):** Solve the passenger mystery (links to the public demo)
 
 **Primary support line:** No signup · about 2 minutes · every record is fictional.
 
-**Secondary action:** Apply for the private beta
+**Secondary action (after the demo-live flip):** Apply for the private beta
 
 **Status note:** Use the exact current prelaunch message above. Before the demo-live flip,
 keep the generic product call to action (Try Kin Resolve) primary and the beta application
