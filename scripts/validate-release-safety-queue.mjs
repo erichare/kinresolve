@@ -5,12 +5,10 @@ const workflowFiles = {
   release: "vercel-release.yml",
   recovery: "recovery-evidence.yml",
   holding: "vercel-holding.yml",
-  demo: "staging-demo-session.yml",
   publicDemo: "public-demo-release.yml",
   containment: "release-containment.yml",
   cleanup: "recovery-cleanup.yml",
   holdingSafety: "holding-safety.yml",
-  demoSafety: "staging-demo-safety.yml",
   publicDemoSafety: "public-demo-safety.yml"
 };
 const safetyContractEpoch = "2026-07-14T00:00:00Z";
@@ -31,24 +29,20 @@ try {
     releaseRuns,
     recoveryRuns,
     holdingRuns,
-    demoRuns,
     publicDemoRuns,
     containmentRuns,
     cleanupRuns,
     holdingSafetyRuns,
-    demoSafetyRuns,
     publicDemoSafetyRuns,
     currentSourceRunDocument
   ] = await Promise.all([
     workflowRuns(repository, workflowFiles.release, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.recovery, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.holding, "workflow_dispatch", headers),
-    workflowRuns(repository, workflowFiles.demo, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.publicDemo, "workflow_dispatch", headers),
     workflowRuns(repository, workflowFiles.containment, "workflow_run", headers),
     workflowRuns(repository, workflowFiles.cleanup, "workflow_run", headers),
     workflowRuns(repository, workflowFiles.holdingSafety, "workflow_run", headers),
-    workflowRuns(repository, workflowFiles.demoSafety, "workflow_run", headers),
     workflowRuns(repository, workflowFiles.publicDemoSafety, "workflow_run", headers),
     apiJson(
       `${apiBase()}/repos/${repository}/actions/runs/${currentRunId}`,
@@ -74,12 +68,10 @@ try {
     releaseRuns,
     recoveryRuns,
     holdingRuns,
-    demoRuns,
     publicDemoRuns,
     containmentRuns,
     cleanupRuns,
     holdingSafetyRuns,
-    demoSafetyRuns,
     publicDemoSafetyRuns,
     currentSourceRun: {
       source: currentSource,
