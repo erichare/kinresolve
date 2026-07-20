@@ -5,6 +5,7 @@ import { marketingAnalyticsMode } from "@/lib/analytics";
 import { betaApplicationMode } from "@/lib/beta-application-mode";
 import { betaStatus } from "@/lib/beta-status";
 import { pageMetadata } from "@/lib/metadata";
+import { site } from "@/lib/site";
 
 export const metadata = pageMetadata({
   title: "Privacy and data practices",
@@ -188,6 +189,10 @@ export default function PrivacyPage() {
         <CtaStrip
           body="Apply with the fixed contact and workflow fields only. Keep GEDCOM files, DNA data, source images, credentials, and private family details out of the application and email."
           eyebrow="Privacy-minded beta"
+          primaryHref="/beta"
+          primaryLabel="Apply for the private beta"
+          secondaryHref={site.github}
+          secondaryLabel="View on GitHub"
           title="Help test the boundary between private research and public history."
         />
       </div>

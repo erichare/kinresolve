@@ -150,6 +150,13 @@ const expectedMigrations = [
     notes: "Adds a server-only singleton public-demo usage counter with explicit API-role denial; existing application tables and writers remain structurally valid."
   },
   {
+    file: "020_core_rls_policies.sql",
+    sha256: "c6f37b0c5df8869cef1ec51c1d9930e7f3745fa8add11bed6d9568d4e50b77e9",
+    risk: "moderate",
+    compatibility: "expansion-compatible",
+    notes: "Adds archive-scoped mutation and maintenance RLS policies keyed on transaction-local settings, permissive SELECT policies, and server policies for remaining policy-less RLS tables; inert for the BYPASSRLS runtime role and owner."
+  },
+  {
     file: "021_public_demo_notice_versions.sql",
     sha256: "7d6c0a40cd72dc9c4850b6b619736336a755d90d9516967722764b31dfa135a0",
     risk: "low",
@@ -369,7 +376,7 @@ describe("forward-only first-cutover release policy", () => {
     });
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toMatch(/verified 20 migration.*v0\.17\.4.*forward-only/i);
+    expect(result.stdout).toMatch(/verified 21 migration.*v0\.17\.4.*forward-only/i);
     expect(result.stdout).toMatch(/owner erichare.*2026-07-15T04:30:00Z/i);
     expect(result.stdout).not.toContain(FIRST_CUTOVER_ACKNOWLEDGEMENT);
     expect(result.stderr).not.toContain(FIRST_CUTOVER_ACKNOWLEDGEMENT);
