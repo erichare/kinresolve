@@ -37,7 +37,7 @@ describe("operator archive provisioning documentation", () => {
     expect(provisioner).toMatch(/postgres:\s*\n\s+condition:\s+service_healthy/);
 
     const postgres = serviceSection(compose, "postgres");
-    expect(postgres).toMatch(/healthcheck:[\s\S]*pg_isready -U kinsleuth -d kinsleuth/);
+    expect(postgres).toMatch(/healthcheck:[\s\S]*pg_isready -U kinresolve -d kinresolve/);
 
     for (const name of ["app", "worker"] as const) {
       const service = serviceSection(compose, name);

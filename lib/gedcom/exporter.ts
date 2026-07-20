@@ -85,7 +85,7 @@ export function exportGedcom(input: GedcomExportInput, options: GedcomExportOpti
 
   return {
     content,
-    fileName: `${slugify(input.archiveName) || "kinsleuth"}-${isoDate(now)}.ged`,
+    fileName: `${slugify(input.archiveName) || "kinresolve"}-${isoDate(now)}.ged`,
     summary: {
       records: orderedBodies.length + 2,
       individuals: countType(orderedBodies, "INDI"),

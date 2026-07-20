@@ -125,6 +125,11 @@ Compose fails closed when either is missing. The stack provisions Postgres with 
 and the fictional demo, then starts the app, the worker, and loopback-only private MinIO
 object storage. Ports, CORS, and storage details are in [docs/configuration.md](docs/configuration.md#docker-compose-stack).
 
+> **Upgrading from the KinSleuth-named stack:** the local Postgres user/database and the
+> default MinIO bucket were renamed from `kinsleuth` to `kinresolve`. Existing local
+> volumes were initialized with the old names, so run `docker compose down -v` once
+> (this deletes local data) before starting the renamed stack.
+
 ## Configuration
 
 The essentials:
