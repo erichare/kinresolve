@@ -173,6 +173,13 @@
       "risk": "moderate",
       "compatibility": "expansion-compatible",
       "notes": "Adds bounded server-only public-demo capacity, digest-only guest sessions, archive generations, AI leases, and fixed-schema 30-day events without changing existing application tables or writers."
+    },
+    {
+      "file": "019_public_demo_stats.sql",
+      "sha256": "f72cfa0f99db27cf548ef4558a5167086e69502862ea7a4097458353f8b4d664",
+      "risk": "low",
+      "compatibility": "expansion-compatible",
+      "notes": "Adds a server-only singleton public-demo usage counter with explicit API-role denial; existing application tables and writers remain structurally valid."
     }
   ]
 }

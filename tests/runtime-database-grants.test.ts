@@ -155,6 +155,7 @@ describe("beta operations runtime database grants", () => {
       { table: "public_demo_generations", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
       { table: "public_demo_ai_attempts", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"] },
       { table: "public_demo_events", privileges: ["SELECT", "INSERT", "DELETE"] },
+      { table: "public_demo_stats", privileges: ["SELECT", "UPDATE"] },
       { table: "security_events", privileges: ["INSERT"] }
     ]);
     const statements = buildBetaOperationsGrantStatements('runtime "role"');
@@ -183,6 +184,8 @@ describe("beta operations runtime database grants", () => {
       'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."public_demo_ai_attempts" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_events" FROM "runtime ""role"""',
       'GRANT SELECT, INSERT, DELETE ON TABLE public."public_demo_events" TO "runtime ""role"""',
+      'REVOKE ALL PRIVILEGES ON TABLE public."public_demo_stats" FROM "runtime ""role"""',
+      'GRANT SELECT, UPDATE ON TABLE public."public_demo_stats" TO "runtime ""role"""',
       'REVOKE ALL PRIVILEGES ON TABLE public."security_events" FROM "runtime ""role"""',
       'GRANT INSERT ON TABLE public."security_events" TO "runtime ""role"""'
     ]);
@@ -214,6 +217,7 @@ describe("beta operations runtime database grants", () => {
       expect.objectContaining({ table: "public_demo_generations", select: true, insert: true, update: true, delete: true }),
       expect.objectContaining({ table: "public_demo_ai_attempts", select: true, insert: true, update: true, delete: true }),
       expect.objectContaining({ table: "public_demo_events", select: true, insert: true, update: false, delete: true }),
+      expect.objectContaining({ table: "public_demo_stats", select: true, insert: false, update: true, delete: false }),
       expect.objectContaining({ table: "security_events", select: false, insert: true, update: false, delete: false }),
       expect.objectContaining({ table: "release_write_fences", select: true, insert: false, update: false }),
       expect.objectContaining({ table: "schema_migrations", select: true, insert: false, update: false })
