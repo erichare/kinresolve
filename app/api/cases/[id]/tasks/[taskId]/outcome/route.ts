@@ -96,7 +96,12 @@ export const POST = withPermission("cases:write", async (request, authorization,
       { archiveId: authorization.archiveId }
     );
 
-    return NextResponse.json(projectCaseApiResponse(result));
+    // The replay flag is internal telemetry state; keep the API response shape unchanged.
+    return NextResponse.json(projectCaseApiResponse({
+      case: result.case,
+      task: result.task,
+      hypothesis: result.hypothesis
+    }));
   } catch (error) {
     const knownResponse = mapOutcomeError(error);
     if (knownResponse) {

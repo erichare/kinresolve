@@ -254,6 +254,7 @@ describeIfDatabase("workspace store", () => {
     );
     const workspace = await readWorkspace(storeOptions);
 
+    expect(result.applied).toBe(true);
     expect(result.task).toMatchObject({
       id: "task-update-target",
       status: "done",

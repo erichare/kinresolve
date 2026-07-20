@@ -493,17 +493,31 @@ export async function recordPublicDemoEvent(
   if ((input.eventName === "feedback_submitted") !== Boolean(feedback)) {
     throw new Error("The public demo feedback event schema is invalid.");
   }
+  // The durable counter increments in the same statement as the event insert,
+  // so a canary-excluded outcome can never count and a counted outcome can
+  // never lose its event row.
   await query(
-    `INSERT INTO public.public_demo_events (
-       id, session_id, event_name, usefulness, clarity, feature_interest,
-       beta_interest, occurred_at, retention_expires_at
+    `WITH inserted_event AS (
+       INSERT INTO public.public_demo_events (
+         id, session_id, event_name, usefulness, clarity, feature_interest,
+         beta_interest, occurred_at, retention_expires_at
+       )
+       SELECT $1::uuid, $2::uuid, $3, $4, $5, $6, $7,
+         $8::timestamptz, $8::timestamptz + interval '30 days'
+       WHERE $2::uuid IS NULL OR EXISTS (
+         SELECT 1 FROM public.public_demo_sessions AS session
+         WHERE session.id = $2::uuid AND session.is_canary = false
+       )
+       RETURNING event_name
      )
-     SELECT $1::uuid, $2::uuid, $3, $4, $5, $6, $7,
-       $8::timestamptz, $8::timestamptz + interval '30 days'
-     WHERE $2::uuid IS NULL OR EXISTS (
-       SELECT 1 FROM public.public_demo_sessions AS session
-       WHERE session.id = $2::uuid AND session.is_canary = false
-     )`,
+     UPDATE public.public_demo_stats AS stats
+     SET outcomes_completed_total = stats.outcomes_completed_total + 1,
+         updated_at = GREATEST(stats.updated_at, $8::timestamptz)
+     WHERE stats.singleton = true
+       AND EXISTS (
+         SELECT 1 FROM inserted_event
+         WHERE inserted_event.event_name = 'outcome_completed'
+       )`,
     [
       randomUUID(),
       input.sessionId ?? null,
@@ -614,6 +628,38 @@ export async function completePublicDemoAiAttempt(
     options
   );
   if (result.rowCount !== 1) throw new Error("The public demo AI attempt is unavailable.");
+}
+
+export type PublicDemoStatsView = {
+  mysteriesSolved: number;
+  since: string;
+};
+
+export async function readPublicDemoStats(
+  options: DatabaseOptions = {}
+): Promise<PublicDemoStatsView> {
+  const result = await query<{
+    outcomes_completed_total: string;
+    started_counting_at: Date | string;
+  }>(
+    `SELECT outcomes_completed_total::text AS outcomes_completed_total,
+            started_counting_at
+     FROM public.public_demo_stats
+     WHERE singleton = true
+     LIMIT 1`,
+    [],
+    options
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("The public demo stats singleton is unavailable.");
+  const mysteriesSolved = Number(row.outcomes_completed_total);
+  if (!Number.isSafeInteger(mysteriesSolved) || mysteriesSolved < 0) {
+    throw new Error("The public demo stats counter is invalid.");
+  }
+  return {
+    mysteriesSolved,
+    since: validDate(row.started_counting_at, "stats start time").toISOString()
+  };
 }
 
 export async function readPublicDemoDiagnostics(

@@ -24,6 +24,23 @@ describe("public demo lifecycle hardening", () => {
     expect(recordEvent).toMatch(/\$8::timestamptz\s*\+\s*interval '30 days'/);
   });
 
+  it("keys the durable stats increment on the admitted outcome event insert", async () => {
+    const recordEvent = await functionSource(
+      "lib/public-demo-session-store.ts",
+      "export async function recordPublicDemoEvent",
+      "export async function reservePublicDemoAiAttempt"
+    );
+
+    expect(recordEvent).toMatch(/WITH inserted_event AS \(\s*INSERT INTO public\.public_demo_events/);
+    expect(recordEvent).toMatch(/outcomes_completed_total\s*=\s*stats\.outcomes_completed_total \+ 1/);
+    expect(recordEvent).toMatch(
+      /EXISTS \(\s*SELECT 1 FROM inserted_event\s*WHERE inserted_event\.event_name = 'outcome_completed'\s*\)/
+    );
+    expect(recordEvent.indexOf("is_canary = false")).toBeLessThan(
+      recordEvent.indexOf("UPDATE public.public_demo_stats")
+    );
+  });
+
   it("types the AI timestamp before the UTC day boundary and lease arithmetic", async () => {
     const reserve = await functionSource(
       "lib/public-demo-session-store.ts",

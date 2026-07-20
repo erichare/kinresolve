@@ -50,6 +50,8 @@ describe("public demo API boundary", () => {
   it("registers every demo endpoint with an explicit public or demo-session policy", () => {
     expect(resolveApiAccess("/api/demo/sessions", "POST")).toEqual({ kind: "public" });
     expect(resolveApiMethodPolicy("/api/demo/sessions", "POST")).toBe("same-origin-cookie");
+    expect(resolveApiAccess("/api/public/demo-stats", "GET")).toEqual({ kind: "public" });
+    expect(resolveApiMethodPolicy("/api/public/demo-stats", "GET")).toBe("read-only");
 
     for (const [pathname, method, capability, policy] of [
       ["/api/demo/session", "GET", "demo:session-control", "read-only"],

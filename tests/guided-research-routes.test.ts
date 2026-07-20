@@ -38,6 +38,7 @@ beforeEach(() => {
   });
   workspaceMocks.addCaseTask.mockResolvedValue({ task: { id: "task-manual-1", status: "doing" } });
   workspaceMocks.recordCaseTaskOutcome.mockResolvedValue({
+    applied: true,
     task: { id: "task-guide-1", status: "done" },
     hypothesis: { id: "hyp-1", status: "weakened" }
   });
