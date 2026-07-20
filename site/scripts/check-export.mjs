@@ -99,7 +99,9 @@ for (const file of htmlFiles) {
     if (!/\bdefer(?:=""|\b)/.test(scriptTag)) {
       problems.push(`${file}: Plausible script must load with defer.`);
     }
-  } else if (html.includes("plausible.io")) {
+  } else if (/plausible\.io/i.test(html)) {
+    // Deny-scan, not URL validation: ANY appearance of the analytics host in an
+    // analytics-off export is a failure, so broad substring breadth is the point.
     problems.push(`${file}: contains a plausible.io reference while analytics mode is off.`);
   }
 }
@@ -221,6 +223,44 @@ const demoClaims = {
 };
 const betaDemoSurface = readFileSync(join(outputRoot, "beta/index.html"), "utf8");
 const pricingDemoSurface = readFileSync(join(outputRoot, "pricing/index.html"), "utf8");
+
+// The usage-counter contract (docs/public-demo-launch-materials.md) forbids
+// ever baking a solved-mystery number into the static export: the counter is
+// client-fetched from the live stats endpoint and hides entirely on failure.
+const demoPulseCounterPhrase = "passenger mysteries solved in the live demo";
+const demoPulseIdleFallback = 'data-demo-pulse-state="idle"';
+const demoPulsePrivacyDisclosure =
+  "that request sends no identifiers or personal data, though the demo origin—like any web server it contacts—sees the requesting IP address";
+const privacySurface = readFileSync(join(outputRoot, "privacy/index.html"), "utf8");
+if (marketingDemoMode === "live") {
+  for (const [page, surface] of [
+    ["index.html", "home"],
+    ["product/index.html", "product"]
+  ]) {
+    const html = readFileSync(join(outputRoot, page), "utf8");
+    if (!html.includes(`data-demo-pulse-surface="${surface}"`)) {
+      problems.push(`${page}: is missing the demo-pulse counter mount point for ${surface}.`);
+    }
+    if (!html.includes(demoPulseIdleFallback)) {
+      problems.push(`${page}: demo-pulse must prerender in its hidden idle state, not with a number.`);
+    }
+  }
+  if (!privacySurface.includes(demoPulsePrivacyDisclosure)) {
+    problems.push("Privacy page is missing the demo-stats counter fetch disclosure.");
+  }
+} else {
+  if (htmlCorpus.includes("data-demo-pulse-surface")) {
+    problems.push("Demo-pulse counter must never render while the demo launch is pending.");
+  }
+  if (privacySurface.includes(demoPulsePrivacyDisclosure)) {
+    problems.push("Pending-demo privacy page must not disclose a counter fetch that never happens.");
+  }
+}
+if (htmlCorpus.includes(demoPulseCounterPhrase)) {
+  problems.push(
+    `Static export must never contain a prerendered solved-mystery count: ${demoPulseCounterPhrase}`
+  );
+}
 if (marketingDemoMode === "live") {
   for (const claim of [
     demoClaims.live.heroCtaLabel,
@@ -451,7 +491,26 @@ if (applicationMode) {
   if (!/stores these application fields for up to 90 days/i.test(beta)) {
     problems.push("Beta application mode is missing its truthful storage disclosure.");
   }
+  // The Turnstile widget is declarative: the challenge script injects the
+  // optional token input, and a no-JS visitor still submits the plain form.
+  if (!/<script[^>]*src="https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js"[^>]*><\/script>/.test(beta)) {
+    problems.push("Beta application mode is missing the declarative Turnstile challenge script.");
+  }
+  if (!beta.includes('class="cf-turnstile"')
+    || !beta.includes('data-action="beta-application"')
+    || !/data-sitekey="[0-9A-Za-z_-]{1,128}"/.test(beta)) {
+    problems.push("Beta application mode is missing its configured Turnstile widget.");
+  }
+  if (beta.includes('name="cf-turnstile-response"')) {
+    problems.push("The Turnstile token input must be widget-injected, never prerendered.");
+  }
 } else {
+  // Deny-scan, not URL validation: ANY appearance of the Turnstile host in a
+  // mailto-mode export is a failure (including inside inline script payloads),
+  // so broad substring breadth is the point.
+  if (/challenges\.cloudflare\.com/i.test(beta) || /cf-turnstile/i.test(beta)) {
+    problems.push("Beta mail fallback must not load the Turnstile challenge widget.");
+  }
   if (!beta.includes(`action="mailto:beta@kinresolve.com`)) {
     problems.push("Beta mail fallback is missing its configured mailto destination.");
   }
@@ -566,7 +625,7 @@ let pricingVisibleMarkup = pricing;
 let previousPricingVisibleMarkup;
 do {
   previousPricingVisibleMarkup = pricingVisibleMarkup;
-  pricingVisibleMarkup = pricingVisibleMarkup.replace(/<script[\s\S]*?<\/script>/g, "");
+  pricingVisibleMarkup = pricingVisibleMarkup.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
 } while (pricingVisibleMarkup !== previousPricingVisibleMarkup);
 if (/[$€£]\s?\d/.test(pricingVisibleMarkup) || /\d+\s?(?:\/|per\s+)(?:month|mo\b|year|yr\b|user|seat)/i.test(pricingVisibleMarkup)) {
   problems.push("Pricing page must not contain a price before hosted pricing is announced.");

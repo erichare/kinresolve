@@ -11,7 +11,7 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 let migrationsDir: string;
 
 beforeEach(async () => {
-  migrationsDir = await mkdtemp(path.join(tmpdir(), "kinsleuth-migrations-"));
+  migrationsDir = await mkdtemp(path.join(tmpdir(), "kinresolve-migrations-"));
 });
 
 afterEach(async () => {

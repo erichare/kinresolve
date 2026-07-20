@@ -7,7 +7,10 @@ describe("operator archive provisioning documentation", () => {
 
     expect(environment).toMatch(/^KINRESOLVE_DEPLOYMENT_MODE=self-hosted$/m);
     expect(environment).toMatch(/^KINRESOLVE_DATASET_MODE=demo$/m);
-    expect(environment).toMatch(/^KINSLEUTH_ARCHIVE_ID=archive-default$/m);
+    expect(environment).toMatch(/^KINRESOLVE_ARCHIVE_ID=archive-default$/m);
+    // The legacy names stay documented until the post-launch strict flip.
+    expect(environment).toContain("KINSLEUTH_ARCHIVE_ID");
+    expect(environment).toContain("KINSLEUTH_ALLOW_SIGNUPS");
   });
 
   it("makes quick start provision before the app starts and removes seed-on-read instructions", async () => {
@@ -33,17 +36,17 @@ describe("operator archive provisioning documentation", () => {
     expect(provisioner).toMatch(/command:\s*sh -c "npm run db:migrate && npm run archive:provision -- --mode demo"/);
     expect(provisioner).toMatch(/KINRESOLVE_DEPLOYMENT_MODE:\s*self-hosted/);
     expect(provisioner).toMatch(/KINRESOLVE_DATASET_MODE:\s*demo/);
-    expect(provisioner).toMatch(/KINSLEUTH_ARCHIVE_ID:\s*archive-default/);
+    expect(provisioner).toMatch(/KINRESOLVE_ARCHIVE_ID:\s*archive-default/);
     expect(provisioner).toMatch(/postgres:\s*\n\s+condition:\s+service_healthy/);
 
     const postgres = serviceSection(compose, "postgres");
-    expect(postgres).toMatch(/healthcheck:[\s\S]*pg_isready -U kinsleuth -d kinsleuth/);
+    expect(postgres).toMatch(/healthcheck:[\s\S]*pg_isready -U kinresolve -d kinresolve/);
 
     for (const name of ["app", "worker"] as const) {
       const service = serviceSection(compose, name);
       expect(service).toMatch(/KINRESOLVE_DEPLOYMENT_MODE:\s*self-hosted/);
       expect(service).toMatch(/KINRESOLVE_DATASET_MODE:\s*demo/);
-      expect(service).toMatch(/KINSLEUTH_ARCHIVE_ID:\s*archive-default/);
+      expect(service).toMatch(/KINRESOLVE_ARCHIVE_ID:\s*archive-default/);
       expect(service).toMatch(/provision:\s*\n\s+condition:\s+service_completed_successfully/);
     }
   });

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
   clientQuery: vi.fn(),
+  query: vi.fn(),
   withTransaction: vi.fn()
 }));
 const workspaceMocks = vi.hoisted(() => ({
@@ -11,7 +12,7 @@ const workspaceMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db", () => ({
-  query: vi.fn(),
+  query: dbMocks.query,
   withTransaction: dbMocks.withTransaction
 }));
 vi.mock("@/lib/workspace-store", () => workspaceMocks);
@@ -29,6 +30,9 @@ describe("public demo release drain", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     workspaceMocks.provisionArchive.mockResolvedValue(undefined);
+    // The direct-query mock backs the unlocked capacity fast path, which must
+    // see spare capacity so these drain scenarios reach the locked admission.
+    dbMocks.query.mockResolvedValue({ rows: [], rowCount: 0 });
     dbMocks.clientQuery.mockImplementation(async (sql: string) => {
       if (sql.includes("AS in_flight")) {
         return { rows: [{ in_flight: false }], rowCount: 1 };

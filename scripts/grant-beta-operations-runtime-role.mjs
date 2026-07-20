@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { chmod, writeFile } from "node:fs/promises";
 
+import { readArchiveIdSetting } from "../lib/environment-aliases.ts";
 import { loadReleaseContractFiles } from "../lib/release-contract.ts";
 import { grantAndAttestBetaOperationsRuntimeRole } from "../lib/runtime-database-grants.ts";
 
@@ -53,7 +54,7 @@ async function vercelProductionInput() {
     expectedDatabaseIdentity: requiredValue(
       files.productionEnvironment.KINRESOLVE_DATABASE_IDENTITY
     ),
-    expectedArchiveId: requiredValue(files.productionEnvironment.KINSLEUTH_ARCHIVE_ID)
+    expectedArchiveId: requiredValue(readArchiveIdSetting(files.productionEnvironment))
   };
 }
 
@@ -77,7 +78,7 @@ async function publicDemoInput() {
     expectedDatabaseIdentity: requiredValue(
       files.productionEnvironment.KINRESOLVE_DATABASE_IDENTITY
     ),
-    expectedArchiveId: requiredValue(files.productionEnvironment.KINSLEUTH_ARCHIVE_ID)
+    expectedArchiveId: requiredValue(readArchiveIdSetting(files.productionEnvironment))
   };
 }
 

@@ -156,7 +156,62 @@ describe("public demo operational boundary", () => {
     );
     expect(publicDemoRelease).toContain('AI_CHAT_MODEL: "openai/gpt-5-mini"');
     expect(publicDemoRelease).toContain('KINRESOLVE_PUBLIC_DEMO_ANALYTICS: "plausible"');
+    // The deliberate demo connection-pool bound, sized against the Supabase
+    // pooler limits of the dedicated demo database.
+    expect(publicDemoRelease).toContain('DATABASE_POOL_MAX: "10"');
+    // The demo Turnstile ladder is validated by shape: a known rung, and any
+    // enabled rung must carry a well-formed public widget key. The contract
+    // step receives the pulled environment file, so its mode-implies-secret
+    // check can fail the release when an enabled rung lacks the Sensitive
+    // siteverify secret.
+    expect(publicDemoRelease).toContain(".vercel/.env.production.local");
+    expect(publicDemoRelease).toContain(
+      "const turnstileMode = process.env.KINRESOLVE_DEMO_TURNSTILE_MODE;"
+    );
+    expect(publicDemoRelease).toContain("/^(?:off|shadow|required)$/.test(turnstileMode)");
+    expect(publicDemoRelease).toContain(
+      "process.env.NEXT_PUBLIC_KINRESOLVE_DEMO_TURNSTILE_SITE_KEY"
+    );
+    expect(publicDemoRelease).toContain(
+      'if ((turnstileMode === "shadow" || turnstileMode === "required") && turnstileSiteKey === undefined)'
+    );
     expect(publicDemoRelease).not.toContain('if (!process.env[name]?.trim())');
+  });
+
+  it("admits only a well-formed optional Sentry DSN and keeps upload credentials workflow-only", () => {
+    const vercelRelease = readRepositoryFile(".github/workflows/vercel-release.yml");
+
+    // The expected-value block validates the optional readable DSN's shape,
+    // because the build derives its CSP connect-src origin from it.
+    expect(publicDemoRelease).toContain("const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;");
+    expect(publicDemoRelease).toContain(
+      "/^https:\\/\\/[a-f0-9]+@o[0-9]+\\.ingest(?:\\.[a-z]{2})?\\.sentry\\.io\\/[0-9]+$/.test(sentryDsn)"
+    );
+
+    // Source-map upload credentials ride only on the artifact build steps.
+    const demoBuild = stepBlock(
+      publicDemoRelease,
+      "Build the immutable public demo artifact",
+      "Deploy the unaliased public demo candidate"
+    );
+    const stagingBuild = stepBlock(
+      vercelRelease,
+      "Build the staging production artifact",
+      "Deploy the immutable staging candidate"
+    );
+    const productionBuild = stepBlock(
+      vercelRelease,
+      "Build the production artifact before database mutation",
+      "Deploy the immutable production candidate"
+    );
+    for (const build of [demoBuild, stagingBuild, productionBuild]) {
+      expect(build).toContain("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}");
+      expect(build).toContain("SENTRY_ORG: ${{ vars.SENTRY_ORG }}");
+      expect(build).toContain("SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}");
+      expect(build).toContain("vercel build --prod");
+    }
+    // The auth token never becomes a runtime Vercel setting.
+    expect(publicDemoRelease.split("SENTRY_AUTH_TOKEN").length - 1).toBe(2);
   });
 
   it("fails closed unless the dedicated AI Gateway key retains the approved $50 hard budget", () => {

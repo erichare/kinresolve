@@ -46,6 +46,8 @@ Require reviewers and no deployment wait timer. Configure these secrets:
 - `KINRESOLVE_OBSERVABILITY_PROBE_SECRET`
 - `MIGRATION_DATABASE_URL`
 - `PUBLIC_DEMO_RUNTIME_DATABASE_URL`
+- `SENTRY_AUTH_TOKEN` (optional; workflow-only source-map upload — never a
+  Vercel setting)
 - `VERCEL_AUTOMATION_BYPASS_SECRET`
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
@@ -60,6 +62,8 @@ Configure these readable variables:
 - `MARKETING_VERCEL_PROJECT_ID`
 - `PRODUCTION_DATABASE_IDENTITY`
 - `PRODUCTION_VERCEL_PROJECT_ID`
+- `SENTRY_ORG` and `SENTRY_PROJECT` (optional; set together with
+  `SENTRY_AUTH_TOKEN` or source-map upload stays disabled)
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
 
@@ -67,6 +71,13 @@ The secret and readable Vercel identities must match. Demo project and database 
 must differ from the marketing/private-beta exclusions. The protected runtime URL must be
 the same bounded `krdemo_runtime` connection configured as Vercel's Sensitive
 `DATABASE_URL`; rotate and update both copies together.
+
+Rename compatibility window: the demo Vercel cell's readable `KINRESOLVE_ARCHIVE_ID`
+and `KINRESOLVE_ALLOW_SIGNUPS` settings replace the legacy `KINSLEUTH_ARCHIVE_ID` and
+`KINSLEUTH_ALLOW_SIGNUPS` names. The release validation accepts either name (or both
+with identical values) and fails closed on a mismatched pair. Add the `KINRESOLVE_*`
+names with the same values to the production, beta-staging, and public-demo Vercel
+cells before the post-launch strict flip deletes the legacy names.
 
 ### `demo-containment`
 
@@ -88,7 +99,21 @@ contract validated in `.github/workflows/public-demo-release.yml`, including the
 database identity, `datasetMode=demo`, public-demo origin, disabled API v1/uploads/accounts,
 the aggregate analytics mode (`KINRESOLVE_PUBLIC_DEMO_ANALYTICS=plausible`; cookieless
 Plausible page and fixed-event counts, no identifier or record content), and the
-server-only AI, cookie, privacy-HMAC, cron, canary, and health-probe secrets.
+server-only AI, cookie, privacy-HMAC, cron, canary, and health-probe secrets, and the
+deliberate connection-pool bound (`DATABASE_POOL_MAX=10`, sized against the Supabase
+session-pooler limits of the dedicated demo database so a landing spike saturates the
+demo's own pool before it can exhaust the pooler). Optional readable settings are
+allowed for launch hardening: `NEXT_PUBLIC_SENTRY_DSN`, the public Sentry ingest
+identifier for aggressively scrubbed error events (no headers, cookies, query
+strings, bodies, or user identity; tracing and replay disabled);
+`KINRESOLVE_DEMO_TURNSTILE_MODE` (`off`, `shadow`, or `required` — launch ladder:
+`shadow` soaks for at least a week before `required`); and
+`NEXT_PUBLIC_KINRESOLVE_DEMO_TURNSTILE_SITE_KEY`, the public widget key required by
+any enabled Turnstile rung. The matching siteverify secret
+`KINRESOLVE_TURNSTILE_SECRET_KEY` is an optional Sensitive setting. Authorized
+canaries, the load test, and the spike test bypass the Turnstile challenge through
+the canary header, so monitoring never depends on Cloudflare availability.
+`SENTRY_AUTH_TOKEN` remains workflow-only and is rejected as a Vercel setting.
 
 ## First holding cutover
 
@@ -199,6 +224,20 @@ The demo database is rebuildable synthetic state. Fixture/source RPO is zero, vi
 progress is disposable, and the recovery objective is a clean reprovision within 30
 minutes. Time and record one destroy/reprovision exercise.
 
+## Landing-view sampling
+
+`landing_viewed` database events are sampled: one in ten non-canary landing renders
+records an event, so a front-page traffic spike cannot turn every page view into a
+durable write. When reading the KPI funnel, multiply landing counts by 10 before
+comparing them with the unsampled `session_started`, `outcome_completed`, and
+`capacity_rejected` events. Canary traffic remains fully excluded from the sample by
+the canary header, and Plausible page counts (when enabled) stay unsampled, so the
+two sources are reconciled with the same factor. Spike and load runs
+(`scripts/public-demo-spike-test.mjs`, `scripts/public-demo-load-test.mjs`) deliberately
+drive over-capacity session starts and therefore inject `capacity_rejected` events that
+carry no canary attribution, at the recorded run timestamp and rejection count, so KPI
+reviews must subtract each recorded run's rejections from the funnel.
+
 ## Monitoring and incident response
 
 `.github/workflows/public-demo-monitoring.yml` checks landing, health, and family bodies
@@ -238,10 +277,34 @@ On failure:
       the database funnel (the canary header and `is_canary` session flag) and Plausible
       (the browser canary sets the `plausible_ignore` localStorage flag before any
       navigation).
+- [ ] The launch-scale spike gate (`scripts/public-demo-spike-test.mjs`) passed against
+      the launch candidate: 200 concurrent landing requests with p95 under 2 seconds,
+      over-capacity session starts fast-429 in under 1 second, zero 5xx responses,
+      and healthy post-run protected diagnostics.
+- [ ] Demo session Turnstile completed at least a one-week `shadow` soak and was
+      flipped to `required` (or a signed deferral is recorded), with the canary bypass
+      verified in monitoring.
 - [ ] Five unfamiliar testers each complete the research outcome without assistance in
       under two minutes.
 - [ ] Two or three attributable tester quotes are captured during the five-tester gate,
       with written consent recorded, attributed by first name and researcher type only,
       per [`public-demo-launch-materials.md`](public-demo-launch-materials.md).
+- [ ] Plausible is receiving pageviews and the fixed custom events on both
+      `kinresolve.com` and `demo.kinresolve.com`, and a full canary monitoring run
+      produces zero Plausible events.
+- [ ] Sentry received one deliberate, scrubbed test error from demo production, and the
+      recorded event was spot-checked to contain no headers, cookies, query, body, or
+      user context.
+- [ ] `GET /api/public/demo-stats` is live with its cache headers verified, and the
+      marketing counter was proven to disappear gracefully with the demo contained
+      (holding artifact serving).
+- [ ] The demo cell's runtime role passed the `NOBYPASSRLS` attestation with the
+      archive-scoped policies active, or a signed deferral of the role flip is recorded
+      here.
+- [ ] The deployed landing notice is the version that names Plausible, Cloudflare
+      Turnstile, and Sentry, and founder/legal review re-approved that exact wording.
+- [ ] The marketing flip was rehearsed end to end: `KINRESOLVE_MARKETING_DEMO_MODE=live`
+      on a preview deployment (repository variable plus `site-deploy` input), hero and
+      counter verified, then rolled back to `pending`.
 - [ ] Founder/legal review approves the fictional-data notice, privacy wording, feedback
       fields, and the August 13, 2026 launch (or August 20 contingency).

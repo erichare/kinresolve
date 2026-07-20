@@ -2,6 +2,7 @@ import { BetaFormSubmitEvent } from "@/components/beta-form-submit-event";
 import { marketingAnalyticsMode } from "@/lib/analytics";
 import { betaApplicationMode } from "@/lib/beta-application-mode";
 import { site } from "@/lib/site";
+import { marketingTurnstileSiteKey } from "@/lib/turnstile";
 
 const applicationEndpoint = "https://app.kinresolve.com/api/public/beta-applications";
 const consentVersion = "beta-communications-v1";
@@ -93,6 +94,24 @@ export function BetaForm() {
         <strong>Keep family data out of this application.</strong>
         <span>Beyond your own contact name, do not include relatives’ names or details, record images, GEDCOM files, DNA files, genetic information, credentials, or API tokens.</span>
       </div>
+      {applicationMode && marketingTurnstileSiteKey ? (
+        <>
+          {/*
+            Declarative Turnstile widget: the script scans for .cf-turnstile
+            and injects the hidden cf-turnstile-response input. Without
+            JavaScript nothing renders and no token field exists — the product
+            endpoint accepts the token-free POST on its strict rate lane, so
+            the no-JS cross-origin form contract is preserved.
+          */}
+          <script async defer src="https://challenges.cloudflare.com/turnstile/v0/api.js" />
+          <div
+            className="cf-turnstile"
+            data-action="beta-application"
+            data-appearance="always"
+            data-sitekey={marketingTurnstileSiteKey}
+          />
+        </>
+      ) : null}
       <div className="form-actions">
         <button className="button" type="submit">
           {applicationMode ? "Submit application" : "Open email application"}

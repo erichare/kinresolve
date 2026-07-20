@@ -24,6 +24,25 @@ describe("public demo aggregate analytics", () => {
     expect(landing).not.toMatch(/posthog|segment|google-analytics|gtag|mixpanel/i);
   });
 
+  it("samples landing_viewed writes 1-in-10 with the documented KPI multiplier", async () => {
+    const [landing, analytics, runbook] = await Promise.all([
+      source("app/page.tsx"),
+      source("lib/public-demo-analytics.ts"),
+      source("docs/public-demo-runbook.md")
+    ]);
+
+    // A front-page spike cannot turn every landing render into a durable
+    // write; canary traffic stays excluded before the sample is drawn.
+    expect(landing).toContain(
+      'if (!requestHeaders.has("x-kinresolve-demo-canary") && samplePublicDemoLandingEvent())'
+    );
+    expect(analytics).toContain("export const publicDemoLandingEventSampleRate = 0.1;");
+    expect(analytics).toContain("random() < publicDemoLandingEventSampleRate");
+    expect(analytics).toMatch(/multiply landing[\s\S]{0,40}counts by 10/i);
+    expect(runbook).toContain("## Landing-view sampling");
+    expect(runbook).toContain("multiply landing counts by 10");
+  });
+
   it("accepts only the fixed beta CTA event for an authenticated demo session", async () => {
     const [route, registry] = await Promise.all([
       source("app/api/demo/events/route.ts"),

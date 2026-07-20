@@ -522,6 +522,12 @@ jobs:
       - name: Build the staging production artifact
         env:
           KINRESOLVE_BUILD_COMMIT_SHA: ${{ inputs.release_commit }}
+          # Optional workflow-only Sentry source-map upload credentials; the
+          # build skips Sentry wiring when they are unset, and uploaded source
+          # maps are deleted from the output before deployment.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: vercel build --prod
@@ -847,7 +853,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
-          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
         run: |
           set -euo pipefail
           node --env-file=.vercel/.env.production.local --import tsx \
@@ -942,7 +948,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_TIMEOUT_MS: "60000"
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
-          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ""
         run: npm run test:staging-smoke
 
@@ -1021,7 +1027,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ steps.staging-release-contract.outputs.database_identity }}
-          KINSLEUTH_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}
         run: |
           set -euo pipefail
           complete=""
@@ -1213,7 +1219,7 @@ jobs:
           KINRESOLVE_CANARY_RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
           KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}
           KINRESOLVE_DATABASE_IDENTITY: ${{ needs.staging.outputs.database_identity }}
-          KINSLEUTH_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}
+          KINRESOLVE_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}
         run: >-
           node --env-file=.vercel/.env.production.local --import tsx
           scripts/browser-canary-state.ts cleanup staging
@@ -1676,6 +1682,12 @@ jobs:
       - name: Build the production artifact before database mutation
         env:
           KINRESOLVE_BUILD_COMMIT_SHA: ${{ inputs.release_commit }}
+          # Optional workflow-only Sentry source-map upload credentials; the
+          # build skips Sentry wiring when they are unset, and uploaded source
+          # maps are deleted from the output before deployment.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: vercel build --prod
@@ -2794,6 +2806,7 @@ jobs:
       KINRESOLVE_MARKETING_DEMO_MODE: ${{ vars.KINRESOLVE_MARKETING_DEMO_MODE || 'pending' }}
       KINRESOLVE_MARKETING_RELEASE_MODE: ${{ inputs.release_mode }}
       KINRESOLVE_MARKETING_SOURCE_COMMIT_SHA: ${{ inputs.release_commit }}
+      KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: ${{ vars.KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY }}
     defaults:
       run:
         working-directory: site
@@ -2847,7 +2860,8 @@ jobs:
           rm -rf .next out
           KINRESOLVE_MARKETING_BETA_APPLICATION_MODE=mailto npm run verify
           rm -rf .next out
-          KINRESOLVE_MARKETING_BETA_APPLICATION_MODE=application npm run verify
+          KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY="${KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}" \
+            KINRESOLVE_MARKETING_BETA_APPLICATION_MODE=application npm run verify
           rm -rf .next out
 
       - name: Install the pinned marketing Vercel CLI before loading deploy credentials

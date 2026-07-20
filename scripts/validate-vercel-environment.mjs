@@ -36,11 +36,16 @@ try {
   if (profile !== "hosted-beta" && profile !== "public-demo") {
     throw new Error("EXPECTED_VERCEL_ENVIRONMENT_PROFILE must be hosted-beta or public-demo.");
   }
+  // The pulled environment is parsed first: the readable demo Turnstile mode
+  // it carries drives the metadata contract's mode-implies-secret check.
+  const pulledResult = validatePulledVercelEnvironmentContract(pulledEnvironment);
   const result = validateVercelEnvironmentContract(document, {
     expectedBetaApplicationsEnabled,
-    profile
+    profile,
+    ...(profile === "public-demo"
+      ? { publicDemoTurnstileMode: pulledResult.demoTurnstileMode }
+      : {})
   });
-  const pulledResult = validatePulledVercelEnvironmentContract(pulledEnvironment);
   console.log(
     `Vercel production environment verified: ${result.readableSettings} readable settings and `
       + `${result.sensitiveSettings} Sensitive credentials; ${pulledResult.settings} pulled settings contain no `

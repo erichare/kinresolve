@@ -8,6 +8,7 @@ import {
   HostedAuthRequestValidationError
 } from "@/lib/auth-route-rate-limit";
 import { ensureDatabaseSchema } from "@/lib/db";
+import { readAllowSignupsSetting } from "@/lib/environment-aliases";
 import { isHostedDeployment } from "@/lib/hosted-config";
 
 export const dynamic = "force-dynamic";
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
   // earliest account self-heals to owner (see resolveMembershipRole). A
   // membership-less account is denied at the proxy, so the worst a race can do
   // is create an extra, powerless account.
-  if (signUpRequest && process.env.KINSLEUTH_ALLOW_SIGNUPS !== "true") {
+  if (signUpRequest && readAllowSignupsSetting() !== "true") {
     if ((await countUsers()) > 0) {
       return apiErrorResponse(403, "Sign-up is disabled. Ask the archive owner for an invitation.", {
         headers: privateNoStoreHeaders()

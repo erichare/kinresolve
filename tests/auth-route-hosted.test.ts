@@ -112,6 +112,31 @@ describe("hosted auth route perimeter", () => {
     expect(routeMocks.handlerPost).toHaveBeenCalledOnce();
   });
 
+  it("accepts the canonical KINRESOLVE_ALLOW_SIGNUPS name for the self-hosted sign-up gate", async () => {
+    routeMocks.countUsers.mockResolvedValue(1);
+    vi.stubEnv("KINSLEUTH_ALLOW_SIGNUPS", undefined);
+    vi.stubEnv("KINRESOLVE_ALLOW_SIGNUPS", "true");
+
+    const allowed = await POST(signUpRequest());
+    expect(allowed.status).toBe(204);
+    expect(routeMocks.handlerPost).toHaveBeenCalledOnce();
+
+    vi.stubEnv("KINRESOLVE_ALLOW_SIGNUPS", "false");
+    const denied = await POST(signUpRequest());
+    expect(denied.status).toBe(403);
+  });
+
+  it("fails closed when the canonical and legacy sign-up settings disagree", async () => {
+    routeMocks.countUsers.mockResolvedValue(1);
+    vi.stubEnv("KINSLEUTH_ALLOW_SIGNUPS", "false");
+    vi.stubEnv("KINRESOLVE_ALLOW_SIGNUPS", "true");
+
+    await expect(POST(signUpRequest())).rejects.toThrow(
+      /KINRESOLVE_ALLOW_SIGNUPS and KINSLEUTH_ALLOW_SIGNUPS are both set but hold different values/
+    );
+    expect(routeMocks.handlerPost).not.toHaveBeenCalled();
+  });
+
   it("preserves Better Auth's form-encoded sign-in behavior for self-hosted deployments", async () => {
     const request = new NextRequest("https://self-hosted.example/api/auth/sign-in/email", {
       method: "POST",

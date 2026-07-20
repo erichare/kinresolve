@@ -77,6 +77,27 @@ describe("disposable identity browser canary configuration", () => {
     });
   });
 
+  it("accepts the canonical KINRESOLVE_* names and rejects mismatched pairs", () => {
+    const {
+      KINSLEUTH_ALLOW_SIGNUPS: _legacySignups,
+      KINSLEUTH_ARCHIVE_ID: _legacyArchive,
+      ...withoutLegacy
+    } = baseEnvironment;
+    expect(resolveIdentityBrowserCanaryConfiguration({
+      ...withoutLegacy,
+      KINRESOLVE_ALLOW_SIGNUPS: "false",
+      KINRESOLVE_ARCHIVE_ID: "archive-identity-canary"
+    })).toMatchObject({ archiveId: "archive-identity-canary" });
+    expect(() => resolveIdentityBrowserCanaryConfiguration({
+      ...baseEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
+    expect(() => resolveIdentityBrowserCanaryConfiguration({
+      ...baseEnvironment,
+      KINRESOLVE_ALLOW_SIGNUPS: "true"
+    })).toThrow(/KINRESOLVE_ALLOW_SIGNUPS and KINSLEUTH_ALLOW_SIGNUPS are both set but hold different values/);
+  });
+
   it.each([
     ["remote database", { DATABASE_URL: "postgres://kinresolve:secret@db.example.test/kinresolve_identity_canary" }],
     ["different database", { DATABASE_URL: "postgres://kinresolve:secret@127.0.0.1/persistent_staging" }],

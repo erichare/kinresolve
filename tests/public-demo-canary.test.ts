@@ -28,7 +28,8 @@ describe("public demo canary attribution", () => {
 
     expect(migration).toMatch(/public_demo_sessions[\s\S]*is_canary boolean NOT NULL DEFAULT false/);
     expect(route).toContain("isAuthorizedPublicDemoCanary");
-    expect(route).toContain("isCanary:");
+    expect(route).toContain("const isCanary = isAuthorizedPublicDemoCanary(request.headers);");
+    expect(route).toMatch(/startPublicDemoSession\(\{[\s\S]*isCanary[\s\S]*\}\)/);
     expect(store).toMatch(/recordPublicDemoEvent[\s\S]*is_canary = false/);
   });
 });

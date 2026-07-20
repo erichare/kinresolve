@@ -7,8 +7,12 @@ import { Icons } from "@/components/icons";
 import { PublicShell } from "@/components/public-shell";
 import { Status, TableScroll } from "@/components/ui";
 import { publicDemoGuidedCaseTitle } from "@/lib/public-demo-contract";
-import { publicDemoAnalyticsMode } from "@/lib/public-demo-analytics";
+import { publicDemoAnalyticsMode, samplePublicDemoLandingEvent } from "@/lib/public-demo-analytics";
 import { publicDemoEnabled } from "@/lib/public-demo-config";
+import {
+  resolvePublicDemoTurnstileConfiguration,
+  type PublicDemoTurnstileConfiguration
+} from "@/lib/public-demo-turnstile";
 import { recordPublicDemoEvent } from "@/lib/public-demo-session-store";
 import { privateWorkspaceLoginPath, publicArchiveEnabled, resolvePublicArchiveId } from "@/lib/public-surface";
 import { listPublicPeople, readArchiveBranding } from "@/lib/store/people-queries";
@@ -21,14 +25,19 @@ export default async function HomePage() {
   }
   if (publicDemoEnabled()) {
     const requestHeaders = await headers();
-    if (!requestHeaders.has("x-kinresolve-demo-canary")) {
+    // KPI sampling contract: landing_viewed database events are recorded for
+    // one in ten non-canary landings so a traffic spike cannot turn every
+    // page render into a durable write. Funnel readers multiply landing
+    // counts by 10; see "Landing-view sampling" in docs/public-demo-runbook.md
+    // next to the KPI and canary-exclusion checklist.
+    if (!requestHeaders.has("x-kinresolve-demo-canary") && samplePublicDemoLandingEvent()) {
       try {
         await recordPublicDemoEvent({ eventName: "landing_viewed" });
       } catch {
         // Aggregate telemetry must never prevent the public landing page.
       }
     }
-    return <PublicDemoLanding />;
+    return <PublicDemoLanding turnstile={resolvePublicDemoTurnstileConfiguration()} />;
   }
   const publicArchiveId = resolvePublicArchiveId();
   const archiveOptions = { archiveId: publicArchiveId };
@@ -155,7 +164,7 @@ export default async function HomePage() {
   );
 }
 
-function PublicDemoLanding() {
+function PublicDemoLanding({ turnstile }: { turnstile: PublicDemoTurnstileConfiguration }) {
   return (
     <PublicShell active="/" tagline="A fictional family. A real research workflow.">
       <div className="page-wrap public-demo-landing" data-public-demo-landing>
@@ -192,7 +201,10 @@ function PublicDemoLanding() {
                 Compare two signatures, record a bounded outcome, and reveal the next assignment in
                 {` ${publicDemoGuidedCaseTitle}`}.
               </p>
-              <DemoStartForm />
+              <DemoStartForm
+                turnstileMode={turnstile.mode}
+                turnstileSiteKey={turnstile.mode === "off" ? undefined : turnstile.siteKey}
+              />
             </article>
 
             <article className="public-demo-path">

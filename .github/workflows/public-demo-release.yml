@@ -324,8 +324,7 @@ jobs:
             AI_CHAT_MODEL: "openai/gpt-5-mini",
             APP_BASE_URL: "https://demo.kinresolve.com",
             DATABASE_AUTO_MIGRATE: "false",
-            KINSLEUTH_ARCHIVE_ID: "kinresolve-demo-public",
-            KINSLEUTH_ALLOW_SIGNUPS: "false",
+            DATABASE_POOL_MAX: "10",
             KINRESOLVE_API_V1_ENABLED: "false",
             KINRESOLVE_DATASET_MODE: "demo",
             KINRESOLVE_DEPLOYMENT_MODE: "hosted",
@@ -344,7 +343,45 @@ jobs:
           for (const [name, expected] of Object.entries(exact)) {
             if (process.env[name] !== expected) process.exit(1);
           }
+          // Rename compatibility window: accept the canonical KINRESOLVE_* name or the
+          // legacy KINSLEUTH_* name, and fail closed on a mismatched duplicate pair.
+          const aliased = [
+            ["KINRESOLVE_ARCHIVE_ID", "KINSLEUTH_ARCHIVE_ID", "kinresolve-demo-public"],
+            ["KINRESOLVE_ALLOW_SIGNUPS", "KINSLEUTH_ALLOW_SIGNUPS", "false"]
+          ];
+          for (const [canonical, legacy, expected] of aliased) {
+            const canonicalValue = process.env[canonical];
+            const legacyValue = process.env[legacy];
+            if (canonicalValue !== undefined && legacyValue !== undefined
+              && canonicalValue !== legacyValue) process.exit(1);
+            if ((canonicalValue ?? legacyValue) !== expected) process.exit(1);
+          }
           if (process.env.KINRESOLVE_DATABASE_IDENTITY !== process.env.EXPECTED_DATABASE_IDENTITY) {
+            process.exit(1);
+          }
+          // NEXT_PUBLIC_SENTRY_DSN is the one optional readable setting: when
+          // present it must be a well-formed Sentry SaaS ingest DSN, because
+          // the build derives its CSP connect-src origin from it.
+          const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+          if (sentryDsn !== undefined
+            && !/^https:\/\/[a-f0-9]+@o[0-9]+\.ingest(?:\.[a-z]{2})?\.sentry\.io\/[0-9]+$/.test(sentryDsn)) {
+            process.exit(1);
+          }
+          // Demo Turnstile ladder: the optional mode must be a known rung,
+          // and any enabled rung must carry a well-formed public widget key.
+          // The siteverify secret is a Sensitive setting and is never read
+          // here; the environment-contract step above already fails the
+          // release when an enabled rung lacks it (mode-implies-secret),
+          // because it feeds the pulled mode into the metadata contract.
+          const turnstileMode = process.env.KINRESOLVE_DEMO_TURNSTILE_MODE;
+          if (turnstileMode !== undefined && !/^(?:off|shadow|required)$/.test(turnstileMode)) {
+            process.exit(1);
+          }
+          const turnstileSiteKey = process.env.NEXT_PUBLIC_KINRESOLVE_DEMO_TURNSTILE_SITE_KEY;
+          if (turnstileSiteKey !== undefined && !/^[0-9A-Za-z_-]{1,128}$/.test(turnstileSiteKey)) {
+            process.exit(1);
+          }
+          if ((turnstileMode === "shadow" || turnstileMode === "required") && turnstileSiteKey === undefined) {
             process.exit(1);
           }
           NODE
@@ -474,6 +511,12 @@ jobs:
       - name: Build the immutable public demo artifact
         env:
           KINRESOLVE_BUILD_COMMIT_SHA: ${{ inputs.release_commit }}
+          # Optional workflow-only Sentry source-map upload credentials: when
+          # unset, the build skips Sentry wiring entirely. Uploaded source
+          # maps are deleted from the output before deployment.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

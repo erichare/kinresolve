@@ -3,6 +3,7 @@ import { CtaStrip } from "@/components/cta-strip";
 import { PageHero } from "@/components/page-hero";
 import { marketingAnalyticsMode } from "@/lib/analytics";
 import { betaApplicationMode } from "@/lib/beta-application-mode";
+import { demoLive } from "@/lib/demo-status";
 import { betaStatus } from "@/lib/beta-status";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
@@ -176,6 +177,9 @@ export default function PrivacyPage() {
         <p>{marketingAnalyticsMode === "plausible"
           ? "This release loads Plausible Analytics to count page views, a few fixed events, and outbound-link clicks in aggregate. Outbound-link clicks record the destination address of the public link clicked—no personal data. Plausible is cookieless and EU-hosted, sets no browser identifier, and performs no cross-site tracking. The analytics script loads only when the marketing analytics mode is explicitly enabled for a release."
           : "The marketing analytics mode is off, so this release serves no analytics script at all. When a release enables it, the site loads Plausible Analytics—a cookieless, EU-hosted service with no cross-site tracking—to count page views, a few fixed events, and outbound-link clicks in aggregate. Outbound-link clicks record the destination address of the public link clicked—no personal data."}</p>
+        {demoLive && (
+          <p>The home and product pages also fetch one aggregate solved-mystery count from the public demo at demo.kinresolve.com; that request sends no identifiers or personal data, though the demo origin—like any web server it contacts—sees the requesting IP address.</p>
+        )}
       </section>
 
       <section className="shell section practice-note">

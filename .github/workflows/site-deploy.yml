@@ -45,6 +45,7 @@ jobs:
       KINRESOLVE_MARKETING_BETA_APPLICATION_MODE: ${{ inputs.beta_application_mode }}
       KINRESOLVE_MARKETING_DEMO_MODE: ${{ inputs.demo_mode }}
       KINRESOLVE_MARKETING_RELEASE_MODE: prelaunch
+      KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY: ${{ vars.KINRESOLVE_MARKETING_TURNSTILE_SITE_KEY }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

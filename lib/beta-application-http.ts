@@ -16,10 +16,35 @@ import {
   type ConsumeDurableAuthRateLimitInput,
   type DurableAuthRateLimitResult
 } from "./durable-auth-rate-limit";
+import { captureOperationalError } from "./observability";
+import {
+  verifyTurnstileToken,
+  type TurnstileVerdict,
+  type TurnstileVerifyInput,
+  type TurnstileVerifyOptions
+} from "./turnstile-verify";
 
 export const betaApplicationMaximumBodyBytes = 16 * 1024;
 
-const allowedFields = new Set([
+export const betaApplicationTurnstileField = "cf-turnstile-response";
+export const betaApplicationTurnstileAction = "beta-application";
+export const betaApplicationTurnstileHostname = "kinresolve.com";
+
+// The Turnstile token stays optional so the no-JS cross-origin form POST keeps
+// working. A verified token earns the standard lanes; an absent, rejected, or
+// unverifiable token falls back to the strict lanes instead of a rejection.
+export const betaApplicationRateLanes = {
+  standard: {
+    email: { maximumRequests: 5, windowSeconds: 24 * 60 * 60 },
+    network: { maximumRequests: 20, windowSeconds: 60 * 60 }
+  },
+  strict: {
+    email: { maximumRequests: 2, windowSeconds: 24 * 60 * 60 },
+    network: { maximumRequests: 3, windowSeconds: 60 * 60 }
+  }
+} as const;
+
+const requiredFields = new Set([
   "archive_size_band",
   "consent",
   "consent_version",
@@ -31,17 +56,27 @@ const allowedFields = new Set([
   "workflow"
 ]);
 
+const allowedFields = new Set([...requiredFields, betaApplicationTurnstileField]);
+
 type Consume = (input: ConsumeDurableAuthRateLimitInput) => Promise<DurableAuthRateLimitResult>;
 type Submit = (
   application: NormalizedBetaApplication,
   options: BetaApplicationServiceOptions
 ) => Promise<Readonly<{ applicationId: string; duplicate: boolean }>>;
 
+type VerifyTurnstile = (
+  input: TurnstileVerifyInput,
+  options?: TurnstileVerifyOptions
+) => Promise<TurnstileVerdict>;
+type CaptureError = typeof captureOperationalError;
+
 export type BetaApplicationHttpDependencies = Readonly<{
+  captureError?: CaptureError;
   consume?: Consume;
   environment?: BetaApplicationEnvironment;
   serviceOptions?: Omit<BetaApplicationServiceOptions, "environment">;
   submit?: Submit;
+  verifyTurnstile?: VerifyTurnstile;
 }>;
 
 export class BetaApplicationRequestError extends Error {
@@ -101,22 +136,28 @@ export async function handleBetaApplicationPost(
     return safeResponse(400);
   }
 
+  const lane = await resolveBetaApplicationRateLane(
+    parameters.get(betaApplicationTurnstileField),
+    environment,
+    dependencies
+  );
+
   const consume = dependencies.consume ?? ((input) => consumeDurableAuthRateLimit(input));
   try {
     const network = await consume({
       hmacSecret: configuration.hmacSecret,
-      maximumRequests: 20,
+      maximumRequests: lane.network.maximumRequests,
       scope: "beta-application:network",
       subject: clientAddressRateLimitSubject(request, environment),
-      windowSeconds: 60 * 60
+      windowSeconds: lane.network.windowSeconds
     });
     if (!network.allowed) return rateLimitedResponse(network.retryAfterSeconds);
     const email = await consume({
       hmacSecret: configuration.hmacSecret,
-      maximumRequests: 5,
+      maximumRequests: lane.email.maximumRequests,
       scope: "beta-application:email",
       subject: `email:${application.email}`,
-      windowSeconds: 24 * 60 * 60
+      windowSeconds: lane.email.windowSeconds
     });
     if (!email.allowed) return rateLimitedResponse(email.retryAfterSeconds);
   } catch {
@@ -133,6 +174,39 @@ export async function handleBetaApplicationPost(
   } catch {
     return safeResponse(503);
   }
+}
+
+async function resolveBetaApplicationRateLane(
+  token: string | null,
+  environment: BetaApplicationEnvironment,
+  dependencies: BetaApplicationHttpDependencies
+): Promise<(typeof betaApplicationRateLanes)[keyof typeof betaApplicationRateLanes]> {
+  if (token === null || token === "") return betaApplicationRateLanes.strict;
+  const secretKey = environment.KINRESOLVE_TURNSTILE_SECRET_KEY?.trim() ?? "";
+  const verify = dependencies.verifyTurnstile ?? verifyTurnstileToken;
+  const verdict = await verify({
+    expectedAction: betaApplicationTurnstileAction,
+    expectedHostname: betaApplicationTurnstileHostname,
+    secretKey,
+    token
+  });
+  if (verdict.outcome === "verified") return betaApplicationRateLanes.standard;
+  if (verdict.outcome === "unavailable") {
+    // A siteverify outage must not reject applicants; record it as an
+    // operational error and keep the submission on the strict lane.
+    const capture = dependencies.captureError ?? captureOperationalError;
+    try {
+      await capture({
+        event: "api_error",
+        route: "/api/public/beta-applications",
+        severity: "warning",
+        statusClass: "2xx"
+      }, verdict.error);
+    } catch {
+      // Best-effort capture: the applicant outcome never depends on it.
+    }
+  }
+  return betaApplicationRateLanes.strict;
 }
 
 export async function readBetaApplicationForm(request: Request): Promise<URLSearchParams> {
@@ -195,7 +269,11 @@ export async function readBetaApplicationForm(request: Request): Promise<URLSear
     if (!allowedFields.has(key) || seen.has(key)) throw new BetaApplicationRequestError(400);
     seen.add(key);
   }
-  if (seen.size !== allowedFields.size) throw new BetaApplicationRequestError(400);
+  // Every fixed form field must be present exactly once; the Turnstile token
+  // stays optional so a no-JS submission remains valid.
+  for (const field of requiredFields) {
+    if (!seen.has(field)) throw new BetaApplicationRequestError(400);
+  }
   return parameters;
 }
 

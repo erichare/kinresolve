@@ -6,6 +6,10 @@ import { resolvePublicDemoConfiguration } from "@/lib/public-demo-config";
 import { isAuthorizedPublicDemoCanary } from "@/lib/public-demo-canary";
 import { publicDemoNoticeVersion } from "@/lib/public-demo-contract";
 import {
+  admitPublicDemoTurnstile,
+  resolvePublicDemoTurnstileConfiguration
+} from "@/lib/public-demo-turnstile";
+import {
   publicDemoSessionCookieName,
   publicDemoSessionCookieOptions,
   readPublicDemoSessionToken
@@ -19,7 +23,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const startSchema = z.object({
-  noticeVersion: z.literal(publicDemoNoticeVersion)
+  noticeVersion: z.literal(publicDemoNoticeVersion),
+  turnstileToken: z.string().min(1).max(2_048).optional()
 }).strict();
 
 export async function POST(request: Request) {
@@ -30,11 +35,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "The current public demo notice must be accepted." }, { status: 400 });
     }
 
+    // Turnstile ladder (off | shadow | required): authorized canaries and
+    // load tests bypass the challenge, shadow only verifies and logs, and
+    // required rejects unverified human starts with the same stateless
+    // family/challenge fallbacks as the capacity path.
+    const isCanary = isAuthorizedPublicDemoCanary(request.headers);
+    const turnstile = await admitPublicDemoTurnstile({
+      configuration: resolvePublicDemoTurnstileConfiguration(),
+      isCanary,
+      token: parsed.data.turnstileToken
+    });
+    if (turnstile.outcome === "rejected") {
+      return NextResponse.json({
+        error: "The demo start challenge could not be verified. Explore the read-only family archive or the research challenge instead.",
+        familyUrl: "/family",
+        challengeUrl: "/challenge"
+      }, {
+        status: 403,
+        headers: { "cache-control": "private, no-store" }
+      });
+    }
+
     const result = await startPublicDemoSession({
       rawToken: readPublicDemoSessionToken(request.headers) ?? undefined,
       noticeVersion: parsed.data.noticeVersion,
       networkSubjectDigest: derivePublicDemoNetworkDigest(clientAddressRateLimitSubject(request)),
-      isCanary: isAuthorizedPublicDemoCanary(request.headers)
+      isCanary
     });
     if (result.kind === "rate-limited") {
       return NextResponse.json({

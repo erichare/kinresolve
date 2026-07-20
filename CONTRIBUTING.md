@@ -15,6 +15,11 @@ npm run dev
 The product app uses Node 22 and the marketing site in `site/` uses Node 24; each
 directory has an `.nvmrc`. The two versions are planned to converge after launch.
 
+If you have an existing local Compose stack from before the `kinsleuth` →
+`kinresolve` rename (local Postgres user/database and default MinIO bucket), run
+`docker compose down -v` once — the old volumes were initialized with the old
+credentials and the renamed services cannot reuse them. This deletes local data.
+
 Before opening a pull request, make sure the checks pass:
 
 ```bash

@@ -97,7 +97,7 @@ lives in this document, and the approved demo-live message set lives in
 
 The rename is a display and repository change, not permission to break stored data or deployments. Preserve these identifiers until an explicit migration provides dual-read compatibility:
 
-- The legacy `/kinsleuth` route, with a redirect if a new canonical product route is added
+- The legacy `/kinsleuth` route, now a permanent redirect to the canonical `/kinresolve` product route
 - Snapshot keys and the existing `product: "KinSleuth"` discriminator
 - GEDCOM `SOUR KINSLEUTH` parsing and `_KS_*` custom tags
 - Existing `KINSLEUTH_*` environment-variable aliases

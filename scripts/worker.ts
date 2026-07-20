@@ -14,7 +14,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-try {
+async function main(): Promise<void> {
   const configuration = integrationWorkerConfiguration();
   const runMaintenanceIfDue = createIntegrationWorkerMaintenanceScheduler(configuration);
   console.log(`Kin Resolve integration worker ${configuration.workerId} started.`);
@@ -52,7 +52,9 @@ try {
   }
 
   console.log("Kin Resolve integration worker stopped.");
-} catch (error) {
+}
+
+main().catch((error: unknown) => {
   // The worker log may be private operational output, but avoid serializing
   // job payloads or imported genealogy data here regardless.
   console.error("Kin Resolve integration worker stopped after an operational failure.");
@@ -60,4 +62,4 @@ try {
     console.error(error instanceof Error ? error.name : "UnknownError");
   }
   process.exitCode = 1;
-}
+});

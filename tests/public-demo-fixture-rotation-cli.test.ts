@@ -24,6 +24,22 @@ describe("public demo fixture rotation command", () => {
     });
   });
 
+  it("accepts the canonical KINRESOLVE_ARCHIVE_ID name and rejects a mismatched pair", () => {
+    const { KINSLEUTH_ARCHIVE_ID: _legacy, ...withoutLegacy } = validEnvironment;
+    expect(
+      resolvePublicDemoFixtureRotationRequest(["--from-version", "4"], {
+        ...withoutLegacy,
+        KINRESOLVE_ARCHIVE_ID: "kinresolve-demo-public"
+      })
+    ).toMatchObject({ archiveId: "kinresolve-demo-public" });
+    expect(() =>
+      resolvePublicDemoFixtureRotationRequest(["--from-version", "4"], {
+        ...validEnvironment,
+        KINRESOLVE_ARCHIVE_ID: "demo-other"
+      })
+    ).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
+  });
+
   it.each([
     [{ ...validEnvironment, KINSLEUTH_ARCHIVE_ID: "demo-other" }, /canonical public demo archive/i],
     [{ ...validEnvironment, KINRESOLVE_DATASET_MODE: "pilot" }, /hosted demo dataset/i],
