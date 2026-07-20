@@ -235,6 +235,13 @@ npm run storage:identity:provision # Write and fingerprint the private storage s
 npm run build         # Production build
 ```
 
+Node versions are split for now: the product app targets Node 22 (pinned in
+`.nvmrc`) while the marketing site in `site/` targets Node 24 (`site/.nvmrc`).
+A root `engines` field is deliberately omitted until the runtimes converge:
+Vercel builds read `engines.node` ahead of the project setting, so pinning it
+is a deployment change, not a documentation change. Converging on a single
+version is planned after launch.
+
 Schema changes live as ordered SQL files in `db/migrations/` (`NNN_name.sql`). Applied versions are tracked in the `schema_migrations` table, each file runs in its own transaction, and concurrent runners serialize on an advisory lock. In development the app applies pending migrations at boot (`DATABASE_AUTO_MIGRATE`). The hosted workflow instead deploys an unaliased candidate first, proves that its runtime catalog fingerprint matches the dedicated `MIGRATION_DATABASE_URL`, refuses transaction-pooler port `6543`, preflights the exact approved ledger prefix before DDL, and proves the exact version ledger after applying the immutable checked-in SQL and release policy.
 
 Set `TEST_DATABASE_URL` to a **disposable** Postgres database before running either DB
