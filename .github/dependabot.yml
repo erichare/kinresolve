@@ -24,6 +24,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
+  # Action bumps move SHA pins that contract tests in tests/ assert verbatim;
+  # each such PR needs the pinned strings updated in the same change (they fail
+  # closed until then). Centralized pin constants make that a one-file edit.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
