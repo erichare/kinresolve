@@ -12,6 +12,11 @@ import {
 import path from "node:path";
 
 import { closeDatabasePools } from "../lib/db.ts";
+import {
+  archiveIdEnvironmentAlias,
+  describeEnvironmentAliasPair,
+  readArchiveIdSetting
+} from "../lib/environment-aliases.ts";
 import { loadReleaseContractFiles } from "../lib/release-contract.ts";
 import {
   appendProductionApiCanaryProbeEvidence,
@@ -65,7 +70,7 @@ try {
         apiEnvironment,
         "KINRESOLVE_DATABASE_IDENTITY"
       ),
-      expectedArchiveId: requiredEnvironmentValue(apiEnvironment, "KINSLEUTH_ARCHIVE_ID"),
+      expectedArchiveId: requiredArchiveIdValue(apiEnvironment),
       expectedOwnerUserId: required("KINRESOLVE_API_CANARY_OWNER_USER_ID"),
       apiEnvironment
     });
@@ -190,7 +195,7 @@ async function revoke(metadata, context, apiEnvironment) {
       apiEnvironment,
       "KINRESOLVE_DATABASE_IDENTITY"
     ),
-    expectedArchiveId: requiredEnvironmentValue(apiEnvironment, "KINSLEUTH_ARCHIVE_ID"),
+    expectedArchiveId: requiredArchiveIdValue(apiEnvironment),
     expectedOwnerUserId: required("KINRESOLVE_API_CANARY_OWNER_USER_ID"),
     apiEnvironment,
     requestId: randomUUID()
@@ -205,7 +210,7 @@ async function cleanupByContext(context, apiEnvironment) {
       apiEnvironment,
       "KINRESOLVE_DATABASE_IDENTITY"
     ),
-    expectedArchiveId: requiredEnvironmentValue(apiEnvironment, "KINSLEUTH_ARCHIVE_ID"),
+    expectedArchiveId: requiredArchiveIdValue(apiEnvironment),
     expectedOwnerUserId: required("KINRESOLVE_API_CANARY_OWNER_USER_ID"),
     apiEnvironment,
     requestId: randomUUID()
@@ -337,5 +342,16 @@ function required(name) {
 function requiredEnvironmentValue(environment, name) {
   const value = environment[name]?.trim();
   if (!value) throw new Error(`The pulled production environment is missing ${name}.`);
+  return value;
+}
+
+function requiredArchiveIdValue(environment) {
+  const value = readArchiveIdSetting(environment)?.trim();
+  if (!value) {
+    throw new Error(
+      "The pulled production environment is missing "
+      + `${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)}.`
+    );
+  }
   return value;
 }

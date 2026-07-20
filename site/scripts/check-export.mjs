@@ -99,7 +99,9 @@ for (const file of htmlFiles) {
     if (!/\bdefer(?:=""|\b)/.test(scriptTag)) {
       problems.push(`${file}: Plausible script must load with defer.`);
     }
-  } else if (html.includes("plausible.io")) {
+  } else if (/plausible\.io/i.test(html)) {
+    // Deny-scan, not URL validation: ANY appearance of the analytics host in an
+    // analytics-off export is a failure, so broad substring breadth is the point.
     problems.push(`${file}: contains a plausible.io reference while analytics mode is off.`);
   }
 }
@@ -616,7 +618,12 @@ if (marketingReleaseMode === "prelaunch") {
     }
   }
 }
-const pricingVisibleMarkup = pricing.replace(/<script[\s\S]*?<\/script>/g, "");
+let pricingVisibleMarkup = pricing;
+let previousPricingVisibleMarkup;
+do {
+  previousPricingVisibleMarkup = pricingVisibleMarkup;
+  pricingVisibleMarkup = pricingVisibleMarkup.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+} while (pricingVisibleMarkup !== previousPricingVisibleMarkup);
 if (/[$€£]\s?\d/.test(pricingVisibleMarkup) || /\d+\s?(?:\/|per\s+)(?:month|mo\b|year|yr\b|user|seat)/i.test(pricingVisibleMarkup)) {
   problems.push("Pricing page must not contain a price before hosted pricing is announced.");
 }

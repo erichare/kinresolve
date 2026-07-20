@@ -16,6 +16,17 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: "64mb"
   },
+  async redirects() {
+    return [
+      // Legacy KinSleuth product route; the proxy matcher intentionally skips
+      // /kinsleuth so this permanent redirect answers before any auth gate.
+      {
+        source: "/kinsleuth/:path*",
+        destination: "/kinresolve/:path*",
+        permanent: true
+      }
+    ];
+  },
   async headers() {
     return [
       {

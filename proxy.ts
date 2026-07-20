@@ -199,7 +199,7 @@ export const config = {
     "/people/:path*",
     "/places/:path*",
     "/stories/:path*",
-    "/kinsleuth/:path*",
+    "/kinresolve/:path*",
     "/app/:path*",
     "/api/:path*"
   ]

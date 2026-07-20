@@ -78,7 +78,7 @@ Self-hosted deployments preserve first-run `/setup`, optional unverified sign-in
 
 Production release validation requires:
 
-- hosted deployment mode and `KINSLEUTH_ALLOW_SIGNUPS=false`;
+- hosted deployment mode and `KINRESOLVE_ALLOW_SIGNUPS=false` (legacy `KINSLEUTH_ALLOW_SIGNUPS` accepted during the rename compatibility window);
 - a separate `KINRESOLVE_BETA_PRIVACY_HMAC_SECRET`;
 - the operator audience, key ID, and Ed25519 public key;
 - the approved legal status plus exact version, URL, and digest for all three documents;

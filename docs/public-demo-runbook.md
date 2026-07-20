@@ -72,6 +72,13 @@ must differ from the marketing/private-beta exclusions. The protected runtime UR
 the same bounded `krdemo_runtime` connection configured as Vercel's Sensitive
 `DATABASE_URL`; rotate and update both copies together.
 
+Rename compatibility window: the demo Vercel cell's readable `KINRESOLVE_ARCHIVE_ID`
+and `KINRESOLVE_ALLOW_SIGNUPS` settings replace the legacy `KINSLEUTH_ARCHIVE_ID` and
+`KINSLEUTH_ALLOW_SIGNUPS` names. The release validation accepts either name (or both
+with identical values) and fails closed on a mismatched pair. Add the `KINRESOLVE_*`
+names with the same values to the production, beta-staging, and public-demo Vercel
+cells before the post-launch strict flip deletes the legacy names.
+
 ### `demo-containment`
 
 This is automatic safety infrastructure: no required reviewer and no wait timer. Configure

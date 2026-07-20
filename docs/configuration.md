@@ -20,7 +20,7 @@ This is the full environment-variable reference for Kin Resolve. It moved here f
 | `KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED` | Hosted cohort one: `false`; permits transcript-only sources while rejecting binary source/evidence uploads |
 | `KINRESOLVE_PACKAGE_MEDIA_ENABLED` | Hosted cohort one: `false`; disables ZIP/package media retention |
 | `KINRESOLVE_PLAIN_GEDCOM_ENABLED` | Hosted cohort one: `true`; admits only `.ged`/`.gedcom` files subject to the fixed 10 MiB and 40,000-person limits |
-| `KINSLEUTH_ALLOW_SIGNUPS` | Hosted releases require exactly `false`; self-hosted first-run signup remains available when no account exists |
+| `KINRESOLVE_ALLOW_SIGNUPS` | Hosted releases require exactly `false`; self-hosted first-run signup remains available when no account exists. Legacy `KINSLEUTH_ALLOW_SIGNUPS` is still accepted during the rename compatibility window; if both names are set they must hold the same value or the app fails closed |
 | `KINRESOLVE_GUIDED_RESEARCH_ENABLED` | Server-side kill switch for the private case guide and its mutation APIs; defaults to `true`, set `false` to disable without deleting research history |
 | `KINRESOLVE_EXPORT_REFRESH_ENABLED` | Data-source tree import/refresh gate; defaults to `true` |
 | `KINRESOLVE_DESKTOP_MEDIA_ENABLED` | Requests the private FTM/RootsMagic media path; defaults to `false` and is ineffective without the legal-review gate and per-package rights acknowledgement |
@@ -43,7 +43,7 @@ This is the full environment-variable reference for Kin Resolve. It moved here f
 | `KINRESOLVE_BETA_LEGAL_STATUS` / `KINRESOLVE_BETA_*_{VERSION,SHA256,URL}` | Exact approved participation-terms, privacy-notice, and cohort-boundary metadata; URLs must be versioned paths on `https://kinresolve.com` and their bytes are verified during release, viewing, and acceptance |
 | `KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER` / `KINRESOLVE_TRANSACTIONAL_EMAIL_FROM` / `KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO` | Hosted release requires Resend with the approved `beta@kinresolve.com` sender and reply-to contract |
 | `RESEND_API_KEY` | Sensitive server-only Resend credential for invitations, verification, recovery, and security notifications |
-| `KINSLEUTH_ARCHIVE_ID` | Archive id; set explicitly before `npm run archive:provision` (the runtime fallback remains `archive-default` for legacy self-hosted installs) |
+| `KINRESOLVE_ARCHIVE_ID` | Archive id; set explicitly before `npm run archive:provision` (the runtime fallback remains `archive-default` for legacy self-hosted installs). Legacy `KINSLEUTH_ARCHIVE_ID` is still accepted during the rename compatibility window; if both names are set they must hold the same value or the app fails closed |
 | `KINRESOLVE_OBJECT_STORAGE_BACKEND` | Private data-source artifact backend (`s3` or `vercel-blob`); archive namespace enforcement is fixed by the storage contract |
 | `BLOB_READ_WRITE_TOKEN` | Server-only credential for Vercel Blob artifact storage and archive-namespaced legacy large-GEDCOM staging |
 | `S3_ENDPOINT` | Server/worker endpoint for S3-compatible private artifact reads and writes |

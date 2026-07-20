@@ -12,6 +12,7 @@ import {
   resolveIdentityBrowserCanaryConfiguration,
   type DisposableIdentityCounts
 } from "@/scripts/identity-browser-canary-contract";
+import { pinnedAction } from "./helpers/action-pins";
 
 const releaseSha = "a".repeat(40);
 const baseEnvironment = {
@@ -74,6 +75,27 @@ describe("disposable identity browser canary configuration", () => {
       runId: "run-0123456789abcdef",
       timeoutMs: 45_000
     });
+  });
+
+  it("accepts the canonical KINRESOLVE_* names and rejects mismatched pairs", () => {
+    const {
+      KINSLEUTH_ALLOW_SIGNUPS: _legacySignups,
+      KINSLEUTH_ARCHIVE_ID: _legacyArchive,
+      ...withoutLegacy
+    } = baseEnvironment;
+    expect(resolveIdentityBrowserCanaryConfiguration({
+      ...withoutLegacy,
+      KINRESOLVE_ALLOW_SIGNUPS: "false",
+      KINRESOLVE_ARCHIVE_ID: "archive-identity-canary"
+    })).toMatchObject({ archiveId: "archive-identity-canary" });
+    expect(() => resolveIdentityBrowserCanaryConfiguration({
+      ...baseEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
+    expect(() => resolveIdentityBrowserCanaryConfiguration({
+      ...baseEnvironment,
+      KINRESOLVE_ALLOW_SIGNUPS: "true"
+    })).toThrow(/KINRESOLVE_ALLOW_SIGNUPS and KINSLEUTH_ALLOW_SIGNUPS are both set but hold different values/);
   });
 
   it.each([
@@ -201,8 +223,8 @@ describe("identity canary artifact boundary", () => {
     expect(job).toContain("--tmpfs /var/lib/postgresql/data");
     expect(job).toContain("docker rm --force kinresolve-identity-canary-postgres");
     expect(job).toContain("if: ${{ always() }}");
-    expect(job).toContain("actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5");
-    expect(job).toContain("actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020");
+    expect(job).toContain(pinnedAction("checkout"));
+    expect(job).toContain(pinnedAction("setupNode"));
     expect(job).not.toMatch(/RESEND_API_KEY|OPENAI_API_KEY|VERCEL_AUTOMATION_BYPASS_SECRET/);
     expect(job).not.toMatch(/upload-artifact|screenshot|\.tracing\.|trace:\s|video:\s/);
     expect(job.indexOf("Start the disposable identity database")).toBeLessThan(job.indexOf("npm run build"));

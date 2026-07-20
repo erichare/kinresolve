@@ -9,6 +9,7 @@ import { createDemoAiRuns } from "./demo-ai-runs";
 import { createDemoSources } from "./demo-sources";
 import { demoPurgeProductTables } from "./demo-purge";
 import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
+import { readArchiveIdSetting } from "./environment-aliases";
 import { demoCases, demoDnaMatches, demoPeople } from "./demo-data";
 import { prepareGedcomImport, type PreparedGedcomImport } from "./gedcom/apply";
 import { buildFamilyRelationshipMap, parseGedcom } from "./gedcom/parser";
@@ -152,7 +153,7 @@ const retainedBackupCount = 10;
 const retainedAiRunCount = 25;
 
 export function getArchiveId(options: WorkspaceStoreOptions = {}): string {
-  return options.archiveId ?? process.env.KINSLEUTH_ARCHIVE_ID ?? defaultArchiveId;
+  return options.archiveId ?? readArchiveIdSetting() ?? defaultArchiveId;
 }
 
 export function createDemoWorkspace(now = new Date()): WorkspaceData {

@@ -43,7 +43,7 @@ jobs:
       rollback_deployment_id: ${{ steps.request.outputs.rollback_deployment_id }}
     steps:
       - name: Check out the exact requested revision without credentials
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_commit }}
           fetch-depth: 0
@@ -112,14 +112,14 @@ jobs:
     environment: demo-production
     steps:
       - name: Check out the exact authorized release revision
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up the pinned Node.js runtime
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -325,8 +325,6 @@ jobs:
             APP_BASE_URL: "https://demo.kinresolve.com",
             DATABASE_AUTO_MIGRATE: "false",
             DATABASE_POOL_MAX: "10",
-            KINSLEUTH_ARCHIVE_ID: "kinresolve-demo-public",
-            KINSLEUTH_ALLOW_SIGNUPS: "false",
             KINRESOLVE_API_V1_ENABLED: "false",
             KINRESOLVE_DATASET_MODE: "demo",
             KINRESOLVE_DEPLOYMENT_MODE: "hosted",
@@ -344,6 +342,19 @@ jobs:
           };
           for (const [name, expected] of Object.entries(exact)) {
             if (process.env[name] !== expected) process.exit(1);
+          }
+          // Rename compatibility window: accept the canonical KINRESOLVE_* name or the
+          // legacy KINSLEUTH_* name, and fail closed on a mismatched duplicate pair.
+          const aliased = [
+            ["KINRESOLVE_ARCHIVE_ID", "KINSLEUTH_ARCHIVE_ID", "kinresolve-demo-public"],
+            ["KINRESOLVE_ALLOW_SIGNUPS", "KINSLEUTH_ALLOW_SIGNUPS", "false"]
+          ];
+          for (const [canonical, legacy, expected] of aliased) {
+            const canonicalValue = process.env[canonical];
+            const legacyValue = process.env[legacy];
+            if (canonicalValue !== undefined && legacyValue !== undefined
+              && canonicalValue !== legacyValue) process.exit(1);
+            if ((canonicalValue ?? legacyValue) !== expected) process.exit(1);
           }
           if (process.env.KINRESOLVE_DATABASE_IDENTITY !== process.env.EXPECTED_DATABASE_IDENTITY) {
             process.exit(1);
@@ -979,14 +990,14 @@ jobs:
     environment: demo-containment
     steps:
       - name: Check out the exact authorized containment revision
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up the pinned Node.js runtime
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm

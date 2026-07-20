@@ -1,3 +1,5 @@
+import { readArchiveIdSetting } from "./environment-aliases";
+
 type Environment = Record<string, string | undefined>;
 
 export const browserCanaryMutationAcknowledgement =
@@ -45,11 +47,15 @@ export function resolveInsecureLoopbackProductionCanaryProfile(
   );
   if (!databaseUrl) return null;
 
+  // A canonical/legacy archive-id mismatch fails closed here by never
+  // enabling the insecure loopback canary profile.
+  const runtimeArchiveId = safeArchiveIdSetting(environment);
+
   if (profile === "identity") {
     return environment.KINRESOLVE_IDENTITY_CANARY_MUTATION_ACKNOWLEDGEMENT
         === identityCanaryMutationAcknowledgement
       && environment.KINRESOLVE_IDENTITY_CANARY_ORIGIN === appOrigin
-      && environment.KINSLEUTH_ARCHIVE_ID === "archive-identity-canary"
+      && runtimeArchiveId === "archive-identity-canary"
       ? profile
       : null;
   }
@@ -60,7 +66,7 @@ export function resolveInsecureLoopbackProductionCanaryProfile(
     || environment.KINRESOLVE_CANARY_APP_BASE_URL !== appOrigin
     || environment.KINRESOLVE_CANARY_DATASET_MODE !== "demo"
     || environment.KINRESOLVE_CANARY_ARCHIVE_ID !== "archive-browser-canary"
-    || environment.KINSLEUTH_ARCHIVE_ID !== "archive-browser-canary"
+    || runtimeArchiveId !== "archive-browser-canary"
     || environment.KINRESOLVE_CANARY_OPERATOR_DATABASE_URL !== databaseUrl
     || environment.KINRESOLVE_DEPLOYMENT_MODE !== "self-hosted"
     || environment.KINRESOLVE_OBJECT_STORAGE_BACKEND !== "s3"
@@ -71,6 +77,14 @@ export function resolveInsecureLoopbackProductionCanaryProfile(
     && environment.S3_PUBLIC_ENDPOINT === storageEndpoint
     ? profile
     : null;
+}
+
+function safeArchiveIdSetting(environment: Environment): string | undefined {
+  try {
+    return readArchiveIdSetting(environment);
+  } catch {
+    return undefined;
+  }
 }
 
 function hasVercelRuntimeMarker(environment: Environment): boolean {

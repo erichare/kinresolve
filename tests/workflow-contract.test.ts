@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import packageJson from "../package.json";
 import { betaOperationsRuntimeGrantContract } from "../lib/runtime-database-grants";
+import { pinnedAction, pinnedActionWithComment } from "./helpers/action-pins";
 
 async function workflow(name: string): Promise<string> {
   return readFile(path.join(process.cwd(), ".github", "workflows", name), "utf8");
@@ -93,7 +94,7 @@ describe("product CI workflow contract", () => {
     const contents = await workflow("ci.yml");
     const staticJob = job(contents, "static", "database");
     const workflowLint = staticJob.indexOf("Lint workflow definitions");
-    const dependencyInstall = staticJob.indexOf("npm ci");
+    const dependencyInstall = staticJob.indexOf("uses: ./.github/actions/setup-node-npm");
 
     expect(workflowLint).toBeGreaterThan(0);
     expect(dependencyInstall).toBeGreaterThan(0);
@@ -226,10 +227,10 @@ describe("stable release workflow contract", () => {
     expect(contents).not.toContain("actions/checkout@v4");
     expect(contents).not.toContain("actions/setup-node@v4");
     expect(
-      contents.match(/actions\/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4/g)
+      contents.match(new RegExp(pinnedActionWithComment("checkout"), "g"))
     ).toHaveLength(7);
     expect(
-      contents.match(/actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4/g)
+      contents.match(new RegExp(pinnedActionWithComment("setupNode"), "g"))
     ).toHaveLength(7);
   });
 
@@ -373,10 +374,18 @@ describe("stable release workflow contract", () => {
     expect(staging).toContain("staging-browser-canary-baseline-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(staging).toContain("KINRESOLVE_CANARY_USER_ID: ${{ secrets.STAGING_BROWSER_CANARY_USER_ID }}");
     expect(staging).toContain("steps.staging-browser-promotion-marker.outputs.attempted == 'true'");
+    // The canary plumbing uses the canonical KINRESOLVE_ARCHIVE_ID name; the
+    // dual-read scripts still accept a legacy value from the pulled cell file.
+    expect(staging).toContain(
+      "KINRESOLVE_ARCHIVE_ID: ${{ steps.staging-release-contract.outputs.archive_id }}"
+    );
+    expect(staging).not.toContain("KINSLEUTH_ARCHIVE_ID:");
+    expect(finalizer).toContain("KINRESOLVE_ARCHIVE_ID: ${{ needs.staging.outputs.archive_id }}");
+    expect(finalizer).not.toContain("KINSLEUTH_ARCHIVE_ID:");
 
     expect(finalizer).toContain("timeout-minutes: 20");
     expect(finalizer).toContain("if: ${{ always() && needs.staging.result != 'skipped' }}");
-    expect(finalizer).toContain("actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093");
+    expect(finalizer).toContain(pinnedAction("downloadArtifact"));
     expect(finalizer).toContain("needs.staging.outputs.browser_baseline_prepared == 'true'");
     expect(finalizer).not.toContain("STAGING_BROWSER_CANARY_EMAIL");
     expect(finalizer).not.toContain("STAGING_BROWSER_CANARY_PASSWORD");
@@ -1407,12 +1416,16 @@ describe("marketing workflow release and intake modes", () => {
     for (const target of [ci, deploy, marketing]) {
       expect(target).toContain("fetch-depth: 0");
       expect(target).toContain("persist-credentials: false");
-      expect(target).toContain("Install launch-media validator dependencies");
       expect(target).toContain("Validate the committed synthetic launch media");
       expect(target).toContain("npm run launch:media:validate");
       expect(target).not.toMatch(
         /name: Validate the committed synthetic launch media[\s\S]{0,120}\n\s+if:/
       );
+    }
+    expect(ci).toContain("Set up Node.js and install launch-media validator dependencies");
+    expect(ci).toContain("uses: ./.github/actions/setup-node-npm");
+    for (const target of [deploy, marketing]) {
+      expect(target).toContain("Install launch-media validator dependencies");
     }
     expect(marketing.indexOf("npm run launch:media:validate")).toBeLessThan(
       marketing.indexOf("Prove both static intake exports before loading deploy credentials")

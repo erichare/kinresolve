@@ -413,6 +413,45 @@ describe("stable release contract", () => {
     );
   });
 
+  it("accepts the canonical KINRESOLVE_* names for the archive and signup settings", () => {
+    const renamed = validInput();
+    delete renamed.productionEnvironment.KINSLEUTH_ALLOW_SIGNUPS;
+    delete renamed.productionEnvironment.KINSLEUTH_ARCHIVE_ID;
+    renamed.productionEnvironment.KINRESOLVE_ALLOW_SIGNUPS = "false";
+    renamed.productionEnvironment.KINRESOLVE_ARCHIVE_ID = "pilot-household-01";
+    expect(validateReleaseContract(renamed)).toMatchObject({ archiveId: "pilot-household-01" });
+
+    const both = validInput({
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_ALLOW_SIGNUPS: "false",
+        KINRESOLVE_ARCHIVE_ID: "pilot-household-01"
+      }
+    });
+    expect(validateReleaseContract(both)).toMatchObject({ archiveId: "pilot-household-01" });
+
+    const renamedInvalid = validInput();
+    delete renamedInvalid.productionEnvironment.KINSLEUTH_ALLOW_SIGNUPS;
+    renamedInvalid.productionEnvironment.KINRESOLVE_ALLOW_SIGNUPS = "true";
+    expect(() => validateReleaseContract(renamedInvalid)).toThrow(/KINRESOLVE_ALLOW_SIGNUPS.*false/i);
+  });
+
+  it("fails closed on a mismatched canonical/legacy environment pair", () => {
+    expect(() => validateReleaseContract(validInput({
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_ARCHIVE_ID: "other-archive"
+      }
+    }))).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
+
+    expect(() => validateReleaseContract(validInput({
+      productionEnvironment: {
+        ...validInput().productionEnvironment,
+        KINRESOLVE_ALLOW_SIGNUPS: "true"
+      }
+    }))).toThrow(/KINRESOLVE_ALLOW_SIGNUPS and KINSLEUTH_ALLOW_SIGNUPS are both set but hold different values/);
+  });
+
   it("requires an HTTPS canonical origin", () => {
     expect(() =>
       validateReleaseContract(

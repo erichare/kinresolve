@@ -182,7 +182,10 @@ port `6543` with `sslmode=require`—the app upgrades known Supabase pooler conn
 `verify-full` with the bundled root CA), `DATABASE_POOL_MAX=2`,
 `DATABASE_AUTO_MIGRATE=false`, `APP_BASE_URL` set to the canonical HTTPS product origin,
 `KINRESOLVE_DEPLOYMENT_MODE=hosted`, an explicit `KINRESOLVE_DATASET_MODE`, an explicit
-`KINSLEUTH_ARCHIVE_ID`, `KINSLEUTH_ALLOW_SIGNUPS=false`, catalog-derived
+`KINRESOLVE_ARCHIVE_ID`, `KINRESOLVE_ALLOW_SIGNUPS=false` (the legacy
+`KINSLEUTH_ARCHIVE_ID`/`KINSLEUTH_ALLOW_SIGNUPS` names are still accepted during the
+rename compatibility window; a mismatched duplicate pair fails the release closed),
+catalog-derived
 `KINRESOLVE_DATABASE_IDENTITY`, sentinel-derived
 `KINRESOLVE_OBJECT_STORAGE_IDENTITY`,
 `KINRESOLVE_OBJECT_STORAGE_BACKEND=vercel-blob`, guided research and export refresh

@@ -8,6 +8,7 @@ import {
   resolveBrowserCanaryStateConfiguration,
   syntheticMutationAcknowledgement
 } from "@/scripts/browser-canary-contract";
+import { pinnedAction } from "./helpers/action-pins";
 
 const releaseSha = "a".repeat(40);
 const probeSecret = "p".repeat(43);
@@ -39,6 +40,25 @@ describe("browser canary configuration", () => {
       mutable: true,
       bootstrapOwner: false
     });
+  });
+
+  it("accepts the canonical KINRESOLVE_ARCHIVE_ID runtime binding during the rename window", () => {
+    const { KINSLEUTH_ARCHIVE_ID: _legacy, ...withoutLegacy } = baseMutableEnvironment;
+    expect(resolveBrowserCanaryConfiguration("staging", {
+      ...withoutLegacy,
+      KINRESOLVE_ARCHIVE_ID: "archive-browser-canary"
+    })).toMatchObject({ mode: "staging", mutable: true });
+    expect(resolveBrowserCanaryConfiguration("staging", {
+      ...baseMutableEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-browser-canary"
+    })).toMatchObject({ mode: "staging", mutable: true });
+  });
+
+  it("fails closed on a mismatched canonical/legacy runtime archive pair", () => {
+    expect(() => resolveBrowserCanaryConfiguration("staging", {
+      ...baseMutableEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
   });
 
   it("permits loopback owner bootstrap only in disposable mode", () => {
@@ -192,6 +212,18 @@ describe("browser canary state configuration", () => {
     });
   });
 
+  it("accepts the canonical KINRESOLVE_ARCHIVE_ID name and rejects a mismatched pair", () => {
+    const { KINSLEUTH_ARCHIVE_ID: _legacy, ...withoutLegacy } = stateEnvironment;
+    expect(resolveBrowserCanaryStateConfiguration("staging", {
+      ...withoutLegacy,
+      KINRESOLVE_ARCHIVE_ID: "archive-browser-canary"
+    })).toMatchObject({ archiveId: "archive-browser-canary" });
+    expect(() => resolveBrowserCanaryStateConfiguration("staging", {
+      ...stateEnvironment,
+      KINRESOLVE_ARCHIVE_ID: "archive-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
+  });
+
   it.each([
     ["production mode", "production", {}],
     ["pilot data", "staging", { KINRESOLVE_CANARY_DATASET_MODE: "pilot" }],
@@ -282,8 +314,8 @@ describe("browser canary source and artifact boundary", () => {
       ciSource.indexOf("\n  release-contract:")
     );
     expect(job).toContain("timeout-minutes: 30");
-    expect(job).toContain("actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5");
-    expect(job).toContain("actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020");
+    expect(job).toContain(pinnedAction("checkout"));
+    expect(job).toContain(pinnedAction("setupNode"));
     expect(job).toContain("git rev-parse HEAD");
     expect(job).toContain("npm run build");
     expect(job).toContain("npm run start -- --hostname 127.0.0.1 --port 3107");

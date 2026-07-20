@@ -6,10 +6,10 @@ services:
     environment:
       APP_BASE_URL: http://localhost:3000
       AUTH_SECRET: local-dev-secret-change-me
-      DATABASE_URL: postgres://kinsleuth:kinsleuth@postgres:5432/kinsleuth
+      DATABASE_URL: postgres://kinresolve:kinresolve@postgres:5432/kinresolve
       KINRESOLVE_DEPLOYMENT_MODE: self-hosted
       KINRESOLVE_DATASET_MODE: demo
-      KINSLEUTH_ARCHIVE_ID: archive-default
+      KINRESOLVE_ARCHIVE_ID: archive-default
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true"
       KINRESOLVE_DESKTOP_MEDIA_ENABLED: "false"
       KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "false"
@@ -18,7 +18,7 @@ services:
       KINRESOLVE_OBJECT_STORAGE_BACKEND: s3
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
-      S3_BUCKET: ${S3_BUCKET:-kinsleuth}
+      S3_BUCKET: ${S3_BUCKET:-kinresolve}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
@@ -38,13 +38,13 @@ services:
     build:
       context: .
       target: worker
-    command: npm run archive:provision -- --mode demo
+    command: sh -c "npm run db:migrate && npm run archive:provision -- --mode demo"
     restart: "no"
     environment:
-      DATABASE_URL: postgres://kinsleuth:kinsleuth@postgres:5432/kinsleuth
+      DATABASE_URL: postgres://kinresolve:kinresolve@postgres:5432/kinresolve
       KINRESOLVE_DEPLOYMENT_MODE: self-hosted
       KINRESOLVE_DATASET_MODE: demo
-      KINSLEUTH_ARCHIVE_ID: archive-default
+      KINRESOLVE_ARCHIVE_ID: archive-default
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,10 +56,10 @@ services:
     command: npm run worker
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://kinsleuth:kinsleuth@postgres:5432/kinsleuth
+      DATABASE_URL: postgres://kinresolve:kinresolve@postgres:5432/kinresolve
       KINRESOLVE_DEPLOYMENT_MODE: self-hosted
       KINRESOLVE_DATASET_MODE: demo
-      KINSLEUTH_ARCHIVE_ID: archive-default
+      KINRESOLVE_ARCHIVE_ID: archive-default
       KINRESOLVE_EXPORT_REFRESH_ENABLED: "true"
       KINRESOLVE_DESKTOP_MEDIA_ENABLED: "false"
       KINRESOLVE_MEDIA_LEGAL_REVIEW_APPROVED: "false"
@@ -78,7 +78,7 @@ services:
       KINRESOLVE_MALWARE_SCAN_TIMEOUT_MS: 30000
       KINRESOLVE_MALWARE_SCAN_MAX_BYTES: 25165824
       S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: ${S3_BUCKET:-kinsleuth}
+      S3_BUCKET: ${S3_BUCKET:-kinresolve}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
@@ -113,16 +113,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: kinsleuth
-      POSTGRES_USER: kinsleuth
-      POSTGRES_PASSWORD: kinsleuth
+      POSTGRES_DB: kinresolve
+      POSTGRES_USER: kinresolve
+      POSTGRES_PASSWORD: kinresolve
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kinsleuth -d kinsleuth"]
+      test: ["CMD-SHELL", "pg_isready -U kinresolve -d kinresolve"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -148,7 +147,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}
-      S3_BUCKET: ${S3_BUCKET:-kinsleuth}
+      S3_BUCKET: ${S3_BUCKET:-kinresolve}
     entrypoint: >
       /bin/sh -c '
       until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do sleep 1; done;

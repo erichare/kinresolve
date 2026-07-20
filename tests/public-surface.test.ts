@@ -15,7 +15,7 @@ const privateHostedEnvironment = {
 } as const;
 
 describe("public surface policy", () => {
-  it.each(["/", "/people", "/people/ada", "/places", "/stories", "/kinsleuth"])(
+  it.each(["/", "/people", "/people/ada", "/places", "/stories", "/kinresolve"])(
     "classifies %s as an archive surface",
     (pathname) => expect(isPublicArchivePath(pathname)).toBe(true)
   );
@@ -24,6 +24,11 @@ describe("public surface policy", () => {
     "does not overmatch %s",
     (pathname) => expect(isPublicArchivePath(pathname)).toBe(false)
   );
+
+  it("retires /kinsleuth from the public surface; the framework redirect answers it", () => {
+    expect(isPublicArchivePath("/kinsleuth")).toBe(false);
+    expect(isPublicArchivePath("/kinsleuth/anything")).toBe(false);
+  });
 
   it("fails closed when hosted capability configuration is disabled or invalid", () => {
     expect(publicArchiveEnabled(privateHostedEnvironment)).toBe(false);
@@ -48,5 +53,22 @@ describe("public surface policy", () => {
       KINSLEUTH_ARCHIVE_ID: "family-public"
     })).toBe("family-public");
     expect(resolvePublicArchiveId({ KINRESOLVE_DEPLOYMENT_MODE: "self-hosted" })).toBe("archive-default");
+  });
+
+  it("accepts the canonical KINRESOLVE_ARCHIVE_ID name and fails closed on a mismatched pair", () => {
+    expect(resolvePublicArchiveId({
+      KINRESOLVE_DEPLOYMENT_MODE: "self-hosted",
+      KINRESOLVE_ARCHIVE_ID: "family-public"
+    })).toBe("family-public");
+    expect(resolvePublicArchiveId({
+      KINRESOLVE_DEPLOYMENT_MODE: "self-hosted",
+      KINRESOLVE_ARCHIVE_ID: "family-public",
+      KINSLEUTH_ARCHIVE_ID: "family-public"
+    })).toBe("family-public");
+    expect(() => resolvePublicArchiveId({
+      KINRESOLVE_DEPLOYMENT_MODE: "self-hosted",
+      KINRESOLVE_ARCHIVE_ID: "family-public",
+      KINSLEUTH_ARCHIVE_ID: "family-other"
+    })).toThrow(/KINRESOLVE_ARCHIVE_ID and KINSLEUTH_ARCHIVE_ID are both set but hold different values/);
   });
 });

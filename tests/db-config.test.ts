@@ -36,7 +36,7 @@ describe("database runtime configuration", () => {
 
   it("verifies Supabase pooler certificates with the bundled root CA", () => {
     const connectionString = getDatabaseConnectionString(
-      "postgresql://postgres.example:p%40ssword@aws-0-us-west-1.pooler.supabase.com:6543/postgres?sslmode=require&sslrootcert=%2Ftmp%2Fwrong.crt&uselibpqcompat=true&application_name=kinsleuth"
+      "postgresql://postgres.example:p%40ssword@aws-0-us-west-1.pooler.supabase.com:6543/postgres?sslmode=require&sslrootcert=%2Ftmp%2Fwrong.crt&uselibpqcompat=true&application_name=kinresolve"
     );
     const parsed = new URL(connectionString);
 
@@ -46,7 +46,7 @@ describe("database runtime configuration", () => {
     expect(decodeURIComponent(parsed.password)).toBe("p@ssword");
     expect(parsed.searchParams.get("sslmode")).toBe("verify-full");
     expect(parsed.searchParams.get("uselibpqcompat")).toBeNull();
-    expect(parsed.searchParams.get("application_name")).toBe("kinsleuth");
+    expect(parsed.searchParams.get("application_name")).toBe("kinresolve");
     expect(parsed.searchParams.get("sslrootcert")).toBe(
       path.join(process.cwd(), "certs", "supabase-prod-ca-2021.crt")
     );
@@ -66,7 +66,7 @@ describe("database runtime configuration", () => {
   });
 
   it("leaves non-Supabase database URLs unchanged", () => {
-    const connectionString = "postgres://kinsleuth:kinsleuth@localhost:5432/kinsleuth";
+    const connectionString = "postgres://kinresolve:kinresolve@localhost:5432/kinresolve";
 
     expect(getDatabaseConnectionString(connectionString)).toBe(connectionString);
   });

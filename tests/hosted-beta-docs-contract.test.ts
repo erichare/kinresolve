@@ -52,9 +52,12 @@ describe("hosted private-beta documentation contract", () => {
       readFile("README.md", "utf8")
     ]);
 
-    expect(environment).toMatch(/^# KINSLEUTH_ALLOW_SIGNUPS=false$/m);
-    expect(contract).toMatch(/`KINSLEUTH_ALLOW_SIGNUPS`[^\n]*`false`[^\n]*hosted/i);
-    expect(readme).toMatch(/`KINSLEUTH_ALLOW_SIGNUPS`[^\n]*hosted[^\n]*`false`/i);
+    expect(environment).toMatch(/^# KINRESOLVE_ALLOW_SIGNUPS=false$/m);
+    expect(contract).toMatch(/`KINRESOLVE_ALLOW_SIGNUPS`[^\n]*`false`[^\n]*hosted/i);
+    expect(readme).toMatch(/`KINRESOLVE_ALLOW_SIGNUPS`[^\n]*hosted[^\n]*`false`/i);
+    // Legacy names remain documented until the post-launch strict flip.
+    expect(contract).toContain("KINSLEUTH_ALLOW_SIGNUPS");
+    expect(readme).toContain("KINSLEUTH_ALLOW_SIGNUPS");
   });
 
   it("labels the hosted product as proposed, pending approval, and not live", async () => {

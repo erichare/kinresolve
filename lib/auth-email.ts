@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { after } from "next/server";
 
+import { readArchiveIdSetting } from "@/lib/environment-aliases";
+
 import {
   buildPasswordResetActionUrl,
   createTransactionalEmailIdempotencyKey,
@@ -111,7 +113,7 @@ export function createHostedPasswordRecovery(
   const recordSecurityAudit = dependencies.recordSecurityAudit
     ?? ((input: AuthEmailSecurityAuditInput) => recordHostedSecurityAudit(
       input,
-      environment.KINSLEUTH_ARCHIVE_ID
+      readArchiveIdSetting(environment)
     ));
 
   const deliverResetPassword = async (data: SendResetPasswordInput): Promise<void> => {

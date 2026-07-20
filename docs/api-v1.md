@@ -236,8 +236,8 @@ containment command requires protected `MIGRATION_DATABASE_URL`, the attested
 
 ```sh
 npm run api:tokens:revoke-all -- \
-  "$KINSLEUTH_ARCHIVE_ID" \
-  "REVOKE ALL API TOKENS FOR $KINSLEUTH_ARCHIVE_ID"
+  "$KINRESOLVE_ARCHIVE_ID" \
+  "REVOKE ALL API TOKENS FOR $KINRESOLVE_ARCHIVE_ID"
 ```
 
 It works while the API flag is false, never auto-migrates, and prints only the number of

@@ -1,6 +1,11 @@
 import path from "node:path";
 
 import {
+  archiveIdEnvironmentAlias,
+  describeEnvironmentAliasPair,
+  readArchiveIdSetting
+} from "../lib/environment-aliases";
+import {
   browserCanaryMutationAcknowledgement,
   resolveInsecureLoopbackProductionCanaryProfile
 } from "../lib/insecure-loopback-canary";
@@ -189,9 +194,15 @@ export function resolveBrowserCanaryConfiguration(
   if (!archiveIdPattern.test(archiveId)) {
     throw new Error("KINRESOLVE_CANARY_ARCHIVE_ID has an invalid format.");
   }
-  const runtimeArchiveId = required(environment.KINSLEUTH_ARCHIVE_ID, "KINSLEUTH_ARCHIVE_ID");
+  const runtimeArchiveId = required(
+    readArchiveIdSetting(environment),
+    describeEnvironmentAliasPair(archiveIdEnvironmentAlias)
+  );
   if (runtimeArchiveId !== archiveId) {
-    throw new Error("KINRESOLVE_CANARY_ARCHIVE_ID must exactly match KINSLEUTH_ARCHIVE_ID.");
+    throw new Error(
+      "KINRESOLVE_CANARY_ARCHIVE_ID must exactly match the runtime "
+      + `${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)} setting.`
+    );
   }
   const userId = environment.KINRESOLVE_CANARY_USER_ID?.trim();
   if (userId && !userIdPattern.test(userId)) {
@@ -252,9 +263,15 @@ export function resolveBrowserCanaryStateConfiguration(
   if (!archiveIdPattern.test(archiveId)) {
     throw new Error("KINRESOLVE_CANARY_ARCHIVE_ID has an invalid format.");
   }
-  const runtimeArchiveId = required(environment.KINSLEUTH_ARCHIVE_ID, "KINSLEUTH_ARCHIVE_ID");
+  const runtimeArchiveId = required(
+    readArchiveIdSetting(environment),
+    describeEnvironmentAliasPair(archiveIdEnvironmentAlias)
+  );
   if (runtimeArchiveId !== archiveId) {
-    throw new Error("KINRESOLVE_CANARY_ARCHIVE_ID must exactly match KINSLEUTH_ARCHIVE_ID.");
+    throw new Error(
+      "KINRESOLVE_CANARY_ARCHIVE_ID must exactly match the runtime "
+      + `${describeEnvironmentAliasPair(archiveIdEnvironmentAlias)} setting.`
+    );
   }
   if (mode === "staging") {
     const userId = required(environment.KINRESOLVE_CANARY_USER_ID, "KINRESOLVE_CANARY_USER_ID");
