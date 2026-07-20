@@ -12,6 +12,9 @@ docker compose up -d postgres
 npm run dev
 ```
 
+The product app uses Node 22 and the marketing site in `site/` uses Node 24; each
+directory has an `.nvmrc`. The two versions are planned to converge after launch.
+
 Before opening a pull request, make sure the checks pass:
 
 ```bash
