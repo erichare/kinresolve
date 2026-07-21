@@ -54,6 +54,8 @@ describe("AI analysis", () => {
     const result = await runAIAnalysis({
       role: "owner",
       ...baseRequest,
+      selectedCaseId: demoCases[0].id,
+      externalProviderConsent: true,
       provider: {
         baseUrl: "https://api.openai.com/v1",
         chatModel: "gpt-5-mini",
@@ -62,7 +64,8 @@ describe("AI analysis", () => {
     });
 
     expect(result.status).toBe("configuration_required");
-    expect(result.evidenceUsed).toContain(`${demoPeople.length} people`);
+    expect(result.evidenceUsed).toContain("1 cases");
+    expect(result.promptPreview).toMatch(/privacy boundary: excluded/i);
   });
 
   it("calls a configured provider and returns staged suggestions", async () => {
@@ -72,14 +75,14 @@ describe("AI analysis", () => {
           output_text: JSON.stringify({
             answer: "Provider recommendation: verify the Mercer branch.",
             uncertainty: ["Treat DNA as directional."],
-            evidenceUsed: ["case-northstar-dna-cluster"],
+            evidenceUsed: ["case-mercer-march-identity"],
             suggestions: [
               {
                 type: "task",
                 title: "Check Mercer harbor register",
                 summary: "Look for direct documentary support.",
-                linkedCaseId: "case-northstar-dna-cluster",
-                contextRefs: ["case-northstar-dna-cluster"],
+                linkedCaseId: "case-mercer-march-identity",
+                contextRefs: ["case-mercer-march-identity"],
                 confidence: 0.73
               }
             ]
@@ -91,7 +94,8 @@ describe("AI analysis", () => {
     const result = await runAIAnalysis({
       role: "owner",
       ...baseRequest,
-      selectedCaseId: "case-northstar-dna-cluster",
+      selectedCaseId: "case-mercer-march-identity",
+      externalProviderConsent: true,
       provider: {
         baseUrl: "https://api.openai.com/v1",
         apiKey: "test-key",
@@ -105,7 +109,7 @@ describe("AI analysis", () => {
     expect(result.answer).toContain("Provider recommendation");
     expect(result.suggestions[0]).toMatchObject({
       title: "Check Mercer harbor register",
-      linkedCaseId: "case-northstar-dna-cluster"
+      linkedCaseId: "case-mercer-march-identity"
     });
   });
 
@@ -203,6 +207,8 @@ describe("AI analysis", () => {
     const result = await runAIAnalysis({
       role: "owner",
       ...baseRequest,
+      selectedCaseId: demoCases[0].id,
+      externalProviderConsent: true,
       provider: {
         baseUrl: "https://api.openai.com/v1",
         apiKey: "test-key",
@@ -215,5 +221,144 @@ describe("AI analysis", () => {
     expect(result.status).toBe("provider_error");
     expect(result.answer).toContain("Recommendation:");
     expect(result.error).toContain("401");
+    expect(result.error).not.toContain("bad key");
+  });
+
+  it("does not call an external provider without per-run consent", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+
+    const result = await runAIAnalysis({
+      role: "owner",
+      ...baseRequest,
+      provider: {
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "test-key",
+        chatModel: "gpt-5-mini",
+        embeddingModel: "text-embedding-3-small",
+        fetcher
+      }
+    });
+
+    expect(result.status).toBe("configuration_required");
+    expect(result.uncertainty.join(" ")).toMatch(/confirmation.*required/i);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("minimizes hosted provider context before transmission", async () => {
+    const transmittedBodies: string[] = [];
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      transmittedBodies.push(String(init?.body ?? ""));
+      return new Response(JSON.stringify({ output_text: JSON.stringify({ answer: "Review complete." }) }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const hostedEnvironment = {
+      KINRESOLVE_DEPLOYMENT_MODE: "hosted",
+      KINRESOLVE_DATASET_MODE: "pilot",
+      KINRESOLVE_DNA_ENABLED: "false",
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "true",
+      KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
+      KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
+      KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
+      KINRESOLVE_PACKAGE_MEDIA_ENABLED: "false",
+      KINRESOLVE_PLAIN_GEDCOM_ENABLED: "true"
+    } as const;
+    for (const [name, value] of Object.entries(hostedEnvironment)) vi.stubEnv(name, value);
+
+    try {
+      const deceasedPerson = {
+        ...demoPeople[0],
+        id: "person-deceased-visible",
+        displayName: "DECEASED_VISIBLE_NAME",
+        livingStatus: "deceased" as const,
+        notes: "DECEASED_PRIVATE_NOTE",
+        facts: [
+          ...demoPeople[0].facts,
+          {
+            id: "fact-sensitive-hidden",
+            type: "NOTE",
+            value: "SENSITIVE_FACT_VALUE",
+            confidence: 0.5,
+            privacy: "sensitive" as const
+          }
+        ],
+        relatives: ["LIVING_RELATIVE_NAME"]
+      };
+      const livingPerson = {
+        ...demoPeople[0],
+        id: "person-living-hidden",
+        displayName: "LIVING_PERSON_NAME",
+        livingStatus: "living" as const
+      };
+      const unknownPerson = {
+        ...demoPeople[0],
+        id: "person-unknown-hidden",
+        displayName: "UNKNOWN_PERSON_NAME",
+        livingStatus: "unknown" as const
+      };
+      const selectedCase = {
+        ...demoCases[0],
+        id: "case-selected-visible",
+        title: "SELECTED_CASE_TITLE",
+        question: "SELECTED_CASE_QUESTION"
+      };
+      const unselectedCase = {
+        ...demoCases[0],
+        id: "case-unselected-hidden",
+        title: "UNSELECTED_CASE_TITLE"
+      };
+      const linkedSource = {
+        id: "source-linked-visible",
+        title: "LINKED_SOURCE_TITLE",
+        sourceType: "Register",
+        linkedPersonId: deceasedPerson.id,
+        linkedCaseId: selectedCase.id,
+        transcript: "SOURCE_TRANSCRIPT_HIDDEN",
+        notes: "SOURCE_NOTES_HIDDEN",
+        privacy: "private" as const,
+        confidence: 0.8,
+        createdAt: "2026-07-21T00:00:00.000Z"
+      };
+      const sensitiveSource = {
+        ...linkedSource,
+        id: "source-sensitive-hidden",
+        title: "SENSITIVE_SOURCE_TITLE",
+        privacy: "sensitive" as const
+      };
+
+      const result = await runAIAnalysis({
+        role: "owner",
+        question: "Which record should I verify?",
+        selectedCaseId: selectedCase.id,
+        externalProviderConsent: true,
+        people: [deceasedPerson, livingPerson, unknownPerson],
+        cases: [selectedCase, unselectedCase],
+        sources: [linkedSource, sensitiveSource],
+        dnaMatches: demoDnaMatches,
+        dnaHypotheses: demoDnaHypotheses,
+        provider: {
+          baseUrl: "https://api.openai.com/v1",
+          apiKey: "test-key",
+          chatModel: "gpt-5-mini",
+          embeddingModel: "text-embedding-3-small",
+          fetcher
+        }
+      });
+
+      expect(result.status).toBe("ready");
+      expect(fetcher).toHaveBeenCalledOnce();
+      const transmitted = transmittedBodies.join("\n");
+      expect(JSON.parse(transmittedBodies[0] ?? "{}")).toMatchObject({ store: false });
+      expect(transmitted).toContain("DECEASED_VISIBLE_NAME");
+      expect(transmitted).toContain("SELECTED_CASE_TITLE");
+      expect(transmitted).toContain("LINKED_SOURCE_TITLE");
+      expect(transmitted).not.toMatch(
+        /LIVING_PERSON_NAME|UNKNOWN_PERSON_NAME|LIVING_RELATIVE_NAME|DECEASED_PRIVATE_NOTE|SENSITIVE_FACT_VALUE|UNSELECTED_CASE_TITLE|SOURCE_TRANSCRIPT_HIDDEN|SOURCE_NOTES_HIDDEN|SENSITIVE_SOURCE_TITLE/
+      );
+      expect(result.promptPreview).toMatch(/excluded.*unlinked, living, unknown, or sensitive person records/i);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

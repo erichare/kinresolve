@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const cohortOneManifest = [
   ["KINRESOLVE_DNA_ENABLED", "false"],
-  ["KINRESOLVE_EXTERNAL_AI_ENABLED", "false"],
+  ["KINRESOLVE_EXTERNAL_AI_ENABLED", "true"],
   ["KINRESOLVE_PUBLIC_ARCHIVE_ENABLED", "false"],
   ["KINRESOLVE_PUBLIC_PUBLISHING_ENABLED", "false"],
   ["KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED", "false"],
@@ -39,6 +39,8 @@ describe("hosted private-beta documentation contract", () => {
     expect(documentation).toMatch(/plain GEDCOM[^\n]*10 MiB[^\n]*40,000 people/i);
     expect(documentation).toMatch(/source[^\n]*transcript-only/i);
     expect(documentation).toMatch(/deterministic local analysis[^\n]*no external provider/i);
+    expect(documentation).toMatch(/external AI[^\n]*fresh[^\n]*confirmation/i);
+    expect(documentation).toMatch(/unlinked[^\n]*living[^\n]*unknown[^\n]*sensitive person records[^\n]*excluded/i);
     expect(documentation).toMatch(/DNA[^\n]*disabled/i);
     expect(documentation).toMatch(/public publishing[^\n]*disabled/i);
     expect(documentation).toMatch(/public archive[^\n]*disabled/i);
@@ -66,9 +68,9 @@ describe("hosted private-beta documentation contract", () => {
       readFile("README.md", "utf8")
     ]);
 
-    expect(contract).toMatch(/Status:\*\* Proposed; owner and counsel sign-off pending/);
+    expect(contract).toMatch(/Status:\*\* Product-owner approved; counsel and launch-gate sign-off pending/);
     expect(contract).toMatch(/app\.kinresolve\.com` \(not live yet\)/);
     expect(readme).toMatch(/hosted private beta[^\n]*proposed[^\n]*not live/i);
-    expect(readme).toMatch(/owner and counsel approval[^\n]*pending/i);
+    expect(readme).toMatch(/counsel and operational approval[^\n]*pending/i);
   });
 });

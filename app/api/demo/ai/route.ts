@@ -81,6 +81,9 @@ export const POST = withDemoGuestCapability("demo:ai", async (request, authoriza
     const capabilities = resolveHostedCapabilities();
     result = await runAIAnalysis({
       role: "owner",
+      // This endpoint only analyzes the disposable synthetic demo workspace.
+      // Real hosted archives require a fresh user confirmation in /api/ai/analyze.
+      externalProviderConsent: true,
       question: publicDemoAiPrompts[parsed.data.questionId],
       selectedCaseId: selectedCase.id,
       people: workspace.people,

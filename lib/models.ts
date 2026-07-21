@@ -155,6 +155,8 @@ export type AIAnalysisRun = {
   promptPreview?: string;
   error?: string;
   linkedCaseId?: string;
+  requestedBy?: string;
+  providerConsentVersion?: string;
   createdAt: string;
   completedAt?: string;
 };

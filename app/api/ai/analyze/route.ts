@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { runAIAnalysis } from "@/lib/ai";
+import { externalAIPolicyVersion, runAIAnalysis } from "@/lib/ai";
 import { withPermission } from "@/lib/api-authorization";
+import { consumeDurableAuthRateLimit } from "@/lib/durable-auth-rate-limit";
 import { resolveHostedCapabilities } from "@/lib/hosted-capabilities";
 import { captureOperationalError } from "@/lib/observability";
 import { createWorkspaceDnaHypotheses, readWorkspace, saveAIAnalysisRun } from "@/lib/workspace-store";
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 
 const analyzeSchema = z.object({
   question: z.string().trim().min(1).max(1200),
-  caseId: z.string().trim().optional()
+  caseId: z.string().trim().optional(),
+  externalProviderConsent: z.boolean().optional()
 });
 
 export const POST = withPermission("ai:whole-tree", async (request, authorization) => {
@@ -23,13 +25,42 @@ export const POST = withPermission("ai:whole-tree", async (request, authorizatio
 
   try {
     const capabilities = resolveHostedCapabilities();
+    if (capabilities.externalAi && body.externalProviderConsent !== true) {
+      return NextResponse.json(
+        { error: "Confirm this external AI request before sending private research context." },
+        { status: 400 }
+      );
+    }
     const archiveOptions = { archiveId: authorization.archiveId };
     const workspace = await readWorkspace(archiveOptions);
     const linkedCaseId = body.caseId && workspace.cases.some((researchCase) => researchCase.id === body.caseId) ? body.caseId : undefined;
+    if (capabilities.externalAi && !linkedCaseId) {
+      return NextResponse.json(
+        { error: "Choose a research case before sending a privacy-minimized external AI request." },
+        { status: 400 }
+      );
+    }
+    if (capabilities.externalAi && capabilities.deploymentMode === "hosted") {
+      const subject = `${authorization.archiveId}:${authorization.userId}`;
+      const hmacSecret = process.env.KINRESOLVE_BETA_PRIVACY_HMAC_SECRET ?? "";
+      for (const policy of [
+        { maximumRequests: 12, scope: "ai:provider:hour", windowSeconds: 3_600 },
+        { maximumRequests: 40, scope: "ai:provider:day", windowSeconds: 86_400 }
+      ] as const) {
+        const limit = await consumeDurableAuthRateLimit({ ...policy, hmacSecret, subject });
+        if (!limit.allowed) {
+          return NextResponse.json(
+            { error: "The external AI request limit has been reached. Try again later." },
+            { status: 429, headers: { "retry-after": String(limit.retryAfterSeconds) } }
+          );
+        }
+      }
+    }
     const result = await runAIAnalysis({
       role: authorization.role,
       question: body.question,
       selectedCaseId: linkedCaseId,
+      externalProviderConsent: body.externalProviderConsent,
       people: workspace.people,
       cases: workspace.cases,
       sources: workspace.sources,
@@ -59,7 +90,9 @@ export const POST = withPermission("ai:whole-tree", async (request, authorizatio
       providerStatus: result.providerStatus,
       promptPreview: result.promptPreview,
       error: result.error,
-      linkedCaseId
+      linkedCaseId,
+      requestedBy: authorization.userId,
+      providerConsentVersion: capabilities.externalAi ? externalAIPolicyVersion : undefined
     }, archiveOptions);
 
     return NextResponse.json({ ...result, run });

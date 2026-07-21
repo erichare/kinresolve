@@ -37,6 +37,7 @@ export type AIAnalysisRequest = {
   role: Role;
   question: string;
   selectedCaseId?: string;
+  externalProviderConsent?: boolean;
   people: PersonSummary[];
   cases: ResearchCase[];
   sources: SourceDocument[];
@@ -68,6 +69,11 @@ type PromptPack = {
   truncated: boolean;
 };
 
+type ExternalAIProjection = {
+  request: AIAnalysisRequest;
+  privacySummary: string;
+};
+
 type ProviderPayload = {
   answer?: unknown;
   uncertainty?: unknown;
@@ -77,6 +83,7 @@ type ProviderPayload = {
 };
 
 const promptCharacterLimit = 28_000;
+export const externalAIPolicyVersion = "hosted-external-ai-v1";
 
 export function findStructuredAnomalies(people: PersonSummary[]): StructuredAnomaly[] {
   const anomalies: StructuredAnomaly[] = [];
@@ -127,7 +134,7 @@ export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnaly
 
   const anomalies = findStructuredAnomalies(effectiveRequest.people);
   const localAnswer = buildLocalAnalysis({ ...effectiveRequest, anomalies }, capabilities.dna);
-  const promptPack = buildPromptPack(effectiveRequest, anomalies, capabilities.dna);
+  const localPromptPack = buildPromptPack(effectiveRequest, anomalies, capabilities.dna);
   const deterministicSuggestions = buildDeterministicSuggestions(effectiveRequest, anomalies);
 
   if (!capabilities.externalAi) {
@@ -138,10 +145,10 @@ export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnaly
       model: "deterministic",
       answer: localAnswer,
       anomalies,
-      evidenceUsed: promptPack.evidenceUsed,
+      evidenceUsed: localPromptPack.evidenceUsed,
       suggestions: deterministicSuggestions,
-      contextReferences: promptPack.references,
-      promptPreview: promptPack.preview,
+      contextReferences: localPromptPack.references,
+      promptPreview: localPromptPack.preview,
       uncertainty: [
         "External AI is disabled for this deployment; no provider call was made.",
         "This local analysis uses structured workspace checks and ranked context, but no provider generation."
@@ -151,6 +158,49 @@ export async function runAIAnalysis(request: AIAnalysisRequest): Promise<AIAnaly
 
   const provider = providerLabel(effectiveRequest.provider.baseUrl);
   const model = effectiveRequest.provider.chatModel;
+
+  if (!request.externalProviderConsent) {
+    return {
+      status: "configuration_required",
+      providerStatus: "not_configured",
+      provider,
+      model,
+      answer: localAnswer,
+      anomalies,
+      evidenceUsed: localPromptPack.evidenceUsed,
+      suggestions: deterministicSuggestions,
+      contextReferences: localPromptPack.references,
+      promptPreview: localPromptPack.preview,
+      uncertainty: [
+        "A fresh confirmation is required before each external AI request; no provider call was made.",
+        "This local analysis uses structured workspace checks and ranked context, but no provider generation."
+      ]
+    };
+  }
+
+  const projection = projectExternalAIRequest(effectiveRequest);
+  if (projection.request.cases.length === 0) {
+    return {
+      status: "configuration_required",
+      providerStatus: "not_configured",
+      provider,
+      model,
+      answer: localAnswer,
+      anomalies,
+      evidenceUsed: localPromptPack.evidenceUsed,
+      suggestions: deterministicSuggestions,
+      contextReferences: localPromptPack.references,
+      promptPreview: `${localPromptPack.preview}\nPrivacy boundary: ${projection.privacySummary}`,
+      uncertainty: [
+        "Choose one non-sensitive research case before making an external AI request; no provider call was made.",
+        "This local analysis uses structured workspace checks and ranked context, but no provider generation."
+      ]
+    };
+  }
+  const providerRequest = projection.request;
+  const providerAnomalies = findStructuredAnomalies(providerRequest.people);
+  const builtPromptPack = buildPromptPack(providerRequest, providerAnomalies, capabilities.dna);
+  const promptPack = { ...builtPromptPack, preview: `${builtPromptPack.preview}\nPrivacy boundary: ${projection.privacySummary}` };
 
   if (!effectiveRequest.provider.apiKey) {
     return {
@@ -232,7 +282,7 @@ export function buildPromptPack(
   const references: AIContextReference[] = [];
   const sections: string[] = [
     "You are the Kin Resolve AI Analyst for a private family-history workspace.",
-    "Use the full private context below. Do not treat hypotheses as facts. Separate evidence from inference.",
+    "Use only the context provided below. Do not treat hypotheses as facts. Separate evidence from inference.",
     "Return JSON only with this shape: {\"answer\":\"...\",\"uncertainty\":[\"...\"],\"evidenceUsed\":[\"...\"],\"contextReferences\":[{\"id\":\"...\",\"type\":\"person|case|source|dna_match|hypothesis|anomaly|task|evidence\",\"label\":\"...\",\"summary\":\"...\"}],\"suggestions\":[{\"type\":\"task|evidence_check|source_gap|privacy_review\",\"title\":\"...\",\"summary\":\"...\",\"linkedCaseId\":\"optional\",\"contextRefs\":[\"id\"],\"confidence\":0.0}]}",
     `Research question: ${request.question}`,
     selectedCase ? `Selected case: ${selectedCase.title} (${selectedCase.id}) - ${selectedCase.question}` : "Selected case: none"
@@ -391,6 +441,112 @@ export function buildPromptPack(
   };
 }
 
+export function projectExternalAIRequest(request: AIAnalysisRequest): ExternalAIProjection {
+  const selectedCase = request.selectedCaseId
+    ? request.cases.find((researchCase) => researchCase.id === request.selectedCaseId && researchCase.privacy !== "sensitive")
+    : undefined;
+  const projectedCase: ResearchCase | undefined = selectedCase
+    ? {
+        id: selectedCase.id,
+        title: selectedCase.title,
+        question: selectedCase.question,
+        status: selectedCase.status,
+        focus: selectedCase.focus,
+        privacy: selectedCase.privacy,
+        hypotheses: selectedCase.hypotheses.map((hypothesis) => ({
+          id: hypothesis.id,
+          statement: hypothesis.statement,
+          confidence: hypothesis.confidence,
+          status: hypothesis.status
+        })),
+        evidence: selectedCase.evidence.map((evidence) => ({
+          id: evidence.id,
+          title: evidence.title,
+          type: evidence.type,
+          summary: evidence.summary,
+          confidence: evidence.confidence
+        })),
+        tasks: selectedCase.tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status
+        }))
+      }
+    : undefined;
+  const sources: SourceDocument[] = projectedCase
+    ? request.sources
+        .filter((source) => source.linkedCaseId === projectedCase.id && source.privacy !== "sensitive")
+        .map((source) => ({
+          id: source.id,
+          title: source.title,
+          sourceType: source.sourceType,
+          repository: source.repository,
+          citationDate: source.citationDate,
+          linkedCaseId: projectedCase.id,
+          privacy: source.privacy,
+          confidence: source.confidence,
+          createdAt: source.createdAt
+        }))
+    : [];
+  const linkedPersonIds = new Set([
+    ...(selectedCase?.evidence.map((evidence) => evidence.linkedPersonId).filter(Boolean) ?? []),
+    ...sources.map((source) => request.sources.find((candidate) => candidate.id === source.id)?.linkedPersonId).filter(Boolean)
+  ]);
+  let excludedSensitiveFacts = 0;
+  const people: PersonSummary[] = request.people
+    .filter((person) => linkedPersonIds.has(person.id) && person.livingStatus === "deceased" && person.privacy !== "sensitive")
+    .map((person) => ({
+      id: person.id,
+      slug: person.id,
+      displayName: person.displayName,
+      birthDate: person.birthDate,
+      birthPlace: person.birthPlace,
+      deathDate: person.deathDate,
+      deathPlace: person.deathPlace,
+      sex: person.sex,
+      livingStatus: person.livingStatus,
+      privacy: person.privacy,
+      published: false,
+      relatives: [],
+      facts: person.facts
+        .filter((fact) => {
+          const included = fact.privacy !== "sensitive";
+          if (!included) excludedSensitiveFacts += 1;
+          return included;
+        })
+        .map((fact) => ({
+          id: fact.id,
+          type: fact.type,
+          date: fact.date,
+          place: fact.place,
+          source: fact.source,
+          confidence: fact.confidence,
+          privacy: fact.privacy
+        }))
+    }));
+  const excludedPeople = request.people.length - people.length;
+  const excludedCases = request.cases.length - (projectedCase ? 1 : 0);
+  const excludedSources = request.sources.length - sources.length;
+
+  return {
+    request: {
+      ...request,
+      people,
+      cases: projectedCase ? [projectedCase] : [],
+      sources,
+      dnaMatches: [],
+      dnaHypotheses: []
+    },
+    privacySummary: [
+      `Excluded ${excludedPeople} unlinked, living, unknown, or sensitive person records`,
+      `${excludedSensitiveFacts} sensitive facts`,
+      `${excludedCases} unselected cases`,
+      `${excludedSources} unlinked or sensitive sources`,
+      "all case decisions and task outcomes, person notes, relatives, source transcripts, source notes, file references, and DNA context"
+    ].join("; ")
+  };
+}
+
 async function callAIProvider(provider: AIProviderConfig, prompt: string): Promise<string> {
   const mode = provider.mode ?? "responses";
   const fetcher = provider.fetcher ?? fetch;
@@ -421,6 +577,7 @@ async function callAIProvider(provider: AIProviderConfig, prompt: string): Promi
       : {
           model: provider.chatModel,
           max_output_tokens: maximumOutputTokens,
+          store: false,
           input: [
             { role: "developer", content: developerInstructions },
             { role: "user", content: prompt }
@@ -434,11 +591,11 @@ async function callAIProvider(provider: AIProviderConfig, prompt: string): Promi
     signal: AbortSignal.timeout(timeoutMs)
   });
 
-  const raw = await response.text();
   if (!response.ok) {
-    throw new Error(`Provider returned ${response.status}: ${truncate(raw, 240)}`);
+    throw new Error(`Provider returned ${response.status}.`);
   }
 
+  const raw = await response.text();
   const json = tryParseJson(raw);
   return extractProviderText(json) || raw;
 }

@@ -1,13 +1,13 @@
 # Hosted private beta contract
 
-- **Status:** Proposed; owner and counsel sign-off pending
-- **Updated:** 2026-07-15
+- **Status:** Product-owner approved; counsel and launch-gate sign-off pending
+- **Updated:** 2026-07-21
 - **Planning base:** `main` at `cd1d92fceaa8b9a8a37cde6e036860c71cefd6d4`
 - **Product origin:** `https://app.kinresolve.com` (not live yet)
 - **Marketing origin:** `https://kinresolve.com` (live)
 - **Execution blueprint:** [`plans/hosted-private-beta-launch.md`](../plans/hosted-private-beta-launch.md)
 
-This document is the compact product, data, support, API, and public-claims contract for the first hosted Kin Resolve cohort. It records recommended defaults so engineering and marketing have one coherent proposal. It does **not** represent owner or legal approval until the sign-off table is completed.
+This document is the compact product, data, support, API, and public-claims contract for the first hosted Kin Resolve cohort. It records the product owner's approved D1–D8 boundary so engineering and marketing have one coherent plan. It does **not** represent legal approval or production authorization until the remaining sign-off rows and launch gates are completed.
 
 ## Current public status
 
@@ -33,18 +33,18 @@ invitation onboarding before an account can be created.
 
 Do not say that the hosted product is live, current, working, or available until `app.kinresolve.com` serves the promoted product and the launch checklist is signed.
 
-## Recommended decisions pending sign-off
+## Product-owner decisions and remaining sign-off
 
 | ID | Decision | Recommended default | Owner status |
 | --- | --- | --- | --- |
-| D1 | Launch data | Synthetic demo first; one real GEDCOM pilot only after legal, restore, deletion, recovery, and security gates | Pending |
-| D2 | Isolation | One real household per deployment, database, object store, secrets, and archive ID | Pending |
-| D3 | DNA, external AI, and media | Disabled for cohort one at both UI and server boundaries | Pending |
-| D4 | API | Same-origin, scoped, read-only `/api/v1` developer preview | Pending |
-| D5 | Recovery | Supabase Pro daily database backup plus encrypted off-provider database/object backup; explicit 24-hour RPO unless PITR is purchased | Pending |
-| D6 | Pilot size | One 30-day participant; expand only after an incident-free week and another restore rehearsal | Pending |
-| D7 | Billing | Free private beta; no payment or entitlement surface | Pending |
-| D8 | First hosted cutover | Forward-only maintenance cutover; never attach `v0.17.4` to pilot data; establish the first compatible hosted release as the future rollback anchor | Pending |
+| D1 | Launch data | Synthetic demo first; one real GEDCOM pilot only after legal, restore, deletion, recovery, and security gates | Approved 2026-07-21 |
+| D2 | Isolation | One real household per deployment, database, object store, secrets, and archive ID | Approved 2026-07-21 |
+| D3 | DNA, external AI, and media | DNA and media disabled. External AI is manual, owner/admin-only, confirmed for each request, and limited by the provider projection below | Approved 2026-07-21 |
+| D4 | API | Same-origin, scoped, read-only `/api/v1` developer preview | Approved 2026-07-21 |
+| D5 | Recovery | Supabase Pro daily database backup plus encrypted off-provider database/object backup; explicit 24-hour RPO unless PITR is purchased | Approved 2026-07-21 |
+| D6 | Pilot size | One trusted household for 30 days; expand only after an incident-free week and another restore rehearsal | Approved 2026-07-21 |
+| D7 | Billing | Free private beta; no payment or entitlement surface | Approved 2026-07-21 |
+| D8 | First hosted cutover | Forward-only maintenance cutover; never attach `v0.17.4` to pilot data; establish the first compatible hosted release as the future rollback anchor | Approved 2026-07-21 |
 
 Approval must record the approver, date, and any deviation here before a policy-dependent implementation is enabled in production.
 
@@ -59,14 +59,14 @@ Approval must record the approver, date, and any deviation here before a policy-
 
 ### Proposed cohort-one capability manifest
 
-All seven values must be present together in a hosted deployment. They are recommended settings pending owner and counsel sign-off; this table does not approve production enablement.
+All seven values must be present together in a hosted deployment. They are product-owner-approved settings pending counsel and launch-gate sign-off; this table alone does not approve production enablement.
 
 `KINRESOLVE_ALLOW_SIGNUPS` (legacy name `KINSLEUTH_ALLOW_SIGNUPS`, accepted during the rename compatibility window) must be exactly `false` for every hosted release. Hosted accounts are provisioned through the controlled invitation path; `/setup` and open self-registration are unavailable.
 
 | Capability flag | Cohort-one value | Enforced boundary |
 | --- | --- | --- |
 | `KINRESOLVE_DNA_ENABLED` | `false` | DNA disabled |
-| `KINRESOLVE_EXTERNAL_AI_ENABLED` | `false` | External-provider AI disabled |
+| `KINRESOLVE_EXTERNAL_AI_ENABLED` | `true` | External AI requires a fresh per-run confirmation and the minimized provider projection |
 | `KINRESOLVE_PUBLIC_ARCHIVE_ENABLED` | `false` | Public archive disabled |
 | `KINRESOLVE_PUBLIC_PUBLISHING_ENABLED` | `false` | Real-data public publishing disabled |
 | `KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED` | `false` | Binary source and evidence uploads disabled |
@@ -80,6 +80,7 @@ All seven values must be present together in a hosted deployment. They are recom
 - People and source search; source creation is transcript-only, limited to metadata, links, and pasted text/transcripts.
 - Cases, evidence, hypotheses, tasks, and next-step workflow.
 - Deterministic local analysis and quality/privacy checks that make no external provider call.
+- Manually initiated OpenAI analysis for owners/admins. Each request requires a fresh confirmation and sends only the typed question, one non-sensitive selected case, its linked confirmed-deceased non-sensitive person records, and linked non-sensitive source metadata. The request sets Responses API storage to `false`.
 - Publication-readiness review without publishing the real archive.
 - Owner-scoped, read-only API access after the API gate passes.
 - Founder-assisted export, recovery, and deletion.
@@ -87,7 +88,7 @@ All seven values must be present together in a hosted deployment. They are recom
 ### Excluded from the proposed pilot
 
 - DNA upload, storage, triage, or analysis.
-- External-provider AI on participant data.
+- Background, automatic, whole-workspace, unlinked/living/unknown/sensitive-person, DNA, case-decision, task-outcome, person-note, source-transcript, sensitive-fact, file, or media transmission to an AI provider.
 - ZIP, FTM, RootsMagic, record-image, media-package, or binary attachment retention.
 - Real-data public publishing.
 - Ancestry OAuth, partner API, DNA, hints, messages, sync, or writeback.
@@ -105,6 +106,7 @@ These values remain subject to owner and counsel approval:
 | Beta application | Minimal fixed contact/workflow fields only; no family data, files, free text, IP address, or user agent; delete every product application row 90 days after submission or earlier after a verified request; mailbox/provider copies follow their separately approved lifecycle |
 | Invitations and recovery tokens | Hashed, single-use, short-lived; remove expired token material on a bounded schedule |
 | Real pilot archive | Dedicated database and object namespaces; retained only for the pilot and agreed export/deletion window |
+| External AI request | OpenAI Responses API only, `store: false`, with a fresh on-screen confirmation and durable per-user limits of 12 attempts per rolling hour and 40 per rolling day. The minimized request may still be present in provider abuse-monitoring logs for up to 30 days under the default API data-controls contract; API inputs and outputs are not used for model training unless the operator explicitly opts in. Kin Resolve must not enable provider data sharing for this project. See OpenAI's [API data controls](https://platform.openai.com/docs/models/default-usage-policies-by-endpoint) and [business data commitments](https://openai.com/business-data/). |
 | Import artifacts | Private and archive-scoped; retention documented before upload and covered by both-prefix object inventory |
 | Operational logs | Redacted allowlisted fields; no record content, GEDCOM lines, credentials, cookies, token values, or raw queries; proposed 14-day retention |
 | Security/audit events | Non-content metadata only; proposed 90-day retention |
@@ -112,6 +114,8 @@ These values remain subject to owner and counsel approval:
 | Retained backups | Expire under the published provider/off-provider schedule; proposed maximum 30 days after primary deletion |
 
 The recovery claim covers only what has been inventoried, backed up, and restored in rehearsal. A database backup does not cover Vercel Blob. Both `gedcom-imports/{archive}/` and `archives/{archive}/` must have explicit manifest, retention, restore, and deletion treatment.
+
+The external-AI projection is enforced server-side and uses exact allowlisted fields so newly added model fields do not become provider inputs automatically. It excludes unlinked, living, unknown, and sensitive person records; relatives; person notes; sensitive facts; unselected or sensitive cases; case decisions and task outcomes; unlinked or sensitive sources; source transcripts and notes; file references; and all DNA context. Changing the question or case clears the confirmation. A participant can always use deterministic analysis without making an external call. The approved privacy notice and cohort boundary must identify OpenAI, the exact transmitted classes, purpose, default provider retention, training posture, participant choice, and the fact that a model response is a research aid rather than proof.
 
 ## Proposed API contract
 
@@ -162,6 +166,7 @@ marketing page, or email summary as a substitute for the approved documents.
 - Private beta applications are open.
 - Invitations have not started.
 - Kin Resolve's source product implements a single-archive research workspace, reviewable GEDCOM workflows, cases, deterministic checks, and export.
+- The approved pilot design includes explicitly confirmed, privacy-minimized OpenAI analysis; it is not live until the production AI and legal gates pass.
 - The public challenge and marketing media use synthetic Hartwell–Mercer records.
 - Source is available under AGPL-3.0-only.
 
@@ -169,6 +174,7 @@ marketing page, or email summary as a substitute for the approved documents.
 
 - Invitation-only private beta is live at `app.kinresolve.com`.
 - One isolated participant can use the enabled GEDCOM research workflow.
+- Owners/admins can make explicitly confirmed, privacy-minimized OpenAI requests under the published provider boundary.
 - A scoped, read-only API is available to beta participants.
 - The exact published backup, recovery, support, and deletion targets have been rehearsed.
 
@@ -176,7 +182,7 @@ marketing page, or email summary as a substitute for the approved documents.
 
 - Production-ready, enterprise-ready, multi-tenant, open signup, guaranteed uptime, or guaranteed zero data loss.
 - GDPR, CCPA, HIPAA, genetic-privacy, or other legal compliance claims without counsel.
-- Hosted DNA safety, Ancestry sync/approval, bundled AI, or fact-level public publishing.
+- Hosted DNA safety, Ancestry sync/approval, automatic or unbounded AI, or fact-level public publishing.
 - Grounded or citation-verified autonomous research agent.
 - Guaranteed backups or recovery beyond observed and published RPO/RTO.
 
@@ -184,7 +190,7 @@ marketing page, or email summary as a substitute for the approved documents.
 
 | Role | Name | Decision/version | Date | Status |
 | --- | --- | --- | --- | --- |
-| Product owner | — | D1–D8 | — | Pending |
+| Product owner | Eric | D1–D8, with the D3 external-AI boundary above | 2026-07-21 | Approved |
 | Engineering | — | Implementation feasibility | — | Pending |
 | Privacy/legal | — | Terms, privacy, retention, processors, deletion | — | Pending before real data |
 | Launch owner | — | Production Gate A–F | — | Pending |

@@ -14,7 +14,7 @@ This is the full environment-variable reference for Kin Resolve. It moved here f
 | `KINRESOLVE_DEPLOYMENT_MODE` | `self-hosted` or `hosted`; required in hosted production and set explicitly by the bundled Compose stack |
 | `KINRESOLVE_DATASET_MODE` | Persisted archive contract: `empty`, versioned fictional `demo`, or real-data `pilot`; required for hosted deployments and provisioning |
 | `KINRESOLVE_DNA_ENABLED` | Hosted cohort one: `false`; server-side DNA capability gate |
-| `KINRESOLVE_EXTERNAL_AI_ENABLED` | Hosted cohort one: `false`; prevents external-provider analysis calls |
+| `KINRESOLVE_EXTERNAL_AI_ENABLED` | Hosted cohort one: `true`; permits only the per-run-confirmed, privacy-minimized external analysis path |
 | `KINRESOLVE_PUBLIC_ARCHIVE_ENABLED` | Hosted cohort one: `false`; disables anonymous archive surfaces |
 | `KINRESOLVE_PUBLIC_PUBLISHING_ENABLED` | Hosted cohort one: `false`; disables publication mutations independently from archive visibility |
 | `KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED` | Hosted cohort one: `false`; permits transcript-only sources while rejecting binary source/evidence uploads |
@@ -53,12 +53,14 @@ This is the full environment-variable reference for Kin Resolve. It moved here f
 | `KINRESOLVE_WORKER_*` | Worker identity, polling and maintenance intervals, lease duration, per-run parse bound, and bounded staged-upload cleanup limit |
 | `CRON_SECRET` | Bearer token for scheduled integration parsing and stale-upload cleanup jobs |
 | `RELEASE_FENCE_SECRET` | Dedicated 256-bit-or-stronger base64url/hex bearer token for protected production release-fence transitions; generate with `openssl rand -hex 32` and never reuse `CRON_SECRET` |
-| `AI_BASE_URL` / `AI_API_KEY` | OpenAI-compatible provider; deterministic fallback runs without a key |
-| `AI_API_MODE` | `responses` (default) or `chat` |
-| `AI_CHAT_MODEL` / `AI_EMBEDDING_MODEL` | Chat model for analysis; the embedding model is reserved for planned pgvector retrieval (not implemented yet) |
+| `AI_BASE_URL` / `AI_API_KEY` | The hosted pilot pins `https://api.openai.com/v1` and requires a dedicated Sensitive API project key; deterministic fallback runs without a key in self-hosted mode |
+| `AI_API_MODE` | The hosted pilot pins `responses`; self-hosted deployments may also use `chat` |
+| `AI_CHAT_MODEL` / `AI_EMBEDDING_MODEL` | The hosted pilot pins `gpt-5-mini`; the embedding model is reserved for planned pgvector retrieval (not implemented yet) |
 | `APP_BASE_URL` | Exact canonical origin of the running app; production requires one HTTPS origin such as `https://app.kinresolve.com` and uses it for redirects and cookie-mutation origin checks |
 
-The seven hosted capability flags are required together and fail closed when absent or invalid. They remain commented in `.env.example` so copying that file does not change self-hosted defaults; a hosted operator must uncomment the complete cohort-one manifest. The 10 MiB (10,485,760-byte) and 40,000-person GEDCOM limits are fixed application boundaries, not environment overrides.
+The seven hosted capability flags are required together and fail closed when absent or invalid. They remain commented in `.env.example` so copying that file does not change self-hosted defaults; a hosted operator must uncomment the complete cohort-one manifest. External AI additionally requires exact provider configuration, a Sensitive key, per-run confirmation, and the server-side minimized projection. Responses set `store: false`, but the approved participant documents must still disclose the provider's default abuse-monitoring retention. The 10 MiB (10,485,760-byte) and 40,000-person GEDCOM limits are fixed application boundaries, not environment overrides.
+
+Use [`docs/hosted-ai-provider-operations.md`](hosted-ai-provider-operations.md) for the dedicated OpenAI project, data-sharing, spend, secret-handling, canary, revocation, and offboarding gates.
 
 Browser-facing cookie mutations are registered explicitly and fail before database or
 session access unless `Origin` equals `APP_BASE_URL` exactly and

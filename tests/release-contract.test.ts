@@ -68,8 +68,11 @@ function validInput(overrides: Partial<ReleaseContractInput> = {}): ReleaseContr
       KINRESOLVE_TRANSACTIONAL_EMAIL_FROM: "Kin Resolve <beta@kinresolve.com>",
       KINRESOLVE_TRANSACTIONAL_EMAIL_PROVIDER: "resend",
       KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO: "beta@kinresolve.com",
+      AI_API_MODE: "responses",
+      AI_BASE_URL: "https://api.openai.com/v1",
+      AI_CHAT_MODEL: "gpt-5-mini",
       KINRESOLVE_DNA_ENABLED: "false",
-      KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+      KINRESOLVE_EXTERNAL_AI_ENABLED: "true",
       KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
       KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
       KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",
@@ -388,7 +391,7 @@ describe("stable release contract", () => {
 
     for (const [name, unsafeValue] of [
       ["KINRESOLVE_DNA_ENABLED", "true"],
-      ["KINRESOLVE_EXTERNAL_AI_ENABLED", "true"],
+      ["KINRESOLVE_EXTERNAL_AI_ENABLED", "false"],
       ["KINRESOLVE_PUBLIC_ARCHIVE_ENABLED", "true"],
       ["KINRESOLVE_PUBLIC_PUBLISHING_ENABLED", "true"],
       ["KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED", "true"],
@@ -398,6 +401,18 @@ describe("stable release contract", () => {
       expect(() => validateReleaseContract(validInput({
         productionEnvironment: { ...validInput().productionEnvironment, [name]: unsafeValue }
       })), name).toThrow(new RegExp(`${name}.*cohort-one`, "i"));
+    }
+  });
+
+  it("pins the hosted external AI provider, endpoint mode, and model", () => {
+    for (const [name, unsafeValue] of [
+      ["AI_BASE_URL", "https://proxy.example.test/v1"],
+      ["AI_API_MODE", "chat"],
+      ["AI_CHAT_MODEL", "unreviewed-model"]
+    ] as const) {
+      expect(() => validateReleaseContract(validInput({
+        productionEnvironment: { ...validInput().productionEnvironment, [name]: unsafeValue }
+      })), name).toThrow(new RegExp(name, "i"));
     }
   });
 

@@ -22,4 +22,4 @@ Data-backed anonymous profile routes apply manual publication plus living/privac
 
 ## AI
 
-AI is a provider abstraction, not a hard dependency. Structured checks run deterministically. Provider-backed analysis uses an OpenAI-compatible API when configured, sends full private workspace context, and stages suggestions for explicit user confirmation. Whole-tree AI is owner/admin only by default.
+AI is a provider abstraction, not a hard dependency. Structured checks run deterministically. In the hosted pilot, provider-backed analysis is owner/admin-only, requires a fresh confirmation for each run, and sends only one non-sensitive selected case plus linked, non-sensitive, confirmed-deceased structured records. The server excludes unlinked, living, unknown, and sensitive person records; DNA; case decisions and task outcomes; notes; transcripts; sensitive facts; and files. Provider suggestions are staged for explicit user review.

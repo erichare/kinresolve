@@ -16,7 +16,7 @@ export const metadata = pageMetadata({
 
 const currentControls = [
   ["Archive-scoped access", `Private research routes require an authenticated archive membership. Cohort one ${betaStatus.hostedLive ? "operates" : "is designed"} as one isolated deployment, database, object store, secret set, and archive—not shared multi-family tenancy.`],
-  ["Server-enforced limits", "Hosted DNA, external AI, binary evidence uploads, media packages, public archive access, and real-data publishing are disabled at server boundaries for cohort one."],
+  ["Server-enforced limits", "Hosted DNA, binary evidence uploads, media packages, public archive access, and real-data publishing are disabled at server boundaries. External AI is owner/admin-only, manually confirmed per request, and privacy-minimized."],
   ["Reviewable import and export", "Plain GEDCOM changes are previewed before apply, a recovery snapshot is created, and an owner can export the full archive back to GEDCOM."],
   ["Bounded observability", "Operational events use fixed names and allowlisted metadata. Record content, names, queries, credentials, response bodies, session replay, and browser recording are excluded."],
   ["Controlled invitations", "Hosted accounts use single-use, expiring invitations bound to an exact archive, email, role, and approved legal-document manifest. Open signup remains disabled."],
@@ -110,16 +110,16 @@ export default function PrivacyPage() {
         <div className="disclosure-mark" aria-hidden="true">AI</div>
         <div>
           <span className="eyebrow">Cohort-one provider boundary</span>
-          <h2>External-provider AI is disabled for the hosted cohort.</h2>
-          <p>Deterministic structural and privacy checks do not need an AI provider. Although self-hosted operators can configure an OpenAI-compatible provider, {betaStatus.hostedLive ? "the hosted cohort" : "the proposed hosted cohort"} rejects external-provider analysis at the server boundary.</p>
-          <p>If that boundary changes in a later cohort, the privacy notice must identify the provider, data sent, purpose, retention, training posture, region, and participant choice before private context leaves the deployment.</p>
+          <h2>External AI is deliberate, minimized, and optional.</h2>
+          <p>Deterministic structural and privacy checks do not need an AI provider. {betaStatus.hostedLive ? "The hosted cohort" : "The proposed hosted cohort"} permits owner/admin-initiated OpenAI analysis only after a fresh on-screen confirmation. Kin Resolve sends the typed question, one non-sensitive selected case, its linked confirmed-deceased non-sensitive person records, and linked non-sensitive source metadata.</p>
+          <p>Unlinked, living, unknown, or sensitive person records; DNA; relatives; person notes; sensitive facts; unselected or sensitive cases; case decisions and task outcomes; source transcripts and notes; file references; and media are excluded server-side. Changing the question or case clears the confirmation. Requests set Responses API storage to false. The approved notice must still disclose that default provider abuse-monitoring logs may retain the minimized request for up to 30 days; API inputs and outputs are not used for training unless the operator opts in.</p>
         </div>
       </section>
 
       <section className="section limitation-section">
         <div className="shell limitation-grid">
           <div><span className="eyebrow eyebrow-light">What is not promised</span><h2>A private beta is not a compliance badge or availability guarantee.</h2></div>
-          <div><p>Kin Resolve does not claim GDPR, CCPA, HIPAA, or genetic-privacy compliance; multi-tenant readiness; production-grade hosted DNA handling; guaranteed backups; zero data loss; instant deletion; or an uptime SLA.</p><p>DNA, external AI, binary media, open signup, billing, shared multi-family hosting, and real-data public publishing are excluded from cohort one.</p></div>
+          <div><p>Kin Resolve does not claim GDPR, CCPA, HIPAA, or genetic-privacy compliance; multi-tenant readiness; production-grade hosted DNA handling; guaranteed backups; zero data loss; instant deletion; or an uptime SLA.</p><p>DNA, binary media, open signup, billing, shared multi-family hosting, real-data public publishing, and automatic or unbounded external AI are excluded from cohort one.</p></div>
         </div>
       </section>
 

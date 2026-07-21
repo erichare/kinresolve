@@ -257,7 +257,7 @@ function healthyResponse(overrides: Record<string, unknown> = {}) {
       deploymentMode: "hosted",
       datasetMode: "pilot",
       dna: false,
-      externalAi: false,
+      externalAi: true,
       publicArchive: false,
       publicPublishing: false,
       evidenceBinaryUploads: false,

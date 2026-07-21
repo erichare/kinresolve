@@ -37,7 +37,16 @@ export default async function AIPage() {
         dnaHypotheses={dnaHypotheses}
         dnaEnabled={capabilities.dna}
         externalAiEnabled={capabilities.externalAi}
+        externalAiProvider={providerHostname(process.env.AI_BASE_URL ?? "https://api.openai.com/v1")}
       />
     </AppShell>
   );
+}
+
+function providerHostname(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).hostname;
+  } catch {
+    return "the configured external provider";
+  }
 }
