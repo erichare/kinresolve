@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { containsVisiblePrice } from "./visible-pricing.mjs";
 
 const outputRoot = resolve("out");
 const marketingReleaseMode = parseMarketingReleaseMode(
@@ -621,13 +622,7 @@ if (marketingReleaseMode === "prelaunch") {
     }
   }
 }
-let pricingVisibleMarkup = pricing;
-let previousPricingVisibleMarkup;
-do {
-  previousPricingVisibleMarkup = pricingVisibleMarkup;
-  pricingVisibleMarkup = pricingVisibleMarkup.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
-} while (pricingVisibleMarkup !== previousPricingVisibleMarkup);
-if (/[$€£]\s?\d/.test(pricingVisibleMarkup) || /\d+\s?(?:\/|per\s+)(?:month|mo\b|year|yr\b|user|seat)/i.test(pricingVisibleMarkup)) {
+if (containsVisiblePrice(pricing)) {
   problems.push("Pricing page must not contain a price before hosted pricing is announced.");
 }
 

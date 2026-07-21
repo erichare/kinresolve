@@ -14,8 +14,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "test:export": "node scripts/check-export.mjs",
-    "verify": "npm run check && npm run build && npm run test:export"
+    "verify": "npm run check && npm run test:scripts && npm run build && npm run test:export"
   },
   "dependencies": {
     "next": "16.2.10",
@@ -30,6 +31,7 @@
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^10.7.0",
     "eslint-config-next": "16.2.10",
+    "parse5": "^8.0.1",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "overrides": {
