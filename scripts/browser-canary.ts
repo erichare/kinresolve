@@ -90,6 +90,7 @@ async function validateReleaseBinding(
   context: BrowserContext,
   config: BrowserCanaryConfiguration
 ): Promise<void> {
+  const externalAiExpected = config.mode === "staging";
   const response = await context.request.get("/api/internal/health", {
     headers: canaryRequestHeaders(config, { authorization: `Bearer ${config.observabilityProbeSecret}` }),
     maxRedirects: 0,
@@ -124,7 +125,7 @@ async function validateReleaseBinding(
     config.datasetMode !== "demo"
     || body.database.demoFixtureVersion !== demoFixtureVersion
     || body.capabilities.dna !== false
-    || body.capabilities.externalAi !== true
+    || body.capabilities.externalAi !== externalAiExpected
     || body.capabilities.publicArchive !== false
     || body.capabilities.publicPublishing !== false
     || body.capabilities.evidenceBinaryUploads !== false
@@ -277,6 +278,7 @@ async function runSyntheticResearchJourney(
   pageToUse: Page,
   config: BrowserCanaryConfiguration
 ): Promise<void> {
+  const externalAiExpected = config.mode === "staging";
   currentStage = "synthetic dashboard accessibility";
   await validateAccessibility(pageToUse);
   currentStage = "synthetic dashboard content";
@@ -388,7 +390,9 @@ async function runSyntheticResearchJourney(
     pageToUse.getByRole("heading", { level: 2, name: "Capabilities" })
   ));
   await expectVisible(pageToUse.getByRole("row", { name: /DNA Disabled/ }));
-  await expectVisible(pageToUse.getByRole("row", { name: /External AI Enabled/ }));
+  await expectVisible(pageToUse.getByRole("row", {
+    name: externalAiExpected ? /External AI Enabled/ : /External AI Disabled/
+  }));
   await expectVisible(pageToUse.getByRole("row", { name: /Public archive Disabled/ }));
   await expectVisible(pageToUse.getByRole("row", { name: /Public publishing Disabled/ }));
   await expectVisible(pageToUse.getByRole("row", { name: /Binary evidence uploads Disabled/ }));
@@ -408,9 +412,16 @@ async function runSyntheticResearchJourney(
   if (await pageToUse.locator('input[type="file"]').count() !== 0) throw new Error();
   await validateAccessibility(pageToUse);
 
-  currentStage = "synthetic external AI boundary";
   await exactGoto(pageToUse, config, "/app/ai");
   await expectVisible(pageToUse.getByRole("heading", { level: 1, name: "AI Analyst" }));
+  if (!externalAiExpected) {
+    currentStage = "synthetic local-only AI boundary";
+    await expectVisible(pageToUse.getByText("Local only", { exact: true }));
+    await validateAccessibility(pageToUse);
+    return;
+  }
+
+  currentStage = "synthetic external AI boundary";
   await expectVisible(pageToUse.getByText(/External AI data boundary/));
   await expectVisible(pageToUse.getByText(/Unlinked, living, unknown, or sensitive person records.*not sent/));
   const consent = pageToUse.getByRole("checkbox", { name: "Confirm this external AI request." });

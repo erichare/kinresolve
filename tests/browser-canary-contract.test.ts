@@ -256,6 +256,14 @@ describe("browser canary source and artifact boundary", () => {
     expect(source).not.toMatch(/body\.database\.demoFixtureVersion\s*!==\s*\d+/);
   });
 
+  it("keeps the providerless disposable journey local while requiring external AI in staging", () => {
+    expect(source).toContain('const externalAiExpected = config.mode === "staging";');
+    expect(source).toContain('externalAiExpected ? /External AI Enabled/ : /External AI Disabled/');
+    expect(source).toContain('if (!externalAiExpected)');
+    expect(source).toContain('currentStage = "synthetic local-only AI boundary"');
+    expect(source).toContain('currentStage = "synthetic external AI boundary"');
+  });
+
   it("keeps production anonymous and gates every failure screenshot on a synthetic mutable page", () => {
     expect(source).toContain('if (configuration.mode === "production")');
     expect(source).toContain("without credentials, writes, screenshots, or traces");
