@@ -275,9 +275,83 @@ describe("familyEdgesFromRawRecords", () => {
     ]);
 
     const edges = familyEdgesFromRawRecords(rawRecordsAcrossConnections, integrationImports, mappings);
+    // Both edges survive; the newer import's edge sorts first (newest-first).
     expect(edges.map((edge) => [edge.id, edge.husbandId])).toEqual([
-      ["conn-1:@F1@", "person-conn1-husband"],
-      ["conn-2:@F1@", "person-conn2-husband"]
+      ["conn-2:@F1@", "person-conn2-husband"],
+      ["conn-1:@F1@", "person-conn1-husband"]
+    ]);
+  });
+
+  it("prefers the newest import's structure when a stale family also connects the pair", () => {
+    // Regression: the pair are spouses in an older import, but the newer
+    // import of the SAME connection restructures them as parent/child under
+    // a brand-new family xref. The stale spouse family survives dedup (its
+    // xref is never redefined), yet the newer role must win the label.
+    const sharedMapping = {
+      scopeId: "conn-1",
+      personIdByXref: new Map([
+        ["@I1@", "person-local-a"],
+        ["@I2@", "person-local-b"]
+      ])
+    };
+    const integrationImports = [
+      { id: "import-integration-aaaa", appliedAt: "2026-07-01T00:00:00.000Z" },
+      { id: "import-integration-bbbb", appliedAt: "2026-07-18T00:00:00.000Z" }
+    ];
+    const spousesInOlderImport = {
+      id: "raw-10",
+      importId: "import-integration-aaaa",
+      xref: "@F1@",
+      type: "FAM",
+      checksum: "checksum-10",
+      raw: ["0 @F1@ FAM", "1 HUSB @I1@", "1 WIFE @I2@"].join("\n")
+    };
+    const parentChildInNewerImport = {
+      id: "raw-11",
+      importId: "import-integration-bbbb",
+      xref: "@F2@",
+      type: "FAM",
+      checksum: "checksum-11",
+      raw: ["0 @F2@ FAM", "1 HUSB @I1@", "1 CHIL @I2@"].join("\n")
+    };
+    const mappings: PersonXrefMappingsByImportId = new Map([
+      ["import-integration-aaaa", sharedMapping],
+      ["import-integration-bbbb", sharedMapping]
+    ]);
+
+    const edges = familyEdgesFromRawRecords(
+      [spousesInOlderImport, parentChildInNewerImport],
+      integrationImports,
+      mappings
+    );
+    expect(edges.map((edge) => edge.id)).toEqual(["conn-1:@F2@", "conn-1:@F1@"]);
+    expect(deriveRelationshipLabel("person-local-a", relative("person-local-b", "M"), edges)).toBe("Son");
+    expect(deriveRelationshipLabel("person-local-b", relative("person-local-a", "M"), edges)).toBe("Father");
+  });
+
+  it("keeps xref-less FAM records from different imports apart", () => {
+    // Regression: xref-less level-0 FAM records get synthetic positional ids;
+    // without namespacing, index 0 of every import collided on one key and
+    // the newest import silently erased the older import's family.
+    const olderXrefless = {
+      id: "raw-20",
+      importId: "import-older",
+      type: "FAM",
+      checksum: "checksum-20",
+      raw: ["0 FAM", "1 HUSB @I1@", "1 WIFE @I2@"].join("\n")
+    };
+    const newerXrefless = {
+      id: "raw-21",
+      importId: "import-newer",
+      type: "FAM",
+      checksum: "checksum-21",
+      raw: ["0 FAM", "1 HUSB @I5@", "1 WIFE @I6@"].join("\n")
+    };
+
+    const edges = familyEdgesFromRawRecords([olderXrefless, newerXrefless], imports);
+    expect(edges.map((edge) => [edge.id, edge.husbandId])).toEqual([
+      ["import-newer:family-record-0", "@I5@"],
+      ["import-older:family-record-0", "@I1@"]
     ]);
   });
 

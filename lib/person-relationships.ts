@@ -64,7 +64,13 @@ export function genderedRelationshipLabel(
 
 // Extracts family edges from parsed GEDCOM records. Only well-formed
 // @pointer@ references count; free-text HUSB/WIFE/CHIL values are ignored.
-export function familyEdgesFromGedcomRecords(records: readonly GedcomRecord[]): FamilyEdge[] {
+// FAM records without an xref get a synthetic positional id; callers that
+// merge edges across several parses (familyEdgesFromRawRecords) must pass
+// `syntheticIdNamespace` so equal positions in unrelated files never collide.
+export function familyEdgesFromGedcomRecords(
+  records: readonly GedcomRecord[],
+  syntheticIdNamespace?: string
+): FamilyEdge[] {
   return records
     .filter((record) => record.type === "FAM")
     .flatMap((record, index) => {
@@ -79,8 +85,11 @@ export function familyEdgesFromGedcomRecords(records: readonly GedcomRecord[]): 
       const partnerIds = [husbandId, wifeId].filter((id): id is string => Boolean(id));
       if (partnerIds.length === 0 && childIds.length === 0) return [];
 
+      const syntheticId = syntheticIdNamespace
+        ? `${syntheticIdNamespace}:family-record-${index}`
+        : `family-record-${index}`;
       return [{
-        id: record.xref ?? `family-record-${index}`,
+        id: record.xref ?? syntheticId,
         husbandId,
         wifeId,
         partnerIds,
@@ -94,7 +103,9 @@ export function familyEdgesFromGedcomRecords(records: readonly GedcomRecord[]): 
 // isolation and replayed oldest-first: the newest import containing a family
 // xref owns that family's structure, matching the last-write-wins merge the
 // importer applies to people (see buildRepairedRelativesByPersonId in
-// lib/workspace-store.ts). Integration-applied imports additionally translate
+// lib/workspace-store.ts). The returned edges are ordered newest import
+// first so label derivation, which trusts the first matching family, prefers
+// the newest structure over families surviving only in older imports. Integration-applied imports additionally translate
 // FAM member xrefs to the generated local person ids through their
 // connection's mapping (see readPersonXrefMappingsByImportId in
 // lib/workspace-store.ts); imports without a mapping keep raw xrefs, which
@@ -125,14 +136,21 @@ export function familyEdgesFromRawRecords(
     const records = recordsByImportId.get(importId) ?? [];
     const parsed = parseGedcom(records.map((record) => record.raw).join("\n"));
     const mapping = xrefMappings?.get(importId);
-    for (const edge of familyEdgesFromGedcomRecords(parsed.records)) {
+    for (const edge of familyEdgesFromGedcomRecords(parsed.records, importId)) {
       const translated = mapping ? translateFamilyEdge(edge, mapping) : edge;
       const scopedFamilyId = mapping ? `${mapping.scopeId}\u0000${edge.id}` : edge.id;
+      // Delete before set so a family xref redefined by this (newer) import
+      // moves to the newest insertion position instead of keeping the older
+      // import's original slot in the Map's insertion order.
+      edgesByScopedFamilyId.delete(scopedFamilyId);
       edgesByScopedFamilyId.set(scopedFamilyId, translated);
     }
   }
 
-  return [...edgesByScopedFamilyId.values()];
+  // Newest-first: deriveRelationshipLabel returns the first matching family,
+  // so a family that survives only in an older import must not outrank the
+  // newest import's structure when both connect the same pair of people.
+  return [...edgesByScopedFamilyId.values()].reverse();
 }
 
 // Translates one FAM edge's member xrefs to local person ids. Members the
