@@ -192,18 +192,21 @@ describeIfDatabase("archive provisioning", () => {
       [
         canonicalOptions.archiveId,
         [
-          "p-ada-hartwell",
-          "p-vincent-hartwell",
-          "p-iris-mercer",
-          "p-peter-mercer",
-          "p-henry-vale",
-          "p-june-vale"
+          "p-levi-northwood",
+          "p-ruth-northwood",
+          "p-daniel-frost",
+          "p-thomas-frost",
+          "p-owen-reed",
+          "p-julian-cross",
+          "p-miles-mercer",
+          "p-celia-mercer",
+          "p-arthur-bell"
         ]
       ],
       canonicalOptions
     );
     await query(
-      "UPDATE archives SET demo_fixture_version = 3 WHERE id = $1",
+      "UPDATE archives SET demo_fixture_version = 5 WHERE id = $1",
       [canonicalOptions.archiveId],
       canonicalOptions
     );
@@ -213,13 +216,13 @@ describeIfDatabase("archive provisioning", () => {
         [canonicalOptions.archiveId],
         canonicalOptions
       )
-    ).resolves.toMatchObject({ rows: [{ total: 16 }] });
+    ).resolves.toMatchObject({ rows: [{ total: 22 }] });
 
     await expect(
-      rotateCanonicalPublicDemoFixture(3, canonicalOptions)
+      rotateCanonicalPublicDemoFixture(5, canonicalOptions)
     ).resolves.toEqual({
       archiveId: canonicalOptions.archiveId,
-      previousDemoFixtureVersion: 3,
+      previousDemoFixtureVersion: 5,
       demoFixtureVersion,
       status: "rotated"
     });
@@ -230,11 +233,11 @@ describeIfDatabase("archive provisioning", () => {
       [canonicalOptions.archiveId],
       canonicalOptions
     );
-    expect(workspace.people).toHaveLength(22);
+    expect(workspace.people).toHaveLength(31);
     expect(workspace.cases.some((item) => item.title === "Remove during rotation")).toBe(false);
     expect(after.rows[0]?.api_id).toBe(before.rows[0]?.api_id);
     await expect(
-      rotateCanonicalPublicDemoFixture(3, canonicalOptions)
+      rotateCanonicalPublicDemoFixture(5, canonicalOptions)
     ).resolves.toMatchObject({ status: "already-current", demoFixtureVersion });
   });
 

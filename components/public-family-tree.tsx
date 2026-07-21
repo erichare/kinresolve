@@ -69,7 +69,7 @@ export function PublicFamilyTree({
         <div>
           <span className="card-kicker">Five connected generations</span>
           <h2 id="public-family-tree-heading">Complete family tree</h2>
-          <p>Follow the sibling branches from the great-grandparents through Clara&apos;s descendants. Every profile in the archive appears below.</p>
+          <p>Follow sibling branches, remarriages, and unmarried co-parents from the great-grandparents through their descendants. Every profile in the archive appears below.</p>
         </div>
         <div aria-label="Family tree view controls" className="public-family-tree-controls" role="group">
           <button
@@ -131,7 +131,9 @@ export function PublicFamilyTree({
               {layout.connectors.map((connector) => (
                 <g data-family-unit={connector.familyId} key={connector.familyId}>
                   <path className="public-family-tree-partners" d={connector.partnerPath} />
-                  <path className="public-family-tree-descendants" d={connector.descendantPath} />
+                  {connector.descendantPath
+                    ? <path className="public-family-tree-descendants" d={connector.descendantPath} />
+                    : null}
                 </g>
               ))}
             </svg>
@@ -174,10 +176,13 @@ export function PublicFamilyTree({
           const firstPartner = peopleById.get(family.partnerIds[0]);
           const secondPartner = peopleById.get(family.partnerIds[1]);
           const children = family.childIds.map((id) => peopleById.get(id)?.displayName).filter(Boolean);
-          if (!firstPartner || !secondPartner || children.length === 0) return null;
+          if (!firstPartner || !secondPartner) return null;
+          const unionDescription = family.unionKind === "unmarried" ? "unmarried co-parents" : "married";
           return (
             <li key={family.id}>
-              {firstPartner.displayName} and {secondPartner.displayName}; children: {children.join(", ")}.
+              {firstPartner.displayName} and {secondPartner.displayName}; {unionDescription}; {children.length > 0
+                ? `children: ${children.join(", ")}`
+                : "no children recorded"}.
             </li>
           );
         })}

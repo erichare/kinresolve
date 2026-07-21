@@ -93,9 +93,9 @@ describe("public demo database release contract", () => {
 
     expect(rotation).toBeGreaterThan(-1);
     expect(rotation).toBeLessThan(provisioning);
-    expect(migration.contents).toContain("-- --from-version 4");
+    expect(migration.contents).toContain("-- --from-version 5");
     expect(migration.contents).toContain(
-      "DEMO_FIXTURE_ROTATION_CONFIRMATION: ROTATE-DEMO-FIXTURE:kinresolve-demo-public:4:5"
+      "DEMO_FIXTURE_ROTATION_CONFIRMATION: ROTATE-DEMO-FIXTURE:kinresolve-demo-public:5:6"
     );
     expect(migration.contents).toContain("KINRESOLVE_PUBLIC_DEMO_ENABLED: \"true\"");
   });

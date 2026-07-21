@@ -1,5 +1,6 @@
 import type { DnaMatch, PersonSummary, ResearchCase } from "./models";
 import { createDnaConnectionHypothesis, scoreDnaMatch } from "./dna";
+import { demoFamilyTree } from "./demo-family-tree";
 
 export const demoFictionNotice =
   "Fictional demo archive: every name, date, place, record, photograph, story, and DNA match in this workspace was invented for Kin Resolve. No detail represents a real person or family.";
@@ -322,7 +323,7 @@ const demoPersonDrafts: PersonSummary[] = [
       "p-henry-vale",
       "p-june-vale"
     ],
-    notes: `${demoFictionNotice} Clara wrote labels for the family photographs in violet ink, but left the harbor photograph unnamed. A late note says only: “Ask Tobias about the second Samuel.”`,
+    notes: `${demoFictionNotice} Clara wrote labels for the family photographs in violet ink, but left the harbor photograph unnamed. She and Henry Vale divorced in 1959, and she married Arthur Bell in 1962. A late note says only: “Ask Tobias about the second Samuel.”`,
     facts: [
       {
         id: "fact-clara-birth",
@@ -343,11 +344,48 @@ const demoPersonDrafts: PersonSummary[] = [
         privacy: "private"
       },
       {
+        id: "fact-clara-marriage-vale",
+        type: "MARR",
+        date: "8 Jun 1935",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay marriage register",
+        confidence: 0.91,
+        privacy: "private"
+      },
+      {
         id: "fact-clara-name-vale",
         type: "NAME",
         date: "8 Jun 1935",
         place: "Lantern Bay, Wisconsin",
         value: "Clara Juniper Mercer Vale",
+        source: "Fictional Lantern Bay marriage register",
+        confidence: 0.88,
+        privacy: "private"
+      },
+      {
+        id: "fact-clara-divorce-vale",
+        type: "DIV",
+        date: "18 Sep 1959",
+        place: "Bayfield County, Wisconsin",
+        source: "Fictional Bayfield County court index",
+        confidence: 0.87,
+        privacy: "private"
+      },
+      {
+        id: "fact-clara-marriage-bell",
+        type: "MARR",
+        date: "12 May 1962",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay marriage register",
+        confidence: 0.9,
+        privacy: "private"
+      },
+      {
+        id: "fact-clara-name-bell",
+        type: "NAME",
+        date: "12 May 1962",
+        place: "Lantern Bay, Wisconsin",
+        value: "Clara Juniper Mercer Bell",
         source: "Fictional Lantern Bay marriage register",
         confidence: 0.88,
         privacy: "private"
@@ -901,7 +939,7 @@ const demoPersonDrafts: PersonSummary[] = [
     privacy: "public",
     published: true,
     relatives: ["p-elias-hartwell", "p-amalia-bellandi", "p-nora-hartwell", "p-vincent-hartwell"],
-    notes: `${demoFictionNotice} Ada taught in one-room schools along the lake and mailed Nora clipped newspaper notices with the names underlined. Her branch of the family remained in Minnesota rather than returning to Lantern Bay.`,
+    notes: `${demoFictionNotice} Ada taught in one-room schools along the lake and mailed Nora clipped newspaper notices with the names underlined. She married Levi Northwood, Daniel Frost, and Owen Reed in succession; her daughter Ruth was born during the first marriage and her son Thomas during the second. Her branch of the family remained in Minnesota rather than returning to Lantern Bay.`,
     facts: [
       {
         id: "fact-ada-birth",
@@ -910,6 +948,33 @@ const demoPersonDrafts: PersonSummary[] = [
         place: "Lantern Bay, Wisconsin",
         source: "Fictional Lantern Bay civil register",
         confidence: 0.92,
+        privacy: "public"
+      },
+      {
+        id: "fact-ada-marriage-northwood",
+        type: "MARR",
+        date: "14 Jun 1913",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth marriage register",
+        confidence: 0.91,
+        privacy: "public"
+      },
+      {
+        id: "fact-ada-divorce-northwood",
+        type: "DIV",
+        date: "3 Feb 1919",
+        place: "St. Louis County, Minnesota",
+        source: "Fictional St. Louis County court index",
+        confidence: 0.86,
+        privacy: "public"
+      },
+      {
+        id: "fact-ada-marriage-frost",
+        type: "MARR",
+        date: "6 Nov 1920",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth marriage register",
+        confidence: 0.9,
         privacy: "public"
       },
       {
@@ -923,12 +988,310 @@ const demoPersonDrafts: PersonSummary[] = [
         privacy: "public"
       },
       {
+        id: "fact-ada-divorce-frost",
+        type: "DIV",
+        date: "21 Aug 1931",
+        place: "St. Louis County, Minnesota",
+        source: "Fictional St. Louis County court index",
+        confidence: 0.87,
+        privacy: "public"
+      },
+      {
+        id: "fact-ada-marriage-reed",
+        type: "MARR",
+        date: "2 Sep 1934",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth marriage register",
+        confidence: 0.92,
+        privacy: "public"
+      },
+      {
         id: "fact-ada-death",
         type: "DEAT",
         date: "2 Dec 1974",
         place: "Duluth, Minnesota",
         source: "Fictional Duluth memorial register",
         confidence: 0.88,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-levi-northwood",
+    slug: "levi-amos-northwood",
+    displayName: "Levi Amos Northwood",
+    givenName: "Levi Amos",
+    surname: "Northwood",
+    birthDate: "1 Sep 1888",
+    birthPlace: "Two Harbors, Minnesota",
+    deathDate: "11 Apr 1960",
+    deathPlace: "Superior, Wisconsin",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Levi worked as a railroad telegrapher along the north shore. He and Ada Hartwell divorced in 1919 and continued exchanging school reports and birthday postcards for their daughter Ruth.`,
+    facts: [
+      {
+        id: "fact-levi-birth",
+        type: "BIRT",
+        date: "1 Sep 1888",
+        place: "Two Harbors, Minnesota",
+        source: "Fictional Two Harbors civil register",
+        confidence: 0.9,
+        privacy: "public"
+      },
+      {
+        id: "fact-levi-marriage-hartwell",
+        type: "MARR",
+        date: "14 Jun 1913",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth marriage register",
+        confidence: 0.91,
+        privacy: "public"
+      },
+      {
+        id: "fact-levi-divorce-hartwell",
+        type: "DIV",
+        date: "3 Feb 1919",
+        place: "St. Louis County, Minnesota",
+        source: "Fictional St. Louis County court index",
+        confidence: 0.86,
+        privacy: "public"
+      },
+      {
+        id: "fact-levi-occupation",
+        type: "OCCU",
+        date: "1924",
+        place: "Superior, Wisconsin",
+        value: "Railroad telegrapher",
+        source: "Fictional Superior trade directory",
+        confidence: 0.8,
+        privacy: "public"
+      },
+      {
+        id: "fact-levi-death",
+        type: "DEAT",
+        date: "11 Apr 1960",
+        place: "Superior, Wisconsin",
+        source: "Fictional Superior memorial register",
+        confidence: 0.89,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-ruth-northwood",
+    slug: "ruth-celeste-northwood",
+    displayName: "Ruth Celeste Northwood",
+    givenName: "Ruth Celeste",
+    surname: "Northwood",
+    birthDate: "8 Apr 1915",
+    birthPlace: "Duluth, Minnesota",
+    deathDate: "19 Jul 2003",
+    deathPlace: "Saint Paul, Minnesota",
+    sex: "F",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Ruth, the daughter of Ada Hartwell and Levi Northwood, became a library cataloger in Saint Paul. She traded lake postcards with her younger half-brother Thomas Frost throughout their adult lives.`,
+    facts: [
+      {
+        id: "fact-ruth-birth",
+        type: "BIRT",
+        date: "8 Apr 1915",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth civil register",
+        confidence: 0.94,
+        privacy: "public"
+      },
+      {
+        id: "fact-ruth-occupation",
+        type: "OCCU",
+        date: "1946",
+        place: "Saint Paul, Minnesota",
+        value: "Library cataloger",
+        source: "Fictional Saint Paul municipal directory",
+        confidence: 0.82,
+        privacy: "public"
+      },
+      {
+        id: "fact-ruth-death",
+        type: "DEAT",
+        date: "19 Jul 2003",
+        place: "Saint Paul, Minnesota",
+        source: "Fictional Saint Paul memorial register",
+        confidence: 0.91,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-daniel-frost",
+    slug: "daniel-james-frost",
+    displayName: "Daniel James Frost",
+    givenName: "Daniel James",
+    surname: "Frost",
+    birthDate: "24 Dec 1890",
+    birthPlace: "Ashland, Wisconsin",
+    deathDate: "8 Aug 1965",
+    deathPlace: "Minneapolis, Minnesota",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Daniel set type for a Duluth weekly and saved examples of unusual headline lettering. He and Ada Hartwell married in 1920, welcomed their son Thomas in 1923, and divorced in 1931.`,
+    facts: [
+      {
+        id: "fact-daniel-birth",
+        type: "BIRT",
+        date: "24 Dec 1890",
+        place: "Ashland, Wisconsin",
+        source: "Fictional Ashland civil register",
+        confidence: 0.91,
+        privacy: "public"
+      },
+      {
+        id: "fact-daniel-marriage-hartwell",
+        type: "MARR",
+        date: "6 Nov 1920",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth marriage register",
+        confidence: 0.9,
+        privacy: "public"
+      },
+      {
+        id: "fact-daniel-occupation",
+        type: "OCCU",
+        date: "1927",
+        place: "Duluth, Minnesota",
+        value: "Linotype operator",
+        source: "Fictional Duluth trade directory",
+        confidence: 0.81,
+        privacy: "public"
+      },
+      {
+        id: "fact-daniel-divorce-hartwell",
+        type: "DIV",
+        date: "21 Aug 1931",
+        place: "St. Louis County, Minnesota",
+        source: "Fictional St. Louis County court index",
+        confidence: 0.87,
+        privacy: "public"
+      },
+      {
+        id: "fact-daniel-death",
+        type: "DEAT",
+        date: "8 Aug 1965",
+        place: "Minneapolis, Minnesota",
+        source: "Fictional Minneapolis memorial register",
+        confidence: 0.89,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-thomas-frost",
+    slug: "thomas-elias-frost",
+    displayName: "Thomas Elias Frost",
+    givenName: "Thomas Elias",
+    surname: "Frost",
+    birthDate: "17 Jan 1923",
+    birthPlace: "Duluth, Minnesota",
+    deathDate: "4 May 2001",
+    deathPlace: "Rochester, Minnesota",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Thomas, the son of Ada Hartwell and Daniel Frost, mapped trails and fire lookouts along Minnesota's north shore. He and his older half-sister Ruth Northwood kept a shared postcard album arranged by lighthouse.`,
+    facts: [
+      {
+        id: "fact-thomas-birth",
+        type: "BIRT",
+        date: "17 Jan 1923",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth civil register",
+        confidence: 0.94,
+        privacy: "public"
+      },
+      {
+        id: "fact-thomas-occupation",
+        type: "OCCU",
+        date: "1951",
+        place: "Two Harbors, Minnesota",
+        value: "State park ranger",
+        source: "Fictional Minnesota conservation directory",
+        confidence: 0.82,
+        privacy: "public"
+      },
+      {
+        id: "fact-thomas-death",
+        type: "DEAT",
+        date: "4 May 2001",
+        place: "Rochester, Minnesota",
+        source: "Fictional Rochester memorial register",
+        confidence: 0.9,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-owen-reed",
+    slug: "owen-alder-reed",
+    displayName: "Owen Alder Reed",
+    givenName: "Owen Alder",
+    surname: "Reed",
+    birthDate: "4 Nov 1887",
+    birthPlace: "Bayfield, Wisconsin",
+    deathDate: "16 Feb 1967",
+    deathPlace: "Duluth, Minnesota",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Owen dispatched harbor tugs and collected hand-drawn maps of winter channels. He married Ada Hartwell in 1934; no children are recorded for their marriage.`,
+    facts: [
+      {
+        id: "fact-owen-birth",
+        type: "BIRT",
+        date: "4 Nov 1887",
+        place: "Bayfield, Wisconsin",
+        source: "Fictional Bayfield civil register",
+        confidence: 0.9,
+        privacy: "public"
+      },
+      {
+        id: "fact-owen-marriage-hartwell",
+        type: "MARR",
+        date: "2 Sep 1934",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth marriage register",
+        confidence: 0.92,
+        privacy: "public"
+      },
+      {
+        id: "fact-owen-occupation",
+        type: "OCCU",
+        date: "1942",
+        place: "Duluth, Minnesota",
+        value: "Harbor tug dispatcher",
+        source: "Fictional Duluth harbor payroll",
+        confidence: 0.8,
+        privacy: "public"
+      },
+      {
+        id: "fact-owen-death",
+        type: "DEAT",
+        date: "16 Feb 1967",
+        place: "Duluth, Minnesota",
+        source: "Fictional Duluth memorial register",
+        confidence: 0.89,
         privacy: "public"
       }
     ]
@@ -995,7 +1358,7 @@ const demoPersonDrafts: PersonSummary[] = [
     privacy: "public",
     published: true,
     relatives: ["p-nora-hartwell", "p-samuel-mercer", "p-clara-mercer", "p-tobias-mercer", "p-peter-mercer"],
-    notes: `${demoFictionNotice} Iris became a municipal archivist and imposed her own careful numbering system on the family letters. She believed the passenger notice and harbor photograph came from different journeys.`,
+    notes: `${demoFictionNotice} Iris became a municipal archivist and imposed her own careful numbering system on the family letters. She and Julian Cross never married; as unmarried co-parents, they raised Miles and Celia in Madison. She believed the passenger notice and harbor photograph came from different journeys.`,
     facts: [
       {
         id: "fact-iris-birth",
@@ -1004,6 +1367,16 @@ const demoPersonDrafts: PersonSummary[] = [
         place: "Lantern Bay, Wisconsin",
         source: "Fictional Lantern Bay civil register",
         confidence: 0.94,
+        privacy: "public"
+      },
+      {
+        id: "fact-iris-unmarried-household",
+        type: "EVEN",
+        date: "1 Jun 1943",
+        place: "Madison, Wisconsin",
+        value: "Unmarried co-parent household with Julian Cross",
+        source: "Fictional 1943 Madison household directory",
+        confidence: 0.84,
         privacy: "public"
       },
       {
@@ -1023,6 +1396,157 @@ const demoPersonDrafts: PersonSummary[] = [
         place: "Madison, Wisconsin",
         source: "Fictional Madison memorial register",
         confidence: 0.9,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-julian-cross",
+    slug: "julian-ellis-cross",
+    displayName: "Julian Ellis Cross",
+    givenName: "Julian Ellis",
+    surname: "Cross",
+    birthDate: "2 Jan 1916",
+    birthPlace: "Milwaukee, Wisconsin",
+    deathDate: "14 Dec 1987",
+    deathPlace: "Madison, Wisconsin",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Julian photographed civic projects for a Madison newspaper and indexed his negatives by street corner. He and Iris Mercer never married and remained unmarried co-parents to Miles and Celia.`,
+    facts: [
+      {
+        id: "fact-julian-birth",
+        type: "BIRT",
+        date: "2 Jan 1916",
+        place: "Milwaukee, Wisconsin",
+        source: "Fictional Milwaukee civil register",
+        confidence: 0.92,
+        privacy: "public"
+      },
+      {
+        id: "fact-julian-unmarried-household",
+        type: "EVEN",
+        date: "1 Jun 1943",
+        place: "Madison, Wisconsin",
+        value: "Unmarried co-parent household with Iris Mercer",
+        source: "Fictional 1943 Madison household directory",
+        confidence: 0.84,
+        privacy: "public"
+      },
+      {
+        id: "fact-julian-occupation",
+        type: "OCCU",
+        date: "1943",
+        place: "Madison, Wisconsin",
+        value: "Newspaper photographer",
+        source: "Fictional Madison press directory",
+        confidence: 0.82,
+        privacy: "public"
+      },
+      {
+        id: "fact-julian-death",
+        type: "DEAT",
+        date: "14 Dec 1987",
+        place: "Madison, Wisconsin",
+        source: "Fictional Madison memorial register",
+        confidence: 0.89,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-miles-mercer",
+    slug: "miles-julian-mercer",
+    displayName: "Miles Julian Mercer",
+    givenName: "Miles Julian",
+    surname: "Mercer",
+    birthDate: "22 Nov 1944",
+    birthPlace: "Madison, Wisconsin",
+    deathDate: "11 Feb 2013",
+    deathPlace: "Madison, Wisconsin",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Miles, the son of unmarried co-parents Iris Mercer and Julian Cross, designed storm-water maps for Madison. His copy of Iris's letter index includes penciled cross-references to Julian's street photographs.`,
+    facts: [
+      {
+        id: "fact-miles-birth",
+        type: "BIRT",
+        date: "22 Nov 1944",
+        place: "Madison, Wisconsin",
+        source: "Fictional Madison civil register",
+        confidence: 0.95,
+        privacy: "public"
+      },
+      {
+        id: "fact-miles-occupation",
+        type: "OCCU",
+        date: "1972",
+        place: "Madison, Wisconsin",
+        value: "Municipal drainage engineer",
+        source: "Fictional Madison municipal directory",
+        confidence: 0.83,
+        privacy: "public"
+      },
+      {
+        id: "fact-miles-death",
+        type: "DEAT",
+        date: "11 Feb 2013",
+        place: "Madison, Wisconsin",
+        source: "Fictional Madison memorial register",
+        confidence: 0.91,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-celia-mercer",
+    slug: "celia-rowan-mercer",
+    displayName: "Celia Rowan Mercer",
+    givenName: "Celia Rowan",
+    surname: "Mercer",
+    birthDate: "9 May 1948",
+    birthPlace: "Madison, Wisconsin",
+    deathDate: "27 Aug 2020",
+    deathPlace: "Milwaukee, Wisconsin",
+    sex: "F",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Celia, the daughter of unmarried co-parents Iris Mercer and Julian Cross, conserved paper maps and photographs at a Milwaukee museum. She preserved her parents' separate surnames in every collection note.`,
+    facts: [
+      {
+        id: "fact-celia-birth",
+        type: "BIRT",
+        date: "9 May 1948",
+        place: "Madison, Wisconsin",
+        source: "Fictional Madison civil register",
+        confidence: 0.95,
+        privacy: "public"
+      },
+      {
+        id: "fact-celia-occupation",
+        type: "OCCU",
+        date: "1976",
+        place: "Milwaukee, Wisconsin",
+        value: "Paper conservator",
+        source: "Fictional Milwaukee museum directory",
+        confidence: 0.83,
+        privacy: "public"
+      },
+      {
+        id: "fact-celia-death",
+        type: "DEAT",
+        date: "27 Aug 2020",
+        place: "Milwaukee, Wisconsin",
+        source: "Fictional Milwaukee memorial register",
+        confidence: 0.91,
         privacy: "public"
       }
     ]
@@ -1089,7 +1613,7 @@ const demoPersonDrafts: PersonSummary[] = [
     privacy: "public",
     published: true,
     relatives: ["p-clara-mercer", "p-june-vale"],
-    notes: `${demoFictionNotice} Henry married Clara after meeting her on a lake ferry. His careful handwriting appears on only a few photograph backs, making his labels easy to distinguish from Clara's violet-ink captions.`,
+    notes: `${demoFictionNotice} Henry married Clara after meeting her on a lake ferry, and they divorced in 1959. His careful handwriting appears on only a few photograph backs, making his labels easy to distinguish from Clara's violet-ink captions.`,
     facts: [
       {
         id: "fact-henry-birth",
@@ -1110,12 +1634,77 @@ const demoPersonDrafts: PersonSummary[] = [
         privacy: "public"
       },
       {
+        id: "fact-henry-divorce",
+        type: "DIV",
+        date: "18 Sep 1959",
+        place: "Bayfield County, Wisconsin",
+        source: "Fictional Bayfield County court index",
+        confidence: 0.87,
+        privacy: "public"
+      },
+      {
         id: "fact-henry-death",
         type: "DEAT",
         date: "12 Mar 1978",
         place: "Lantern Bay, Wisconsin",
         source: "Fictional Lantern Bay memorial register",
         confidence: 0.89,
+        privacy: "public"
+      }
+    ]
+  },
+  {
+    id: "p-arthur-bell",
+    slug: "arthur-theodore-bell",
+    displayName: "Arthur Theodore Bell",
+    givenName: "Arthur Theodore",
+    surname: "Bell",
+    birthDate: "27 Mar 1910",
+    birthPlace: "Marquette, Michigan",
+    deathDate: "3 Oct 1990",
+    deathPlace: "Lantern Bay, Wisconsin",
+    sex: "M",
+    livingStatus: "deceased",
+    privacy: "public",
+    published: true,
+    relatives: [],
+    notes: `${demoFictionNotice} Arthur drew route maps for a lake-ferry cooperative and met Clara Mercer Vale through a local history society. They married in 1962, after Clara's marriage to Henry Vale had ended.`,
+    facts: [
+      {
+        id: "fact-arthur-birth",
+        type: "BIRT",
+        date: "27 Mar 1910",
+        place: "Marquette, Michigan",
+        source: "Fictional Marquette civil register",
+        confidence: 0.91,
+        privacy: "public"
+      },
+      {
+        id: "fact-arthur-marriage-mercer",
+        type: "MARR",
+        date: "12 May 1962",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay marriage register",
+        confidence: 0.9,
+        privacy: "public"
+      },
+      {
+        id: "fact-arthur-occupation",
+        type: "OCCU",
+        date: "1964",
+        place: "Lantern Bay, Wisconsin",
+        value: "Ferry route cartographer",
+        source: "Fictional Lantern Bay trade directory",
+        confidence: 0.81,
+        privacy: "public"
+      },
+      {
+        id: "fact-arthur-death",
+        type: "DEAT",
+        date: "3 Oct 1990",
+        place: "Lantern Bay, Wisconsin",
+        source: "Fictional Lantern Bay memorial register",
+        confidence: 0.9,
         privacy: "public"
       }
     ]
@@ -1168,6 +1757,71 @@ const demoPersonDrafts: PersonSummary[] = [
   }
 ];
 
+function buildDemoRelativeIdsByPersonId(
+  people: readonly PersonSummary[]
+): ReadonlyMap<string, readonly string[]> {
+  const knownPersonIds = new Set(people.map((person) => person.id));
+  const relativeIdsByPersonId = new Map(
+    people.map((person) => [person.id, new Set<string>()] as const)
+  );
+
+  const linkRelatives = (firstPersonId: string, secondPersonId: string): void => {
+    if (
+      firstPersonId === secondPersonId
+      || !knownPersonIds.has(firstPersonId)
+      || !knownPersonIds.has(secondPersonId)
+    ) {
+      return;
+    }
+    relativeIdsByPersonId.get(firstPersonId)?.add(secondPersonId);
+    relativeIdsByPersonId.get(secondPersonId)?.add(firstPersonId);
+  };
+
+  // Preserve any curated links on a draft while making them reciprocal and
+  // discarding stale ids that do not belong to this fictional fixture.
+  for (const person of people) {
+    for (const relativeId of person.relatives) {
+      linkRelatives(person.id, relativeId);
+    }
+  }
+
+  // A family unit directly connects partners, parents and children, and
+  // siblings recorded in the same union.
+  for (const family of demoFamilyTree.families) {
+    const familyMemberIds = [...family.partnerIds, ...family.childIds];
+    for (let firstIndex = 0; firstIndex < familyMemberIds.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < familyMemberIds.length; secondIndex += 1) {
+        linkRelatives(familyMemberIds[firstIndex], familyMemberIds[secondIndex]);
+      }
+    }
+  }
+
+  // Children from separate unions that share a parent are half-siblings even
+  // though they never appear together in one family unit.
+  const childIdsByParentId = new Map<string, Set<string>>();
+  for (const family of demoFamilyTree.families) {
+    for (const parentId of family.partnerIds) {
+      const childIds = childIdsByParentId.get(parentId) ?? new Set<string>();
+      for (const childId of family.childIds) childIds.add(childId);
+      childIdsByParentId.set(parentId, childIds);
+    }
+  }
+  for (const childIds of childIdsByParentId.values()) {
+    const children = [...childIds];
+    for (let firstIndex = 0; firstIndex < children.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < children.length; secondIndex += 1) {
+        linkRelatives(children[firstIndex], children[secondIndex]);
+      }
+    }
+  }
+
+  return new Map(
+    [...relativeIdsByPersonId].map(([personId, relativeIds]) => [personId, [...relativeIds]])
+  );
+}
+
+const demoRelativeIdsByPersonId = buildDemoRelativeIdsByPersonId(demoPersonDrafts);
+
 // Every profile and fact in the fictional fixture is safe for the curated
 // public-family surface. Private research material lives in cases, source
 // detail, DNA, and analysis records rather than on these profiles.
@@ -1176,6 +1830,7 @@ export const demoPeople: PersonSummary[] = demoPersonDrafts.map((person) => ({
   livingStatus: "deceased",
   privacy: "public",
   published: true,
+  relatives: [...(demoRelativeIdsByPersonId.get(person.id) ?? [])],
   facts: person.facts.map((fact) => ({ ...fact, privacy: "public" }))
 }));
 
@@ -2175,7 +2830,7 @@ export const demoCases: ResearchCase[] = [
 
 export const archiveStats = {
   people: demoPeople.length,
-  families: 8,
+  families: demoFamilyTree.families.length,
   sources: 7,
   citations: demoPeople.reduce(
     (total, person) => total + person.facts.filter((fact) => Boolean(fact.source?.trim())).length,

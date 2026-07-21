@@ -13,6 +13,7 @@ export type FamilyUnit = {
   id: string;
   partnerIds: readonly [string, string];
   childIds: readonly string[];
+  unionKind?: "marriage" | "unmarried";
 };
 
 export type FamilyTreeDefinition = {
@@ -56,7 +57,7 @@ type FamilyTreeLayoutOptions = {
 };
 
 const defaultLayout = {
-  width: 1280,
+  width: 1440,
   horizontalPadding: 32,
   topPadding: 48,
   bottomPadding: 32,
@@ -99,13 +100,33 @@ export function buildFamilyTreeLayout(
     throw new Error("A family tree person can appear in only one generation.");
   }
 
+  const partnershipCountByPersonId = new Map<string, number>();
+  for (const family of tree.families) {
+    for (const partnerId of family.partnerIds) {
+      partnershipCountByPersonId.set(partnerId, (partnershipCountByPersonId.get(partnerId) ?? 0) + 1);
+    }
+  }
+  const routedLaneByFamilyId = new Map<string, number>();
+  const routedCountByGeneration = new Map<number, number>();
+  for (const family of tree.families) {
+    if (!family.partnerIds.some((partnerId) => (partnershipCountByPersonId.get(partnerId) ?? 0) > 1)) continue;
+    const firstPartner = requiredNode(nodeByPersonId, family.partnerIds[0], family.id);
+    const secondPartner = requiredNode(nodeByPersonId, family.partnerIds[1], family.id);
+    if (firstPartner.generationIndex !== secondPartner.generationIndex) {
+      throw new Error(`Family ${family.id} places partners in different generations.`);
+    }
+    const lane = routedCountByGeneration.get(firstPartner.generationIndex) ?? 0;
+    routedLaneByFamilyId.set(family.id, lane);
+    routedCountByGeneration.set(firstPartner.generationIndex, lane + 1);
+  }
+
   const connectors = tree.families.map((family) => {
     const firstPartner = requiredNode(nodeByPersonId, family.partnerIds[0], family.id);
     const secondPartner = requiredNode(nodeByPersonId, family.partnerIds[1], family.id);
     if (firstPartner.generationIndex !== secondPartner.generationIndex) {
       throw new Error(`Family ${family.id} places partners in different generations.`);
     }
-    if (family.childIds.length === 0 || new Set(family.childIds).size !== family.childIds.length) {
+    if (new Set(family.childIds).size !== family.childIds.length) {
       throw new Error(`Family ${family.id} must contain unique children.`);
     }
 
@@ -117,17 +138,31 @@ export function buildFamilyTreeLayout(
     const [leftPartner, rightPartner] = [firstPartner, secondPartner].sort((a, b) => a.x - b.x);
     const partnerY = leftPartner.y + settings.nodeHeight / 2;
     const unionX = (centerX(leftPartner, settings.nodeWidth) + centerX(rightPartner, settings.nodeWidth)) / 2;
+    const routedLane = routedLaneByFamilyId.get(family.id);
+    const partnerBottom = leftPartner.y + settings.nodeHeight;
+    const unionY = routedLane === undefined ? partnerY : partnerBottom + 10 + routedLane * 8;
+    const partnerPath = routedLane === undefined
+      ? `M ${right(leftPartner, settings.nodeWidth)} ${partnerY} H ${rightPartner.x}`
+      : [
+          `M ${centerX(leftPartner, settings.nodeWidth)} ${partnerBottom} V ${unionY}`,
+          `H ${centerX(rightPartner, settings.nodeWidth)} V ${partnerBottom}`
+        ].join(" ");
+
+    if (children.length === 0) {
+      return { familyId: family.id, partnerPath, descendantPath: "" };
+    }
+
     const childTop = Math.min(...children.map((child) => child.y));
-    const railY = (leftPartner.y + settings.nodeHeight + childTop) / 2;
+    const railY = Math.max((partnerBottom + childTop) / 2, unionY + 8);
     const childCenters = children.map((child) => centerX(child, settings.nodeWidth));
     const railStart = Math.min(unionX, ...childCenters);
     const railEnd = Math.max(unionX, ...childCenters);
 
     return {
       familyId: family.id,
-      partnerPath: `M ${right(leftPartner, settings.nodeWidth)} ${partnerY} H ${rightPartner.x}`,
+      partnerPath,
       descendantPath: [
-        `M ${unionX} ${partnerY} V ${railY}`,
+        `M ${unionX} ${unionY} V ${railY}`,
         `M ${railStart} ${railY} H ${railEnd}`,
         ...children.map((child) => `M ${centerX(child, settings.nodeWidth)} ${railY} V ${child.y}`)
       ].join(" ")

@@ -230,6 +230,7 @@ export function factTypeLabel(type: string): string {
     BIRT: "Birth",
     DEAT: "Death",
     MARR: "Marriage",
+    DIV: "Divorce",
     IMMI: "Arrival",
     EMIG: "Departure",
     RESI: "Residence",

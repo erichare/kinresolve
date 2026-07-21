@@ -95,6 +95,21 @@ describe("buildPersonMiniTree", () => {
     ]);
   });
 
+  it("keeps Ada's three marriages and Iris's unmarried family distinct", () => {
+    const ada = buildPersonMiniTree(requiredDemoPerson("p-ada-hartwell"), demoPeople, demoFamilyTreeEdges);
+    const iris = buildPersonMiniTree(requiredDemoPerson("p-iris-mercer"), demoPeople, demoFamilyTreeEdges);
+
+    expect(ada?.tree.generations.find((generation) => generation.id === "focus")?.members.map((member) => member.personId))
+      .toEqual(["p-ada-hartwell", "p-levi-northwood", "p-daniel-frost", "p-owen-reed"]);
+    expect(ada?.tree.families.map((family) => family.id)).toEqual(expect.arrayContaining([
+      "family-ada-levi",
+      "family-ada-daniel",
+      "family-ada-owen"
+    ]));
+    expect(iris?.tree.families.find((family) => family.id === "family-iris-julian")?.unionKind)
+      .toBe("unmarried");
+  });
+
   it("returns undefined when the person has no relatives in the family edges", () => {
     const loner = person("person-subject");
     expect(buildPersonMiniTree(loner, [loner], [])).toBeUndefined();

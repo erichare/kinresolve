@@ -24,7 +24,7 @@ type MiniTreeRow = {
 };
 
 // Builds an hourglass tree centered on the viewed person: up to two
-// generations up (parents, grandparents), spouses beside the person, and one
+// generations up (parents, grandparents), partners beside the person, and one
 // generation down (children). Returns undefined when the family edges place
 // no relative around the person, so callers can skip the section entirely.
 export function buildPersonMiniTree(
@@ -36,7 +36,7 @@ export function buildPersonMiniTree(
   if (!peopleById.has(person.id)) return undefined;
 
   const parentFamilies = families.filter((family) => family.childIds.includes(person.id));
-  const spouseFamilies = families.filter((family) => family.partnerIds.includes(person.id));
+  const partnerFamilies = families.filter((family) => family.partnerIds.includes(person.id));
 
   const parents = uniqueKnownIds(
     parentFamilies.flatMap((family) => orderedPartnerIds(family)),
@@ -50,12 +50,12 @@ export function buildPersonMiniTree(
     ),
     peopleById
   );
-  const spouses = uniqueKnownIds(
-    spouseFamilies.flatMap((family) => orderedPartnerIds(family).filter((id) => id !== person.id)),
+  const partners = uniqueKnownIds(
+    partnerFamilies.flatMap((family) => orderedPartnerIds(family).filter((id) => id !== person.id)),
     peopleById
   );
   const children = uniqueKnownIds(
-    spouseFamilies.flatMap((family) => family.childIds),
+    partnerFamilies.flatMap((family) => family.childIds),
     peopleById
   );
 
@@ -72,8 +72,8 @@ export function buildPersonMiniTree(
 
   const focusRow: MiniTreeRow = {
     id: "focus",
-    label: spouses.length > 0 ? "This person and spouses" : "This person",
-    memberIds: claim("focus", [person.id, ...spouses])
+    label: partners.length > 0 ? "This person and partners" : "This person",
+    memberIds: claim("focus", [person.id, ...partners])
   };
   const parentsRow: MiniTreeRow = { id: "parents", label: "Parents", memberIds: claim("parents", parents) };
   const grandparentsRow: MiniTreeRow = {
@@ -108,7 +108,7 @@ export function buildPersonMiniTree(
       rowIndexById
     ),
     ...connectableFamilies(parentFamilies, "parents", "focus", generationById, rowIndexById),
-    ...connectableFamilies(spouseFamilies, "focus", "children", generationById, rowIndexById)
+    ...connectableFamilies(partnerFamilies, "focus", "children", generationById, rowIndexById)
   ];
 
   const placedIds = rows.flatMap((row) => row.memberIds);
@@ -141,10 +141,10 @@ export function lifespanLabel(person: Partial<Pick<PersonSummary, "birthDate" | 
 }
 
 // The layout engine (lib/family-tree.ts) requires each connector family to
-// have exactly two partners placed in one generation and at least one child
-// placed in the immediately following generation. Families that do not meet
-// the invariants (single known parent, unplaced children) still contribute
-// nodes, just no connecting lines.
+// have exactly two partners placed in one generation. Families with children
+// additionally require those children in the immediately following row.
+// Families that do not meet the invariants (single known parent, unplaced
+// children) still contribute nodes, just no connecting lines.
 function connectableFamilies(
   candidates: readonly FamilyEdge[],
   partnerRowId: string,
@@ -154,19 +154,27 @@ function connectableFamilies(
 ): FamilyUnit[] {
   const partnerRowIndex = rowIndexById.get(partnerRowId);
   const childRowIndex = rowIndexById.get(childRowId);
-  if (partnerRowIndex === undefined || childRowIndex === undefined || childRowIndex !== partnerRowIndex + 1) {
-    return [];
-  }
+  if (partnerRowIndex === undefined) return [];
 
   return candidates.flatMap((family) => {
     const partners = orderedPartnerIds(family).filter((id) => generationById.get(id) === partnerRowId);
     if (partners.length !== 2) return [];
+    if (family.childIds.length === 0) {
+      return [{
+        id: family.id,
+        partnerIds: [partners[0], partners[1]] as [string, string],
+        childIds: [],
+        ...(family.unionKind ? { unionKind: family.unionKind } : {})
+      }];
+    }
+    if (childRowIndex === undefined || childRowIndex !== partnerRowIndex + 1) return [];
     const childIds = family.childIds.filter((id) => generationById.get(id) === childRowId);
     if (childIds.length === 0) return [];
     return [{
       id: family.id,
       partnerIds: [partners[0], partners[1]] as [string, string],
-      childIds
+      childIds,
+      ...(family.unionKind ? { unionKind: family.unionKind } : {})
     }];
   });
 }

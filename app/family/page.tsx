@@ -13,7 +13,7 @@ export const dynamic = "force-static";
 
 export const metadata: Metadata = {
   title: "Hartwell–Mercer Family Archive · Kin Resolve",
-  description: "Explore the complete five-generation fictional Hartwell–Mercer family tree and its curated source citations.",
+  description: "Explore a five-generation fictional family tree with remarriages, unmarried co-parents, and curated source citations.",
   robots: { index: true, follow: true },
   alternates: { canonical: "/family" }
 };

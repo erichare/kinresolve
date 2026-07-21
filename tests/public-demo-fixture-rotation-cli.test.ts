@@ -6,7 +6,7 @@ import { resolvePublicDemoFixtureRotationRequest } from "@/scripts/rotate-public
 
 const validEnvironment = {
   DATABASE_URL: "postgres://demo.invalid/kinresolve",
-  DEMO_FIXTURE_ROTATION_CONFIRMATION: "ROTATE-DEMO-FIXTURE:kinresolve-demo-public:4:5",
+  DEMO_FIXTURE_ROTATION_CONFIRMATION: "ROTATE-DEMO-FIXTURE:kinresolve-demo-public:5:6",
   KINSLEUTH_ARCHIVE_ID: "kinresolve-demo-public",
   KINRESOLVE_DATASET_MODE: "demo",
   KINRESOLVE_DEPLOYMENT_MODE: "hosted",
@@ -14,26 +14,26 @@ const validEnvironment = {
 };
 
 describe("public demo fixture rotation command", () => {
-  it("binds an exact v4-to-v5 request to the hosted canonical public demo", () => {
+  it("binds an exact v5-to-v6 request to the hosted canonical public demo", () => {
     expect(
-      resolvePublicDemoFixtureRotationRequest(["--from-version", "4"], validEnvironment)
+      resolvePublicDemoFixtureRotationRequest(["--from-version", "5"], validEnvironment)
     ).toEqual({
       archiveId: "kinresolve-demo-public",
       databaseUrl: validEnvironment.DATABASE_URL,
-      expectedPreviousFixtureVersion: 4
+      expectedPreviousFixtureVersion: 5
     });
   });
 
   it("accepts the canonical KINRESOLVE_ARCHIVE_ID name and rejects a mismatched pair", () => {
     const { KINSLEUTH_ARCHIVE_ID: _legacy, ...withoutLegacy } = validEnvironment;
     expect(
-      resolvePublicDemoFixtureRotationRequest(["--from-version", "4"], {
+      resolvePublicDemoFixtureRotationRequest(["--from-version", "5"], {
         ...withoutLegacy,
         KINRESOLVE_ARCHIVE_ID: "kinresolve-demo-public"
       })
     ).toMatchObject({ archiveId: "kinresolve-demo-public" });
     expect(() =>
-      resolvePublicDemoFixtureRotationRequest(["--from-version", "4"], {
+      resolvePublicDemoFixtureRotationRequest(["--from-version", "5"], {
         ...validEnvironment,
         KINRESOLVE_ARCHIVE_ID: "demo-other"
       })
@@ -48,14 +48,14 @@ describe("public demo fixture rotation command", () => {
     [{ ...validEnvironment, DEMO_FIXTURE_ROTATION_CONFIRMATION: "wrong" }, /exact fixture rotation confirmation/i]
   ])("refuses an unsafe environment", (environment, message) => {
     expect(() =>
-      resolvePublicDemoFixtureRotationRequest(["--from-version", "4"], environment)
+      resolvePublicDemoFixtureRotationRequest(["--from-version", "5"], environment)
     ).toThrow(message);
   });
 
   it("refuses implicit, stale, or malformed version transitions", () => {
     expect(() => resolvePublicDemoFixtureRotationRequest([], validEnvironment)).toThrow(/usage/i);
     expect(() =>
-      resolvePublicDemoFixtureRotationRequest(["--from-version", "3"], validEnvironment)
+      resolvePublicDemoFixtureRotationRequest(["--from-version", "4"], validEnvironment)
     ).toThrow(/confirmation/i);
     expect(() =>
       resolvePublicDemoFixtureRotationRequest(["--from-version", "three"], validEnvironment)

@@ -39,7 +39,7 @@ export function PersonMiniTreeView({
         <span className="card-kicker">Immediate family</span>
         <h2 id="person-mini-tree-heading">Family tree around {personName}</h2>
         <p className="muted">
-          Grandparents, parents, spouses, and children placed around this profile. Open any relative to continue there.
+          Grandparents, parents, partners, and children placed around this profile. Open any relative to continue there.
         </p>
       </div>
 
@@ -70,7 +70,9 @@ export function PersonMiniTreeView({
             {layout.connectors.map((connector) => (
               <g data-family-unit={connector.familyId} key={connector.familyId}>
                 <path className="person-mini-tree-partners" d={connector.partnerPath} />
-                <path className="person-mini-tree-descendants" d={connector.descendantPath} />
+                {connector.descendantPath
+                  ? <path className="person-mini-tree-descendants" d={connector.descendantPath} />
+                  : null}
               </g>
             ))}
           </svg>
