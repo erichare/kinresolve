@@ -89,6 +89,37 @@ describe("deriveRelationshipLabel", () => {
     }
   });
 
+  it("labels unmarried partners as co-parents rather than spouses", () => {
+    const unmarried = family({
+      unionKind: "unmarried",
+      partnerIds: ["person-iris", "person-julian"],
+      childIds: ["person-miles"]
+    });
+
+    expect(deriveRelationshipLabel("person-iris", relative("person-julian", "M"), [unmarried])).toBe("Co-parent");
+    expect(deriveRelationshipLabel("person-julian", relative("person-iris", "F"), [unmarried])).toBe("Co-parent");
+  });
+
+  it("labels children of different unions with a shared parent as siblings", () => {
+    const firstUnion = family({
+      id: "family-first-union",
+      partnerIds: ["person-shared-parent", "person-first-parent"],
+      childIds: ["person-first-child"]
+    });
+    const secondUnion = family({
+      id: "family-second-union",
+      partnerIds: ["person-shared-parent", "person-second-parent"],
+      childIds: ["person-second-child"]
+    });
+
+    expect(
+      deriveRelationshipLabel("person-first-child", relative("person-second-child", "F"), [firstUnion, secondUnion])
+    ).toBe("Sister");
+    expect(
+      deriveRelationshipLabel("person-second-child", relative("person-first-child", "M"), [firstUnion, secondUnion])
+    ).toBe("Brother");
+  });
+
   it("falls back to Linked relative when the pair shares no family", () => {
     expect(deriveRelationshipLabel("person-01hf-child", relative("person-unrelated", "M"), [coupleWithChild])).toBe(fallbackRelationshipLabel);
     expect(deriveRelationshipLabel("person-01hf-child", relative("person-01hf-father", "M"), [])).toBe(fallbackRelationshipLabel);

@@ -82,12 +82,12 @@ function projectPublicTree(publicPersonIds: ReadonlySet<string>): FamilyTreeDefi
         return [];
       }
       const childIds = family.childIds.filter((childId) => publicPersonIds.has(childId));
-      if (childIds.length === 0) return [];
 
       return [{
         id: family.id,
         partnerIds: [firstPartnerId, secondPartnerId] as [string, string],
-        childIds
+        childIds,
+        unionKind: family.unionKind
       }];
     })
   };

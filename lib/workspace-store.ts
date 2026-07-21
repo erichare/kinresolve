@@ -149,7 +149,7 @@ type UpdateCaseTaskOptions = WorkspaceStoreOptions & {
 };
 
 const defaultArchiveId = "archive-default";
-export const demoFixtureVersion = 5;
+export const demoFixtureVersion = 6;
 // Full pre-import snapshots are large; retain only the most recent ones.
 const retainedBackupCount = 10;
 const retainedAiRunCount = 25;

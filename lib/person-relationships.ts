@@ -12,6 +12,7 @@ export type FamilyEdge = {
   wifeId?: string;
   partnerIds: readonly string[];
   childIds: readonly string[];
+  unionKind?: "marriage" | "unmarried";
 };
 
 // The xref -> local person id mapping for one applied import, scoped to the
@@ -45,12 +46,33 @@ export function deriveRelationshipLabel(
     const subjectIsChild = family.childIds.includes(subjectId);
     const relativeIsChild = family.childIds.includes(relative.id);
 
-    if (subjectIsPartner && relativeIsPartner) return spouseLabel(relative.id, family);
+    if (subjectIsPartner && relativeIsPartner) {
+      return family.unionKind === "unmarried" ? "Co-parent" : spouseLabel(relative.id, family);
+    }
     if (subjectIsPartner && relativeIsChild) return genderedRelationshipLabel(relative.sex, "Son", "Daughter", "Child");
     if (subjectIsChild && relativeIsPartner) return genderedRelationshipLabel(relative.sex, "Father", "Mother", "Parent");
     if (subjectIsChild && relativeIsChild) return genderedRelationshipLabel(relative.sex, "Brother", "Sister", "Sibling");
   }
+
+  const subjectParents = parentIdsFor(subjectId, families);
+  if (
+    subjectParents.size > 0
+    && families.some((family) =>
+      family.childIds.includes(relative.id)
+      && family.partnerIds.some((partnerId) => subjectParents.has(partnerId))
+    )
+  ) {
+    return genderedRelationshipLabel(relative.sex, "Brother", "Sister", "Sibling");
+  }
   return fallbackRelationshipLabel;
+}
+
+function parentIdsFor(personId: string, families: readonly FamilyEdge[]): Set<string> {
+  return new Set(
+    families
+      .filter((family) => family.childIds.includes(personId))
+      .flatMap((family) => family.partnerIds)
+  );
 }
 
 export function genderedRelationshipLabel(
@@ -167,7 +189,8 @@ function translateFamilyEdge(edge: FamilyEdge, mapping: ImportPersonXrefMapping)
     husbandId: edge.husbandId === undefined ? undefined : translate(edge.husbandId),
     wifeId: edge.wifeId === undefined ? undefined : translate(edge.wifeId),
     partnerIds: [...new Set(edge.partnerIds.map(translate))],
-    childIds: [...new Set(edge.childIds.map(translate))]
+    childIds: [...new Set(edge.childIds.map(translate))],
+    unionKind: edge.unionKind
   };
 }
 
@@ -177,7 +200,8 @@ function translateFamilyEdge(edge: FamilyEdge, mapping: ImportPersonXrefMapping)
 export const demoFamilyTreeEdges: readonly FamilyEdge[] = demoFamilyTree.families.map((family) => ({
   id: family.id,
   partnerIds: family.partnerIds,
-  childIds: family.childIds
+  childIds: family.childIds,
+  unionKind: family.unionKind
 }));
 
 // Family edges for a private workspace: imported GEDCOM FAM structures first,

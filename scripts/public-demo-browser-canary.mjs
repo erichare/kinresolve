@@ -409,10 +409,10 @@ async function auditPublicFamilyTree(page, axeSource, mobile) {
 
   await page.getByRole("heading", { level: 1, name: "Hartwell–Mercer Family Archive" }).waitFor();
   const treeViewport = page.getByRole("region", {
-    name: "Complete Hartwell–Mercer family tree with 22 fictional people across 5 generations"
+    name: "Complete Hartwell–Mercer family tree with 31 fictional people across 5 generations"
   });
   await treeViewport.waitFor();
-  if (await page.locator("[data-tree-person]").count() !== 22) {
+  if (await page.locator("[data-tree-person]").count() !== 31) {
     throw browserCanaryFailure("family-tree");
   }
   await auditAccessibility(page, axeSource);

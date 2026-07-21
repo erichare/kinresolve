@@ -50,6 +50,65 @@ describe("person profile tabs", () => {
     });
   });
 
+  it("distinguishes remarriages and co-parents while linking children from separate unions", () => {
+    const workspace = createDemoWorkspace(now);
+    const ada = buildPersonProfile(requiredPerson("p-ada-hartwell"), workspace);
+    const iris = buildPersonProfile(requiredPerson("p-iris-mercer"), workspace);
+    const ruth = buildPersonProfile(requiredPerson("p-ruth-northwood"), workspace);
+    const thomas = buildPersonProfile(requiredPerson("p-thomas-frost"), workspace);
+    const adaRelationships = Object.fromEntries(
+      ada.relationships.map((relationship) => [relationship.id, relationship.relationship])
+    );
+
+    expect(adaRelationships).toMatchObject({
+      "p-levi-northwood": "Spouse",
+      "p-daniel-frost": "Spouse",
+      "p-owen-reed": "Spouse",
+      "p-ruth-northwood": "Daughter",
+      "p-thomas-frost": "Son"
+    });
+    expect(ada.facts.filter((fact) => fact.type === "DIV").map((fact) => fact.label))
+      .toEqual(["Divorce", "Divorce"]);
+    expect(iris.relationships.find((relationship) => relationship.id === "p-julian-cross")?.relationship)
+      .toBe("Co-parent");
+    expect(iris.relationships.filter((relationship) => ["p-miles-mercer", "p-celia-mercer"].includes(relationship.id)))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "p-miles-mercer", relationship: "Son" }),
+        expect.objectContaining({ id: "p-celia-mercer", relationship: "Daughter" })
+      ]));
+    expect(buildPersonProfile(requiredPerson("p-clara-mercer"), workspace).relationships)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "p-henry-vale", relationship: "Spouse" }),
+        expect.objectContaining({ id: "p-arthur-bell", relationship: "Spouse" })
+      ]));
+    expect(requiredPerson("p-iris-mercer").facts.some((fact) =>
+      fact.type === "EVEN" && fact.value?.toLowerCase().includes("unmarried")
+    )).toBe(true);
+    expect(ruth.relationships.find((relationship) => relationship.id === "p-thomas-frost")?.relationship)
+      .toBe("Brother");
+    expect(thomas.relationships.find((relationship) => relationship.id === "p-ruth-northwood")?.relationship)
+      .toBe("Sister");
+
+    const irisMiniTree = buildPersonMiniTree(requiredPerson("p-iris-mercer"), workspace.people, demoFamilyTreeEdges);
+    const irisHtml = renderToStaticMarkup(createElement(PersonProfileTabs, {
+      personName: "Iris Mae Mercer",
+      profile: iris,
+      miniTree: irisMiniTree
+    }));
+    expect(irisHtml).toContain("Grandparents, parents, partners, and children");
+    expect(irisHtml).not.toContain("Grandparents, parents, spouses, and children");
+
+    const adaMiniTree = buildPersonMiniTree(requiredPerson("p-ada-hartwell"), workspace.people, demoFamilyTreeEdges);
+    const adaHtml = renderToStaticMarkup(createElement(PersonProfileTabs, {
+      personName: "Ada Celeste Hartwell",
+      profile: ada,
+      miniTree: adaMiniTree
+    }));
+    expect(adaHtml).toContain('data-family-unit="family-ada-levi"');
+    expect(adaHtml).toContain('data-family-unit="family-ada-daniel"');
+    expect(adaHtml).toContain('data-family-unit="family-ada-owen"');
+  });
+
   it("derives typed relationships from imported GEDCOM FAM structures", () => {
     // Synthetic Hartwell–Mercer style fictional GEDCOM fixture.
     const parsed = parseGedcom([
