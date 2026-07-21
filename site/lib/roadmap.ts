@@ -144,10 +144,6 @@ export const roadmapSections = [
         detail: "DNA match triage exists in the source product but remains disabled for the hosted cohort."
       },
       {
-        title: "External-provider AI in the hosted cohort",
-        detail: "Self-hosted operators can configure an OpenAI-compatible provider; the hosted cohort makes no external AI calls."
-      },
-      {
         title: "Hosted media packages or binary source attachments",
         detail: "Hosted source work stays transcript-only: metadata, links, and pasted text."
       },

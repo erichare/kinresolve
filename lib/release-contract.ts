@@ -159,6 +159,15 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   if (environment.KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO !== "beta@kinresolve.com") {
     throw new Error("KINRESOLVE_TRANSACTIONAL_EMAIL_REPLY_TO must be exactly beta@kinresolve.com.");
   }
+  if (environment.AI_BASE_URL !== "https://api.openai.com/v1") {
+    throw new Error("AI_BASE_URL must be exactly https://api.openai.com/v1 for the private pilot.");
+  }
+  if (environment.AI_API_MODE !== "responses") {
+    throw new Error("AI_API_MODE must be exactly responses for the private pilot.");
+  }
+  if (environment.AI_CHAT_MODEL !== "gpt-5-mini") {
+    throw new Error("AI_CHAT_MODEL must be exactly gpt-5-mini for the private pilot.");
+  }
   try {
     validateOperatorPublicKeyConfiguration({
       audience: environment.KINRESOLVE_BETA_OPERATOR_AUDIENCE,
@@ -247,7 +256,7 @@ export function validateReleaseContract(input: ReleaseContractInput): ReleaseCon
   }
   const cohortOneCapabilities = {
     KINRESOLVE_DNA_ENABLED: "false",
-    KINRESOLVE_EXTERNAL_AI_ENABLED: "false",
+    KINRESOLVE_EXTERNAL_AI_ENABLED: "true",
     KINRESOLVE_PUBLIC_ARCHIVE_ENABLED: "false",
     KINRESOLVE_PUBLIC_PUBLISHING_ENABLED: "false",
     KINRESOLVE_EVIDENCE_BINARY_UPLOADS_ENABLED: "false",

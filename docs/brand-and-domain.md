@@ -59,7 +59,7 @@ Safe current claims must distinguish implemented source capabilities from hosted
 - The public challenge, screenshots, examples, and launch media use synthetic Hartwell–Mercer data.
 - Source is available under AGPL-3.0-only.
 
-The recommended first hosted cohort is defined in [`docs/hosted-beta-contract.md`](hosted-beta-contract.md) and remains pending owner/legal sign-off. It proposes one isolated GEDCOM pilot plus a separate synthetic demo, with hosted DNA, external AI, media packages, real-data publishing, open signup, shared tenancy, and billing disabled.
+The product-owner-approved first hosted cohort is defined in [`docs/hosted-beta-contract.md`](hosted-beta-contract.md) and remains pending counsel and operational sign-off. It proposes one isolated GEDCOM household pilot plus a separate synthetic demo. Hosted DNA, media packages, real-data publishing, open signup, shared tenancy, and billing remain disabled; external AI is manual, freshly confirmed, and privacy-minimized.
 
 Claims that must be labeled **in development** or **exploring**:
 

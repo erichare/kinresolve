@@ -114,8 +114,8 @@ the hosted origin.
 - plain `.ged`/`.gedcom`, up to 10 MiB and 40,000 people;
 - founder-operated onboarding, export, deletion, and support;
 - one-business-day support acknowledgement target, not an SLA; and
-- DNA, external AI, binary media, real-data public publishing, open signup, and shared
-  multi-family hosting disabled.
+- DNA, binary media, real-data public publishing, open signup, and shared multi-family
+  hosting disabled; external AI is manual, freshly confirmed, and privacy-minimized.
 
 ## Email templates
 
@@ -207,7 +207,7 @@ Required six-image set:
    task, visible uncertainty.
 3. **Source in context:** fictional transcript linked to a person and case; no record
    image rights ambiguity.
-4. **Deterministic checks:** date/privacy findings with “No external AI used.”
+4. **Analysis boundary:** deterministic date/privacy findings, then one explicitly confirmed privacy-minimized external AI request.
 5. **Publication readiness:** deceased fictional person plus blockers; never imply
    cohort-one real publishing.
 6. **Export and control:** GEDCOM export and deletion-request explanation; never show a
@@ -224,7 +224,7 @@ response, followed by revocation. The secret value must never appear in media.
 | 10–25s | GEDCOM preview | See additions, edits, conflicts, and deletions before apply |
 | 25–42s | Source and case links | Keep evidence attached to the question it informs |
 | 42–57s | Competing hypotheses and task | Preserve uncertainty and decide the next useful search |
-| 57–70s | Deterministic report | Run structural/privacy checks without an external AI provider |
+| 57–70s | Analysis boundary | Run structural/privacy checks, inspect the provider disclosure, and explicitly confirm the synthetic external AI request |
 | 70–82s | Rollback and export | Prove control of change and keep an exit path |
 | 82–90s | Application page with prelaunch status | Apply without sending private records; invitations begin only after the gates pass |
 
@@ -259,7 +259,7 @@ invitations, open signup, or API availability.
 
 > Kin Resolve’s invitation-only private beta is live for its first deliberately small
 > cohort. Review GEDCOM changes before apply, work questions through cases and evidence,
-> run deterministic checks without external AI, and export the archive when you leave.
+> run deterministic checks, optionally confirm a privacy-minimized OpenAI request, and export the archive when you leave.
 > Apply: https://kinresolve.com/beta/
 
 Do not publish launch-only copy until the signed launch record says the canonical

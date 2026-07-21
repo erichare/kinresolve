@@ -5,6 +5,7 @@ import {
 import { hostedCapabilityEnvironmentNames } from "./hosted-capability-names.ts";
 
 export const requiredSensitiveProductionEnvironmentNames = [
+  "AI_API_KEY",
   "AUTH_SECRET",
   "BLOB_READ_WRITE_TOKEN",
   "CRON_SECRET",
@@ -45,6 +46,9 @@ export const publicDemoTurnstileSiteKeyEnvironmentName =
 export type PublicDemoTurnstileContractMode = "off" | "shadow" | "required";
 
 export const requiredReadableProductionEnvironmentNames = [
+  "AI_API_MODE",
+  "AI_BASE_URL",
+  "AI_CHAT_MODEL",
   "APP_BASE_URL",
   "DATABASE_AUTO_MIGRATE",
   "DATABASE_POOL_MAX",

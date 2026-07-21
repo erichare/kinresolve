@@ -164,6 +164,7 @@ export function mapDnaMatch(row: Record<string, unknown>): DnaMatch {
 
 export function mapAIAnalysisRun(row: Record<string, unknown>): AIAnalysisRun {
   const status = row.status as AIAnalysisStatus;
+  const result = toJsonObject(row.result);
   return normalizeAIAnalysisRun({
     id: String(row.id),
     question: String(row.question),
@@ -180,6 +181,8 @@ export function mapAIAnalysisRun(row: Record<string, unknown>): AIAnalysisRun {
     promptPreview: optionalString(row.prompt_redacted),
     error: optionalString(row.error),
     linkedCaseId: optionalString(row.linked_case_id),
+    requestedBy: optionalString(row.requested_by),
+    providerConsentVersion: optionalString(result.providerConsentVersion),
     createdAt: toIsoString(row.created_at),
     completedAt: row.completed_at ? toIsoString(row.completed_at) : undefined
   });
@@ -252,6 +255,23 @@ function toJsonArray<T>(value: unknown): T[] {
     }
   }
   return [];
+}
+
+function toJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
 function toStringArray(value: unknown): string[] {

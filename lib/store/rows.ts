@@ -374,15 +374,15 @@ export async function deleteDnaMatchRows(client: PoolClient, archiveId: string, 
 export async function upsertAiRunRow(client: PoolClient, archiveId: string, run: AIAnalysisRun, sortOrder: number): Promise<void> {
   await client.query(
     `INSERT INTO ai_runs (
-       id, archive_id, run_type, provider, model, question, answer, status, provider_status,
+       id, archive_id, requested_by, run_type, provider, model, question, answer, status, provider_status,
        evidence, uncertainty, suggestions, context_references, result, anomaly_count, linked_case_id,
        prompt_redacted, error, created_at, completed_at, sort_order
      ) VALUES (
-       $1, $2, 'analysis', $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
-       $13::jsonb, $14, $15, $16, $17, $18, $19, $20
+       $1, $2, $3, 'analysis', $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb,
+       $14::jsonb, $15, $16, $17, $18, $19, $20, $21
      )
      ON CONFLICT (archive_id, id) DO UPDATE SET
-       provider = EXCLUDED.provider, model = EXCLUDED.model, question = EXCLUDED.question,
+       requested_by = EXCLUDED.requested_by, provider = EXCLUDED.provider, model = EXCLUDED.model, question = EXCLUDED.question,
        answer = EXCLUDED.answer, status = EXCLUDED.status, provider_status = EXCLUDED.provider_status,
        evidence = EXCLUDED.evidence, uncertainty = EXCLUDED.uncertainty, suggestions = EXCLUDED.suggestions,
        context_references = EXCLUDED.context_references, result = EXCLUDED.result,
@@ -392,6 +392,7 @@ export async function upsertAiRunRow(client: PoolClient, archiveId: string, run:
     [
       run.id,
       archiveId,
+      run.requestedBy,
       run.provider ?? "local",
       run.model ?? "local",
       run.question,
@@ -402,7 +403,11 @@ export async function upsertAiRunRow(client: PoolClient, archiveId: string, run:
       JSON.stringify(run.uncertainty),
       JSON.stringify(run.suggestions),
       JSON.stringify(run.contextReferences),
-      JSON.stringify({ answer: run.answer, status: run.status }),
+      JSON.stringify({
+        answer: run.answer,
+        status: run.status,
+        providerConsentVersion: run.providerConsentVersion
+      }),
       run.anomalyCount,
       run.linkedCaseId,
       run.promptPreview ?? "",

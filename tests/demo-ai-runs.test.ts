@@ -86,22 +86,24 @@ describe("fictional demo seeded AI analyses", () => {
 
     const mapped = mapAIAnalysisRun({
       id: values[0],
-      provider: values[2],
-      model: values[3],
-      question: values[4],
-      answer: values[5],
-      status: values[6],
-      provider_status: values[7],
-      evidence: values[8],
-      uncertainty: values[9],
-      suggestions: values[10],
-      context_references: values[11],
-      anomaly_count: values[13],
-      linked_case_id: values[14],
-      prompt_redacted: values[15],
-      error: values[16],
-      created_at: values[17],
-      completed_at: values[18]
+      requested_by: values[2],
+      provider: values[3],
+      model: values[4],
+      question: values[5],
+      answer: values[6],
+      status: values[7],
+      provider_status: values[8],
+      evidence: values[9],
+      uncertainty: values[10],
+      suggestions: values[11],
+      context_references: values[12],
+      result: values[13],
+      anomaly_count: values[14],
+      linked_case_id: values[15],
+      prompt_redacted: values[16],
+      error: values[17],
+      created_at: values[18],
+      completed_at: values[19]
     });
     const projected = projectDemoSeededAnalysisRun(mapped);
 

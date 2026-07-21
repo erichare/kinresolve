@@ -75,7 +75,8 @@ describe("private-beta marketing and legal surface", () => {
     expect(beta).toMatch(/plain \.ged or \.gedcom/i);
     expect(beta).toMatch(/10 MiB \(10,485,760 bytes\).*40,000 people/i);
     expect(beta).toMatch(/Source work is limited to metadata, links, and pasted text or transcripts/i);
-    expect(beta).toMatch(/DNA, external-provider AI, binary source attachments, media packages, and real-data public publishing are disabled for cohort one/i);
+    expect(beta).toMatch(/External AI is available only to owners\/admins after a fresh confirmation and uses a privacy-minimized OpenAI request/i);
+    expect(beta).toMatch(/DNA, binary source attachments, media packages, and real-data public publishing are disabled for cohort one/i);
     expect(beta).toContain('betaStatus.hostedLive ? "The first" : "The proposed first"');
     expect(beta).toMatch(/30-day pilot is free.*no billing or payment-information step/i);
     expect(beta).toMatch(/one-business-day support acknowledgement target.*not an uptime or response-time SLA/i);

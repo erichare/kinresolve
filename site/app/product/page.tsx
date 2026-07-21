@@ -51,8 +51,8 @@ const productAreas = [
     number: "05",
     eyebrow: "Optional analysis",
     title: "Use AI as an analyst, not an authority.",
-    body: "Deterministic structural checks work without an AI key and are part of cohort one. The source product can connect an OpenAI-compatible provider, but external AI is excluded from cohort one.",
-    points: ["No-key structural checks", "Operator-selected provider", "Referenced workspace context", "Saved runs and staged suggestions"],
+    body: "Deterministic structural checks work without an AI key. Cohort one also permits explicitly confirmed, single-case OpenAI analysis that excludes unlinked, living, unknown, and sensitive person records; DNA; notes; transcripts; sensitive facts; and files.",
+    points: ["No-key structural checks", "Fresh confirmation per provider request", "Privacy-minimized cited context", "Saved runs and staged suggestions"],
     example: { label: "Analysis run", title: "Mercer–March identity check", rows: [["Context records", "3"], ["Identifiers", "2 independent"], ["Confidence", "Moderate"]] }
   },
   {

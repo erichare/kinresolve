@@ -34,13 +34,13 @@ The repository ships with the wholly fictional **Hartwell–Mercer Family Archiv
 
 ## Hosted private beta — proposed, not live
 
-The hosted private beta at `app.kinresolve.com` is a gated proposal, not a currently available service. Owner and counsel approval remains pending, and real family data must not be accepted until the launch gates in the [hosted beta contract](docs/hosted-beta-contract.md) pass.
+The hosted private beta at `app.kinresolve.com` is an owner-approved plan, not a currently available service. Counsel and operational approval remain pending, and real family data must not be accepted until the launch gates in the [hosted beta contract](docs/hosted-beta-contract.md) pass.
 
 The proposed first cohort is intentionally narrow:
 
 - Plain GEDCOM imports only: up to 10 MiB (10,485,760 bytes) and 40,000 people.
 - Sources are transcript-only: metadata, links, and pasted text/transcripts are allowed; binary source and evidence uploads are disabled.
-- Deterministic local analysis makes no external provider call; external-provider AI is disabled.
+- Deterministic local analysis makes no external provider call. Optional OpenAI analysis is owner/admin-only, requires a fresh confirmation for each run, and sends only the question, one non-sensitive selected case, its linked confirmed-deceased non-sensitive person records, and linked non-sensitive source metadata. Unlinked, living, unknown, or sensitive person records; DNA; case decisions and task outcomes; notes; transcripts; sensitive facts; and files are excluded server-side.
 - DNA is disabled.
 - The public archive is disabled.
 - Real-data public publishing is disabled.

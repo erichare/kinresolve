@@ -11,6 +11,7 @@ describe("public demo provider request bounds", () => {
 
     const result = await runAIAnalysis({
       role: "owner",
+      externalProviderConsent: true,
       question: "Review only this fictional case.",
       selectedCaseId: demoCases[0].id,
       people: demoPeople,

@@ -37,7 +37,7 @@ const capabilities = [
   ["Source workspace", "Search source records and transcripts alongside the people and cases that depend on them."],
   ["DNA match triage in source", "The source product can score and review CSV-imported matches as research leads. Hosted DNA is excluded from cohort one."],
   ["Quality checks", "Surface date conflicts, privacy risks, source gaps, and profiles that are not ready to share."],
-  ["Optional analysis in source", "Deterministic checks run without an AI provider. Operator-configured external AI exists in source but is excluded from cohort one."]
+  ["Optional analysis", "Deterministic checks run locally. Cohort one adds explicitly confirmed, privacy-minimized OpenAI analysis for owners and admins."]
 ] as const;
 
 export default function HomePage() {
@@ -221,7 +221,7 @@ export default function HomePage() {
             <article className="face-card face-private">
               <span className="face-kicker">Private workspace</span>
               <h3>Keep the unfinished work private.</h3>
-              <p>The source product keeps imported people, sources, DNA matches, cases, notes, and analysis runs behind authenticated workspace access. Cohort one excludes DNA and external AI.</p>
+              <p>The source product keeps imported people, sources, DNA matches, cases, notes, and analysis runs behind authenticated workspace access. Cohort one excludes DNA; external AI is manual, freshly confirmed, and limited to a minimized context projection.</p>
               <ul><li>Research cases and hypotheses</li><li>DNA match triage</li><li>Source transcripts and notes</li></ul>
             </article>
             <article className="face-card face-public">

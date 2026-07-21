@@ -19,6 +19,7 @@ type Props = {
   dnaHypotheses: DnaConnectionHypothesis[];
   dnaEnabled?: boolean;
   externalAiEnabled?: boolean;
+  externalAiProvider?: string;
 };
 
 type AIAnalysisResponse = AIAnalysisResult & {
@@ -39,7 +40,8 @@ export function AIAnalystWorkspace({
   counts,
   dnaHypotheses,
   dnaEnabled = true,
-  externalAiEnabled = true
+  externalAiEnabled = true,
+  externalAiProvider = "the configured external provider"
 }: Props) {
   const [question, setQuestion] = useState(initialQuestion);
   const [result, setResult] = useState<AIAnalysisResult | null>(null);
@@ -54,6 +56,7 @@ export function AIAnalystWorkspace({
   const [busySuggestionId, setBusySuggestionId] = useState("");
   const [confirmedSuggestionIds, setConfirmedSuggestionIds] = useState<string[]>([]);
   const [pendingSuggestion, setPendingSuggestion] = useState("");
+  const [externalProviderConsent, setExternalProviderConsent] = useState(false);
   const visibleAnomalies = anomalies.slice(0, 75);
   const hiddenAnomalyCount = anomalies.length - visibleAnomalies.length;
   const visibleSuggestedQuestions = dnaEnabled
@@ -71,6 +74,7 @@ export function AIAnalystWorkspace({
 
     setQuestion(suggestion);
     setPendingSuggestion("");
+    if (externalAiEnabled) setExternalProviderConsent(false);
   }
 
   async function runAnalysis(event?: React.FormEvent<HTMLFormElement>) {
@@ -89,7 +93,11 @@ export function AIAnalystWorkspace({
       const response = await fetch("/api/ai/analyze", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question: trimmedQuestion, caseId: selectedCaseId || undefined })
+        body: JSON.stringify({
+          question: trimmedQuestion,
+          caseId: selectedCaseId || undefined,
+          externalProviderConsent: externalAiEnabled ? externalProviderConsent : undefined
+        })
       });
       const body = await response.json();
 
@@ -108,6 +116,7 @@ export function AIAnalystWorkspace({
       setError(requestError instanceof Error ? requestError.message : "AI analysis failed");
     } finally {
       setIsRunning(false);
+      if (externalAiEnabled) setExternalProviderConsent(false);
     }
   }
 
@@ -193,7 +202,7 @@ export function AIAnalystWorkspace({
               <h2>Ask the analyst</h2>
               <p className="muted">
                 {externalAiEnabled
-                  ? "Runs deterministic checks, sends full private workspace context when configured, and stages follow-up work for review."
+                  ? "Runs deterministic checks, sends limited private context only after confirmation, and stages follow-up work for review."
                   : "Runs deterministic local checks inside Kin Resolve, makes no external provider call, and stages follow-up work for review."}
               </p>
             </div>
@@ -211,7 +220,10 @@ export function AIAnalystWorkspace({
           <form aria-busy={isRunning} onSubmit={runAnalysis}>
             <label className="field">
               <span>Case context</span>
-              <select value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>
+              <select value={selectedCaseId} onChange={(event) => {
+                setSelectedCaseId(event.target.value);
+                if (externalAiEnabled) setExternalProviderConsent(false);
+              }}>
                 <option value="">No case selected</option>
                 {cases.map((researchCase) => (
                   <option key={researchCase.id} value={researchCase.id}>
@@ -229,6 +241,7 @@ export function AIAnalystWorkspace({
                 onChange={(event) => {
                   setQuestion(event.target.value);
                   setPendingSuggestion("");
+                  if (externalAiEnabled) setExternalProviderConsent(false);
                 }}
               />
             </label>
@@ -245,8 +258,23 @@ export function AIAnalystWorkspace({
                 </button>
               ))}
             </div>
+            {externalAiEnabled ? (
+              <div className="fiction-disclosure" role="note">
+                <strong>External AI data boundary.</strong> Your question, one non-sensitive selected case, its linked confirmed-deceased non-sensitive person records, and linked non-sensitive source metadata will be sent to {externalAiProvider}. Unlinked, living, unknown, or sensitive person records; DNA; case decisions and task outcomes; person notes; relatives; source transcripts and notes; sensitive facts; and files are not sent. Changing the question or case clears this confirmation. Kin Resolve disables provider response storage; OpenAI may still retain the minimized request in abuse-monitoring logs for up to 30 days and does not use API inputs or outputs for training unless the operator opts in.
+                <label className="research-confirmation">
+                  <input
+                    checked={externalProviderConsent}
+                    disabled={isRunning}
+                    required
+                    type="checkbox"
+                    onChange={(event) => setExternalProviderConsent(event.target.checked)}
+                  />
+                  <span>Confirm this external AI request.</span>
+                </label>
+              </div>
+            ) : null}
             <div className="hero-actions">
-              <button aria-busy={isRunning} className="button" disabled={isRunning} type="submit">
+              <button aria-busy={isRunning} className="button" disabled={isRunning || (externalAiEnabled && (!selectedCaseId || !externalProviderConsent))} type="submit">
                 <Icons.Brain size={16} aria-hidden />
                 {isRunning ? "Analyzing..." : "Run analysis"}
               </button>

@@ -90,6 +90,7 @@ async function validateReleaseBinding(
   context: BrowserContext,
   config: BrowserCanaryConfiguration
 ): Promise<void> {
+  const externalAiExpected = config.mode === "staging";
   const response = await context.request.get("/api/internal/health", {
     headers: canaryRequestHeaders(config, { authorization: `Bearer ${config.observabilityProbeSecret}` }),
     maxRedirects: 0,
@@ -124,7 +125,7 @@ async function validateReleaseBinding(
     config.datasetMode !== "demo"
     || body.database.demoFixtureVersion !== demoFixtureVersion
     || body.capabilities.dna !== false
-    || body.capabilities.externalAi !== false
+    || body.capabilities.externalAi !== externalAiExpected
     || body.capabilities.publicArchive !== false
     || body.capabilities.publicPublishing !== false
     || body.capabilities.evidenceBinaryUploads !== false
@@ -277,6 +278,7 @@ async function runSyntheticResearchJourney(
   pageToUse: Page,
   config: BrowserCanaryConfiguration
 ): Promise<void> {
+  const externalAiExpected = config.mode === "staging";
   currentStage = "synthetic dashboard accessibility";
   await validateAccessibility(pageToUse);
   currentStage = "synthetic dashboard content";
@@ -388,7 +390,9 @@ async function runSyntheticResearchJourney(
     pageToUse.getByRole("heading", { level: 2, name: "Capabilities" })
   ));
   await expectVisible(pageToUse.getByRole("row", { name: /DNA Disabled/ }));
-  await expectVisible(pageToUse.getByRole("row", { name: /External AI Disabled/ }));
+  await expectVisible(pageToUse.getByRole("row", {
+    name: externalAiExpected ? /External AI Enabled/ : /External AI Disabled/
+  }));
   await expectVisible(pageToUse.getByRole("row", { name: /Public archive Disabled/ }));
   await expectVisible(pageToUse.getByRole("row", { name: /Public publishing Disabled/ }));
   await expectVisible(pageToUse.getByRole("row", { name: /Binary evidence uploads Disabled/ }));
@@ -408,10 +412,46 @@ async function runSyntheticResearchJourney(
   if (await pageToUse.locator('input[type="file"]').count() !== 0) throw new Error();
   await validateAccessibility(pageToUse);
 
-  currentStage = "synthetic local-only AI boundary";
   await exactGoto(pageToUse, config, "/app/ai");
   await expectVisible(pageToUse.getByRole("heading", { level: 1, name: "AI Analyst" }));
-  await expectVisible(pageToUse.getByText("Local only", { exact: true }));
+  if (!externalAiExpected) {
+    currentStage = "synthetic local-only AI boundary";
+    await expectVisible(pageToUse.getByText("Local only", { exact: true }));
+    await validateAccessibility(pageToUse);
+    return;
+  }
+
+  currentStage = "synthetic external AI boundary";
+  await expectVisible(pageToUse.getByText(/External AI data boundary/));
+  await expectVisible(pageToUse.getByText(/Unlinked, living, unknown, or sensitive person records.*not sent/));
+  const consent = pageToUse.getByRole("checkbox", { name: "Confirm this external AI request." });
+  const runAnalysis = pageToUse.getByRole("button", { name: "Run analysis" });
+  if (!(await runAnalysis.isDisabled())) throw new Error();
+  await consent.check();
+  currentStage = "synthetic external AI request";
+  const analysisResponsePromise = pageToUse.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.origin === config.origin
+      && url.pathname === "/api/ai/analyze"
+      && response.request().method() === "POST";
+  });
+  await runAnalysis.click();
+  const analysisResponse = await analysisResponsePromise;
+  if (analysisResponse.status() !== 200) {
+    safeDiagnostic = `AI analysis status ${analysisResponse.status()}`;
+    throw new Error();
+  }
+  const analysis = await boundedJson(analysisResponse, 256 * 1024);
+  if (
+    analysis.providerStatus !== "completed"
+    || typeof analysis.promptPreview !== "string"
+    || !analysis.promptPreview.includes("Privacy boundary: Excluded")
+  ) {
+    throw new Error();
+  }
+  await expectVisible(pageToUse.getByText("Provider answered", { exact: true }));
+  if (await consent.isChecked()) throw new Error();
+  safeDiagnostic = undefined;
   await validateAccessibility(pageToUse);
 }
 

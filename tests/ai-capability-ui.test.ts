@@ -80,7 +80,13 @@ describe("AI analyst capability UI", () => {
     }));
 
     expect(html).toMatch(/DNA hypotheses/i);
-    expect(html).toMatch(/sends full private workspace context/i);
+    expect(html).toMatch(/sends limited private context/i);
+    expect(html).toMatch(/linked confirmed-deceased non-sensitive person records/i);
+    expect(html).toMatch(/unlinked, living, unknown, or sensitive person records.*not sent/i);
+    expect(html).toMatch(/changing the question or case clears this confirmation/i);
+    expect(html).toMatch(/up to 30 days/i);
+    expect(html).toMatch(/does not use API inputs or outputs for training/i);
+    expect(html).toMatch(/Confirm this external AI request/i);
     expect(html).toMatch(/api\.openai\.com|needs key/i);
   });
 });

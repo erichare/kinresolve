@@ -84,7 +84,7 @@ export default function KinResolveProductPage() {
           </div>
           <div className="panel surface-quiet">
             <h2>AI on your terms</h2>
-            <p>OpenAI-compatible provider settings let an owner/admin connect hosted or local-compatible models. Whole-tree analysis is owner/admin gated, saved in run history, and stages suggestions for review.</p>
+            <p>OpenAI-compatible provider settings let an owner/admin connect hosted or local-compatible models. Hosted external analysis requires a fresh confirmation, sends a server-minimized case context, is saved in run history, and stages suggestions for review.</p>
           </div>
         </section>
       </div>

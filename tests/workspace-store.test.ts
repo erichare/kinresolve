@@ -299,6 +299,8 @@ describeIfDatabase("workspace store", () => {
           }
         ],
         linkedCaseId: "case-mercer-march-identity",
+        requestedBy: "owner-test-user",
+        providerConsentVersion: "hosted-external-ai-v1",
         createdAt: "2026-07-09T12:00:00.000Z"
       },
       storeOptions
@@ -311,7 +313,9 @@ describeIfDatabase("workspace store", () => {
       question: "What should I investigate next?",
       anomalyCount: 2,
       suggestions: expect.arrayContaining([expect.objectContaining({ id: "sugg-test" })]),
-      linkedCaseId: "case-mercer-march-identity"
+      linkedCaseId: "case-mercer-march-identity",
+      requestedBy: "owner-test-user",
+      providerConsentVersion: "hosted-external-ai-v1"
     });
   });
 

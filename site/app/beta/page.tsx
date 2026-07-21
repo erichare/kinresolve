@@ -76,7 +76,7 @@ const faqs: readonly [string, ReactNode][] = [
   ],
   [
     "Can I use DNA, external AI, media, or public publishing?",
-    "No. DNA, external-provider AI, binary source attachments, media packages, and real-data public publishing are disabled for cohort one."
+    "External AI is available only to owners/admins after a fresh confirmation and uses a privacy-minimized OpenAI request. DNA, binary source attachments, media packages, and real-data public publishing are disabled for cohort one."
   ],
   [
     `What support ${betaStatus.hostedLive ? "does the pilot target" : "is proposed"}?`,
@@ -94,6 +94,7 @@ const cohortIncluded = [
   "An invitation-only private archive for one researcher or trusted household",
   "Reviewable plain-GEDCOM import, apply, rollback, and full GEDCOM export",
   "People, sources, cases, evidence, hypotheses, tasks, and deterministic checks",
+  "Explicitly confirmed, privacy-minimized OpenAI analysis for owners/admins",
   betaStatus.apiLive
     ? "A read-only, owner-scoped API preview for approved archive owners"
     : "A read-only, owner-scoped API preview only after its separate gate passes"
@@ -101,7 +102,7 @@ const cohortIncluded = [
 
 const excluded = [
   "DNA files or match triage",
-  "External-provider AI",
+  "Automatic, background, or unbounded external-provider AI",
   "Binary source images, ZIPs, or media packages",
   "Real-data public publishing, open signup, billing, or shared multi-family hosting"
 ] as const;
@@ -167,7 +168,7 @@ export default function BetaPage() {
           <div className="section-heading">
             <span className="eyebrow">{betaStatus.hostedLive ? "Hosted cohort-one contract" : "Proposed cohort-one contract"}</span>
             <h2>Small by design, with the difficult boundaries stated upfront.</h2>
-            <p>{betaStatus.hostedLive ? "These are the active launch limits for approved participants under the published cohort boundary and recorded operational evidence." : "These are the intended launch limits, pending owner approval, counsel-reviewed documents, and recorded operational evidence."}</p>
+            <p>{betaStatus.hostedLive ? "These are the active launch limits for approved participants under the published cohort boundary and recorded operational evidence." : "These product-owner-approved launch limits remain pending counsel-reviewed documents and recorded operational evidence."}</p>
           </div>
           <div className="status-table">
             <div className="status-column">

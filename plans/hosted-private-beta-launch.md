@@ -128,7 +128,7 @@ Do not add `api.kinresolve.com` for beta. Keeping the API on the product origin 
 - Plain GEDCOM only, initially capped at **10 MB and 40,000 people**. The 50,000-person integration fixture is the proof target, not the admitted limit; lower the cap if hosted-worker rehearsal does not show at least 2× time/memory headroom.
 - Enabled: GEDCOM upload, durable processing, review/apply/rollback, people and source search, cases, evidence, hypotheses, tasks, deterministic quality/privacy checks, publication-readiness review, full GEDCOM export, and read-only API access.
 - Allowed content: source metadata and pasted text/transcripts.
-- Disabled server-side: DNA import/triage, external-provider AI, real-data public publishing, binary source attachments, FTM/RootsMagic media retention, Ancestry partner API/OAuth/writeback, collaboration outside the one household, billing, and open signup.
+- Disabled server-side: DNA import/triage, real-data public publishing, binary source attachments, FTM/RootsMagic media retention, Ancestry partner API/OAuth/writeback, collaboration outside the one household, billing, and open signup. External AI is limited to owner/admin-initiated, freshly confirmed OpenAI requests using the cohort's server-side minimized projection.
 - Founder-operated onboarding, one-business-day support target, weekly check-in, operator-assisted export/deletion, announced maintenance, and no uptime SLA.
 - Begin with synthetic data. Admit real family data only after the legal, restore, deletion, recovery, and security gates in section 8 pass.
 
@@ -181,7 +181,7 @@ Polish should concentrate on one complete, evidence-led journey instead of a wid
 6. Review additions, edits, conflicts, and deletions before applying them.
 7. Roll the change back, then apply it again to prove control.
 8. Search people and sources; open a research case; connect evidence; compare hypotheses; assign the next task.
-9. Run deterministic date and privacy checks with a visible “no external AI used” disclosure.
+9. Run deterministic date and privacy checks, then explicitly confirm one privacy-minimized OpenAI analysis and review its cited context and uncertainty.
 10. Show publication blockers without publishing the real archive.
 11. Create a read-only API token, run one documented `curl`, and revoke it.
 12. Export GEDCOM and end on the portability/privacy promise.
@@ -628,7 +628,7 @@ Run DB-backed mode/provisioning tests against a disposable Postgres instance wit
 - Private direct upload → durable job → signed worker → review → apply → export → integration rollback succeeds on synthetic data.
 - The API canary creates a short-lived staging token, reads known synthetic data, revokes it, and proves immediate denial.
 - Both object namespaces are inventoried, backed up/restored, and deleted during the rehearsal.
-- Disabled DNA, external AI, ZIP/media/binary upload, and public publishing calls fail closed.
+- Disabled DNA, ZIP/media/binary upload, and public publishing calls fail closed; external AI cannot run without a fresh confirmation and its minimized projection.
 
 #### Non-mutating production candidate smoke contract
 
@@ -642,7 +642,7 @@ Run DB-backed mode/provisioning tests against a disposable Postgres instance wit
   bounded non-content token, quota, and security evidence. It creates no person, source,
   case, artifact, run, snapshot, or backup state. Application-mode releases keep the API
   disabled and create no canary token. B2's base probe does not depend on this route.
-- Disabled DNA, external AI, binary media, and public publishing calls fail closed.
+- Disabled DNA, binary media, and public publishing calls fail closed; the staging AI canary proves confirmation, minimization, `store: false`, and a provider response using synthetic data.
 - Product headers/noindex/TLS are correct. B4/B6 supply deployed log-redaction evidence rather than inferring it from an HTTP response.
 - Captured cron definitions match the release manifest. Staging scheduled writers are explicitly disabled, production writes remain fenced through candidate proof, and a reviewer separately confirms provider dashboard schedule state. B4 later supplies the read-only worker-heartbeat probe.
 - Pilot mode rejects demo reset and synthetic-canary provisioning.
@@ -858,7 +858,7 @@ The marketing site is a static Next export with good brand foundations and synth
 2. GEDCOM source and durable processing state.
 3. Reviewable additions/edits/conflicts/deletions.
 4. Research case with evidence and competing hypotheses.
-5. Deterministic quality/privacy report with “no external AI” disclosure.
+5. Deterministic quality/privacy report followed by one explicitly confirmed, privacy-minimized external AI analysis.
 6. API token/docs plus GEDCOM export/portability moment.
 
 #### Verification
@@ -1154,6 +1154,6 @@ Never point a test command at production. The existing database guard scripts mu
 
 Go live only when the owner can truthfully say:
 
-> Kin Resolve's invitation-only private beta is live at app.kinresolve.com. One isolated design partner can safely review and manage a GEDCOM-based research archive, use the documented read-only API, export their work, recover access, request deletion, and receive founder support. The public demo and launch media are synthetic. DNA, external AI, media packages, shared multi-family hosting, open signup, billing, and real-data publishing remain off.
+> Kin Resolve's invitation-only private beta is live at app.kinresolve.com. One isolated household can safely review and manage a GEDCOM-based research archive, use explicitly confirmed privacy-minimized OpenAI analysis, use the documented read-only API, export their work, recover access, request deletion, and receive founder support. The public demo and launch media are synthetic. DNA, media packages, shared multi-family hosting, open signup, billing, and real-data publishing remain off.
 
 If any part of that statement is false, keep marketing at “applications open” and continue the relevant workstream.
