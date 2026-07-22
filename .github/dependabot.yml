@@ -12,6 +12,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # TypeScript 7 is not yet supported by Next.js or typescript-eslint.
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
   - package-ecosystem: "npm"
     directory: "/site"
     schedule:
