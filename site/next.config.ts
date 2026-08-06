@@ -34,6 +34,11 @@ function sourceCommit(): string {
 
 const nextConfig: NextConfig = {
   output: "export",
+  experimental: {
+    // The aliased @typescript/typescript6 package ships its binary as `tsc6`,
+    // which the Next 16.3 CLI type-check mode cannot resolve; keep the API mode.
+    useTypeScriptCli: false
+  },
   turbopack: {
     root: process.cwd()
   },

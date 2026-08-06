@@ -36,8 +36,8 @@ export const ACTION_PINS = {
   },
   attest: {
     action: "actions/attest",
-    sha: "f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6",
-    version: "v4.2.0"
+    sha: "508db95dd578ae2727ebd6217d5ba78e4fbda05d",
+    version: "v4.2.1"
   }
 } as const satisfies Record<string, ActionPin>;
 
