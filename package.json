@@ -59,7 +59,7 @@
     "@vercel/blob": "^2.7.0",
     "better-auth": "^1.6.26",
     "jose": "^6.2.8",
-    "lucide-react": "^1.30.0",
+    "lucide-react": "^1.31.0",
     "next": "^16.3.0",
     "pg": "^8.23.0",
     "react": "^19.2.8",
