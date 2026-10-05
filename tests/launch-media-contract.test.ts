@@ -137,6 +137,8 @@ describe("synthetic launch-media contract", () => {
     expect(orchestrator.indexOf("createdContainers.push(minioContainer)")).toBeGreaterThan(
       orchestrator.indexOf('minioImage, "server", "/data", "--address", ":9000"\n  ]);')
     );
+    expect(orchestrator).toContain("pgsty/minio@sha256:");
+    expect(orchestrator).not.toContain("minio/minio@sha256:");
     expect(orchestrator).toContain("for (const filename of approvedPackageFiles)");
     expect(orchestrator.match(/safeSyntheticDiagnostics: true/g)).toHaveLength(2);
     expect(orchestrator).toContain("safeSyntheticFailureDiagnostic(result.stderr)");
