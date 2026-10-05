@@ -54,6 +54,36 @@ describe("Docker deployment contract", () => {
     expect(minio).toContain('"127.0.0.1:9001:9001"');
   });
 
+  it("pins MinIO and its bucket initializer to one digest-pinned image that bundles mc", async () => {
+    const compose = await readFile(`${repositoryRoot}docker-compose.yml`, "utf8");
+    const minio = serviceSection(compose, "minio");
+    const minioInit = serviceSection(compose, "minio-init");
+    const [minioImage, minioInitImage] = [minio, minioInit].map(
+      (service) => /^\s+image:\s+(\S+)\s*$/m.exec(service)?.[1]
+    );
+
+    expect(minioImage).toMatch(/^pgsty\/minio@sha256:[0-9a-f]{64}$/);
+    expect(minioInitImage).toBe(minioImage);
+    expect(compose).not.toMatch(/^\s+image:\s+\S*\bminio\/(?:minio|mc)\b/m);
+    // The shared image's default entrypoint starts a server, so the one-shot
+    // initializer must override it or Compose never sees it complete.
+    expect(minioInit).toMatch(/^\s+entrypoint:[\s\S]*?\/bin\/sh -c/m);
+    expect(minioInit).toContain("until mc alias set local http://minio:9000");
+    expect(minioInit).toContain('mc mb --ignore-existing "local/$${S3_BUCKET}"');
+    expect(minioInit).toContain('mc anonymous set none "local/$${S3_BUCKET}"');
+  });
+
+  it("keeps the Compose MinIO digest in lockstep with CI and the launch media capture", async () => {
+    const compose = await readFile(`${repositoryRoot}docker-compose.yml`, "utf8");
+    const minioImage = /^\s+image:\s+(\S+)\s*$/m.exec(serviceSection(compose, "minio"))?.[1];
+
+    expect(minioImage).toMatch(/^pgsty\/minio@sha256:[0-9a-f]{64}$/);
+    for (const path of [".github/workflows/ci.yml", "scripts/run-launch-media-capture.mjs"]) {
+      const contents = await readFile(`${repositoryRoot}${path}`, "utf8");
+      expect(contents, path).toContain(minioImage);
+    }
+  });
+
   it("starts the integration worker in the default Compose application", async () => {
     const worker = await composeWorkerSection();
 
