@@ -8,8 +8,10 @@ import path from "node:path";
 
 const postgresImage =
   "pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337";
+// MinIO removed minio/minio from Docker Hub (~2026-09-11); use Pigsty's
+// community rebuild instead (same entrypoint, bundles mc at /usr/bin/mc).
 const minioImage =
-  "minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e";
+  "pgsty/minio@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372";
 const browserMutationAck =
   "I acknowledge this browser canary may mutate only an isolated synthetic demo cell.";
 const loopbackAck =
