@@ -342,7 +342,7 @@ describe("browser canary source and artifact boundary", () => {
     expect(job).toContain("browser-canary-app-log-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(job).toContain("synthetic-browser-canary@example.test");
     expect(job).toContain("KINRESOLVE_API_CURSOR_SECRET:");
-    expect(job).toContain("minio/minio@sha256:");
+    expect(job).toContain("pgsty/minio@sha256:");
     expect(ciSource).toContain("needs: [static, database, release-upgrade, release-compatibility, large-import, large-integration-import, browser-canary, identity-canary, release-contract]");
   });
 });
