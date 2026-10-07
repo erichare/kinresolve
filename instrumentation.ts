@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 
-import { scrubSentryEvent } from "./lib/sentry-scrub";
+import { scrubSentryEvent, sentryDataCollection } from "./lib/sentry-scrub";
 
 // Sentry error tracking is opt-in per deployment: without a configured DSN
 // (self-hosted builds, local development, tests) nothing initializes and no
@@ -14,7 +14,7 @@ export function register(): void {
     beforeSend: (event) => scrubSentryEvent(event),
     beforeSendTransaction: () => null,
     dsn,
-    sendDefaultPii: false,
+    dataCollection: sentryDataCollection,
     tracesSampleRate: 0
   });
 }

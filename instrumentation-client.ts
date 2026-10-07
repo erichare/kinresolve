@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 
-import { scrubSentryEvent } from "./lib/sentry-scrub";
+import { scrubSentryEvent, sentryDataCollection } from "./lib/sentry-scrub";
 
 // Browser-side Sentry mirrors the server posture: opt-in via the build-time
 // DSN, scrubbed error events only, no tracing, and no session replay. The
@@ -12,7 +12,7 @@ if (dsn) {
     beforeSend: (event) => scrubSentryEvent(event),
     beforeSendTransaction: () => null,
     dsn,
-    sendDefaultPii: false,
+    dataCollection: sentryDataCollection,
     tracesSampleRate: 0
   });
 }
