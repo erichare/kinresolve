@@ -273,7 +273,7 @@ describe("stable release workflow contract", () => {
     expect(verify).toContain("GITHUB_REF_VALUE: ${{ github.ref }}");
     expect(verify).toContain("EXPECTED_GITHUB_SHA: ${{ github.sha }}");
     expect(verify).toContain('test "$GITHUB_REF_VALUE" = "refs/heads/main"');
-    expect(verify).toMatch(/ref:\s*\$\{\{ inputs\.release_commit \}\}/);
+    expect(verify).toMatch(/ref:\s*\$\{\{ github\.sha \}\}/);
     expect(verify).toMatch(/fetch-depth:\s*0/);
     expect(verify).toMatch(/persist-credentials:\s*false/);
     expect(provenance).toBeGreaterThan(dispatchGate);
@@ -292,6 +292,36 @@ describe("stable release workflow contract", () => {
       contents.indexOf("VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}")
     );
     expect(verify).not.toContain("environment:");
+  });
+
+  it("checks out only the trusted dispatch revision after verifying the requested main commit", async () => {
+    const contents = await workflow("vercel-release.yml");
+    const steps = contents.split(/\n      - /);
+    const checkouts = steps.filter((step) => step.includes("uses: actions/checkout@"));
+
+    expect(checkouts).not.toHaveLength(0);
+    for (const checkout of checkouts) {
+      const trustedSafetyGate = checkout.startsWith("name: Check out the trusted safety gate from main");
+      expect(checkout).toContain(trustedSafetyGate ? "ref: main" : "ref: ${{ github.sha }}");
+      expect(checkout).toContain("persist-credentials: false");
+      expect(checkout).not.toContain("ref: ${{ inputs.");
+    }
+    const verify = job(contents, "verify", "staging");
+    const commitGate = verify.indexOf('test "$RELEASE_COMMIT" = "$EXPECTED_GITHUB_SHA"');
+    expect(commitGate).toBeGreaterThan(0);
+    expect(commitGate).toBeLessThan(verify.indexOf("uses: actions/checkout@"));
+  });
+
+  it("disables explicit and automatic dependency caching in every release job", async () => {
+    const contents = await workflow("vercel-release.yml");
+    const setups = contents.split(/\n      - /).filter((step) => step.includes("uses: actions/setup-node@"));
+
+    expect(setups).not.toHaveLength(0);
+    for (const setup of setups) {
+      expect(setup).toContain("package-manager-cache: false");
+      expect(setup).not.toMatch(/^\s*cache:/m);
+    }
+    expect(contents).not.toContain("uses: actions/cache");
   });
 
   it("validates the Vercel deployment bypass guard before release database tests or credentials", async () => {
