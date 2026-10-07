@@ -67,6 +67,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "fast-glob": "file:tools/eslint-glob",
     "@apidevtools/swagger-parser": "^13.1.0",
     "@eslint/compat": "^2.1.1",
     "@types/node": "^26.6.4",
@@ -86,7 +87,10 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "js-yaml": "^4.3.2",
+    "js-yaml@^4.0.0": "^4.3.2",
+    "@next/eslint-plugin-next": {
+      "fast-glob": "$fast-glob"
+    },
     "nanoid": "^3.3.17",
     "postcss": "^8.5.10",
     "sharp": "0.35.5"

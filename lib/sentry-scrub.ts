@@ -8,6 +8,22 @@
 
 const scrubbedRequestFields = ["cookies", "data", "env", "headers", "query_string"] as const;
 
+// SDK v11 defaults to broader collection. Keep the stack-trace-only policy
+// explicit at collection time as well as in the outgoing event scrubber.
+export const sentryDataCollection = {
+  userInfo: false,
+  cookies: false,
+  httpHeaders: false,
+  httpBodies: [],
+  urlQueryParams: false,
+  genAI: { inputs: false, outputs: false },
+  databaseQueryData: false,
+  queues: false,
+  graphQL: { document: false, variables: false },
+  stackFrameVariables: false,
+  frameContextLines: 0
+};
+
 export function scrubSentryEvent<E extends object>(event: E): E {
   const scrubbed = { ...event } as Record<string, unknown>;
 

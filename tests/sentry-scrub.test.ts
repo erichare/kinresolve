@@ -1,7 +1,20 @@
 import { readFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { scrubSentryEvent } from "@/lib/sentry-scrub";
+
+const sentryInit = vi.hoisted(() => vi.fn());
+vi.mock("@sentry/nextjs", () => ({
+  init: sentryInit,
+  captureRequestError: vi.fn(),
+  captureRouterTransitionStart: vi.fn()
+}));
+
+afterEach(() => {
+  sentryInit.mockClear();
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
 
 describe("Sentry beforeSend scrubber", () => {
   const syntheticEvent = {
@@ -87,7 +100,7 @@ describe("Sentry beforeSend scrubber", () => {
     ]);
 
     for (const initializer of [server, client]) {
-      expect(initializer).toContain("sendDefaultPii: false");
+      expect(initializer).toContain("dataCollection: sentryDataCollection");
       expect(initializer).toContain("tracesSampleRate: 0");
       expect(initializer).toContain("scrubSentryEvent(event)");
       expect(initializer).toContain("beforeSendTransaction: () => null");
@@ -103,8 +116,34 @@ describe("Sentry beforeSend scrubber", () => {
     expect(config).toContain("process.env.SENTRY_ORG?.trim()");
     expect(config).toContain("process.env.SENTRY_PROJECT?.trim()");
     expect(config).toContain("withSentryConfig(nextConfig, {");
+    expect(config).toContain('from "@sentry/nextjs/config"');
     expect(config).toContain("sourcemaps: { deleteSourcemapsAfterUpload: true }");
     expect(config).toContain("telemetry: false");
     expect(config).toContain(": nextConfig;");
+  });
+
+  it("disables sensitive SDK v11 collection in both server and browser initialization", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "https://synthetic@example.com/1");
+    (await import("../instrumentation")).register();
+    await import("../instrumentation-client");
+
+    expect(sentryInit).toHaveBeenCalledTimes(2);
+    for (const [options] of sentryInit.mock.calls) {
+      expect(options.tracesSampleRate).toBe(0);
+      for (const category of ["userInfo", "cookies", "httpHeaders", "urlQueryParams", "databaseQueryData", "queues", "stackFrameVariables"]) {
+        expect(options.dataCollection[category], category).toBe(false);
+      }
+      expect(options.dataCollection.httpBodies).toEqual([]);
+      expect(options.dataCollection.genAI).toEqual({ inputs: false, outputs: false });
+      expect(options.dataCollection.graphQL).toEqual({ document: false, variables: false });
+      expect(options.dataCollection.frameContextLines).toBe(0);
+    }
+  });
+
+  it("keeps both SDK initializers disabled without an opted-in DSN", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "");
+    (await import("../instrumentation")).register();
+    await import("../instrumentation-client");
+    expect(sentryInit).not.toHaveBeenCalled();
   });
 });

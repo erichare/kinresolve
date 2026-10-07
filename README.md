@@ -179,6 +179,21 @@ version is planned after launch.
 
 Migration machinery, `TEST_DATABASE_URL` discipline, and the destructive upgrade/compatibility rehearsals are documented in [docs/development.md](docs/development.md).
 
+Both npm manifests override the Next ESLint plugin's `fast-glob` dependency with
+the local `tools/eslint-glob` adapter backed by `tinyglobby@0.2.17`. The adapter
+preserves the plugin's directory-only `globSync` lookup, including exact roots
+and absolute paths.
+This removes the unpatched `braces` dependency from the lint toolchain while
+retaining Next's lint rules. `tests/eslint-glob-dependency.test.ts` verifies the
+dependency boundary and project-root discovery. Review this override when
+upgrading the Next ESLint plugin.
+Each project's `.npmrc` enables `install-links` so npm installs the adapter as
+a package with dependencies resolved within that project, including site-only
+installs.
+
+The product's `js-yaml` security override applies only to 4.x consumers. The
+OpenAPI parser requires the 5.x API and must resolve its declared version.
+
 ## Data & privacy model
 
 ```

@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "site/**"
+      - "tools/eslint-glob/**"
+      - ".npmrc"
       - "openapi/**"
       - "scripts/validate-launch-media.mjs"
       - "scripts/launch-media-text.mjs"
@@ -14,6 +16,8 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "tools/eslint-glob/**"
+      - ".npmrc"
       - "openapi/**"
       - "scripts/validate-launch-media.mjs"
       - "scripts/launch-media-text.mjs"
