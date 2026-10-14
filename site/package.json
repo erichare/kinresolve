@@ -19,19 +19,19 @@
     "verify": "npm run check && npm run test:scripts && npm run build && npm run test:export"
   },
   "dependencies": {
-    "next": "16.3.8",
+    "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
     "fast-glob": "file:../tools/eslint-glob",
     "@eslint/compat": "^2.1.1",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^10.12.0",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.0",
     "parse5": "^8.0.1",
     "typescript": "npm:@typescript/typescript6@6.0.2"
   },
