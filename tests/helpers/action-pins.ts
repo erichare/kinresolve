@@ -21,18 +21,18 @@ export const ACTION_PINS = {
   },
   setupNode: {
     action: "actions/setup-node",
-    sha: "820762786026740c76f36085b0efc47a31fe5020",
-    version: "v7.0.0"
+    sha: "949feb2413d6458794dcd2491c4babbbce0c15c1",
+    version: "v7.1.0"
   },
   uploadArtifact: {
     action: "actions/upload-artifact",
-    sha: "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-    version: "v7.0.1"
+    sha: "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+    version: "v7.0.2"
   },
   downloadArtifact: {
     action: "actions/download-artifact",
-    sha: "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
-    version: "v8.0.1"
+    sha: "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+    version: "v8.0.2"
   },
   attest: {
     action: "actions/attest",
